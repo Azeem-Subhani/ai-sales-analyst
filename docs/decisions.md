@@ -237,3 +237,25 @@ text are marked **(clarified)**.
 - **Email addresses:** `customers.email` is in the schema. The prompt tells the
   model never to show email addresses. Blocking the column in the SQL guard is
   an open item before real data arrives.
+
+### Evaluation set and grading rules
+- **Decision:** `tests/eval/questions.yaml` holds 20 questions. Each one has
+  hand-written gold SQL. `scripts/fill_gold.py` runs that SQL through the SQL
+  guard and writes the gold values into the file; nobody types them.
+  `pytest` checks that the stored values still match the SQL.
+- **Grading (`src/agent/eval_grader.py`):**
+  - Numbers must match within display rounding:
+    - Money of 1,000 or more may drop its decimals.
+    - Other values keep their display decimals.
+    - Counts must match exactly.
+    - At display precision, one unit off in the last digit is allowed.
+    - Signs are ignored.
+  - Names must be present (case and punctuation ignored).
+  - A chart answer needs a successful `make_chart` call.
+  - The ambiguous question ("How did we do last month?") accepts August or
+    September 2026, as long as the answer states its assumption.
+- **Verdicts:** all checks pass → correct. Fewer than half pass → wrong.
+  Anything in between is marked for human review.
+- **Why one unit of tolerance:** the builder rounds changes to 2 decimals and
+  then displays 1, so a true 8.6495% shows as 8.7%. This also affects the Week 2
+  reports and is listed as an open item.

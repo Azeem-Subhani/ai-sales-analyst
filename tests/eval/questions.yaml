@@ -1,0 +1,653 @@
+# Agent evaluation set: 20 questions a sales manager would ask (Week 4).
+#
+# Each question has gold_sql (written by hand, run read-only by scripts/fill_gold.py)
+# and a grade spec that says which result cells are the key numbers and names.
+# The "gold" blocks are written by scripts/fill_gold.py from the SQL; never edit
+# them by hand. Grading rules are in src/agent/eval_grader.py.
+#
+# Values are in display units: money with 2 decimals, rates and changes as
+# percentages with 1 decimal (43.1 means 43.1%), counts as whole numbers.
+# The agent's "today" is DATA_END_DATE = 2026-09-30.
+
+- id: q01
+  topic: headline KPIs, day
+  question: What was net revenue and how many orders did we have on 29 September 2026?
+  expected_tools:
+  - get_kpis
+  gold_sql: |
+    SELECT round(sum(oi.quantity * oi.unit_price * (1 - oi.discount_pct)), 2) AS net_revenue,
+           count(DISTINCT o.order_id) AS orders
+    FROM orders o JOIN order_items oi USING (order_id)
+    WHERE o.status = 'completed' AND o.order_date = DATE '2026-09-29'
+  grade:
+    numbers:
+    - column: net_revenue
+      decimals: 2
+    - column: orders
+      decimals: 0
+  gold:
+    numbers:
+    - label: net_revenue
+      value: 12508.64
+      decimals: 2
+    - label: orders
+      value: 73
+      decimals: 0
+
+- id: q02
+  topic: headline KPIs, week
+  question: What were net revenue, orders and average order value for the week ending 27 September 2026?
+  expected_tools:
+  - get_kpis
+  gold_sql: |
+    WITH w AS (
+      SELECT sum(oi.quantity * oi.unit_price * (1 - oi.discount_pct)) AS revenue,
+             count(DISTINCT o.order_id) AS orders
+      FROM orders o JOIN order_items oi USING (order_id)
+      WHERE o.status = 'completed'
+        AND o.order_date BETWEEN DATE '2026-09-21' AND DATE '2026-09-27'
+    )
+    SELECT round(revenue, 2) AS net_revenue, orders, round(revenue / orders, 2) AS aov FROM w
+  grade:
+    numbers:
+    - column: net_revenue
+      decimals: 2
+    - column: orders
+      decimals: 0
+    - column: aov
+      decimals: 2
+  gold:
+    numbers:
+    - label: net_revenue
+      value: 114286.82
+      decimals: 2
+    - label: orders
+      value: 661
+      decimals: 0
+    - label: aov
+      value: 172.9
+      decimals: 2
+
+- id: q03
+  topic: headline KPIs, month
+  question: Give me the headline numbers for August 2026 - net revenue, orders and gross margin.
+  expected_tools:
+  - get_kpis
+  gold_sql: |
+    SELECT round(sum(oi.quantity * oi.unit_price * (1 - oi.discount_pct)), 2) AS net_revenue,
+           count(DISTINCT o.order_id) AS orders,
+           round(100 * (1 - sum(oi.quantity * p.unit_cost)
+                 / sum(oi.quantity * oi.unit_price * (1 - oi.discount_pct))), 1) AS gross_margin_pct
+    FROM orders o JOIN order_items oi USING (order_id) JOIN products p USING (product_id)
+    WHERE o.status = 'completed'
+      AND o.order_date BETWEEN DATE '2026-08-01' AND DATE '2026-08-31'
+  grade:
+    numbers:
+    - column: net_revenue
+      decimals: 2
+    - column: orders
+      decimals: 0
+    - column: gross_margin_pct
+      decimals: 1
+  gold:
+    numbers:
+    - label: net_revenue
+      value: 462431.56
+      decimals: 2
+    - label: orders
+      value: 2747
+      decimals: 0
+    - label: gross_margin_pct
+      value: 43.2
+      decimals: 1
+
+- id: q04
+  topic: comparison, week over week
+  question: How did net revenue in week 39 of 2026 compare with the previous week?
+  expected_tools:
+  - get_kpis
+  gold_sql: |
+    WITH r AS (
+      SELECT sum(oi.quantity * oi.unit_price * (1 - oi.discount_pct))
+               FILTER (WHERE o.order_date BETWEEN DATE '2026-09-21' AND DATE '2026-09-27') AS cur,
+             sum(oi.quantity * oi.unit_price * (1 - oi.discount_pct))
+               FILTER (WHERE o.order_date BETWEEN DATE '2026-09-14' AND DATE '2026-09-20') AS prev
+      FROM orders o JOIN order_items oi USING (order_id)
+      WHERE o.status = 'completed'
+    )
+    SELECT round(cur, 2) AS this_week, round(prev, 2) AS previous_week,
+           round(100 * (cur - prev) / prev, 1) AS change_pct
+    FROM r
+  grade:
+    numbers:
+    - column: this_week
+      decimals: 2
+    - column: change_pct
+      decimals: 1
+  gold:
+    numbers:
+    - label: this_week
+      value: 114286.82
+      decimals: 2
+    - label: change_pct
+      value: 2.5
+      decimals: 1
+
+- id: q05
+  topic: comparison, year over year
+  question: How did August 2026 net revenue compare with August 2025?
+  expected_tools:
+  - get_kpis
+  gold_sql: |
+    WITH r AS (
+      SELECT sum(oi.quantity * oi.unit_price * (1 - oi.discount_pct))
+               FILTER (WHERE o.order_date BETWEEN DATE '2026-08-01' AND DATE '2026-08-31') AS cur,
+             sum(oi.quantity * oi.unit_price * (1 - oi.discount_pct))
+               FILTER (WHERE o.order_date BETWEEN DATE '2025-08-01' AND DATE '2025-08-31') AS ly
+      FROM orders o JOIN order_items oi USING (order_id)
+      WHERE o.status = 'completed'
+    )
+    SELECT round(cur, 2) AS aug_2026, round(ly, 2) AS aug_2025,
+           round(100 * (cur - ly) / ly, 1) AS change_pct
+    FROM r
+  grade:
+    numbers:
+    - column: aug_2026
+      decimals: 2
+    - column: aug_2025
+      decimals: 2
+    - column: change_pct
+      decimals: 1
+  gold:
+    numbers:
+    - label: aug_2026
+      value: 462431.56
+      decimals: 2
+    - label: aug_2025
+      value: 425617.71
+      decimals: 2
+    - label: change_pct
+      value: 8.6
+      decimals: 1
+
+- id: q06
+  topic: category breakdown
+  question: Which category had the highest net revenue in September 2026, and how much was it?
+  expected_tools:
+  - run_sql
+  gold_sql: |
+    SELECT p.category,
+           round(sum(oi.quantity * oi.unit_price * (1 - oi.discount_pct)), 2) AS net_revenue
+    FROM orders o JOIN order_items oi USING (order_id) JOIN products p USING (product_id)
+    WHERE o.status = 'completed'
+      AND o.order_date BETWEEN DATE '2026-09-01' AND DATE '2026-09-30'
+    GROUP BY p.category
+    ORDER BY net_revenue DESC
+    LIMIT 1
+  grade:
+    numbers:
+    - column: net_revenue
+      decimals: 2
+    names:
+    - column: category
+  gold:
+    numbers:
+    - label: net_revenue
+      value: 138013.04
+      decimals: 2
+    names:
+    - Electronics
+
+- id: q07
+  topic: channel breakdown
+  question: Break down net revenue by sales channel for July to September 2026.
+  expected_tools:
+  - run_sql
+  gold_sql: |
+    SELECT o.channel,
+           round(sum(oi.quantity * oi.unit_price * (1 - oi.discount_pct)), 2) AS net_revenue
+    FROM orders o JOIN order_items oi USING (order_id)
+    WHERE o.status = 'completed'
+      AND o.order_date BETWEEN DATE '2026-07-01' AND DATE '2026-09-30'
+    GROUP BY o.channel
+    ORDER BY net_revenue DESC
+  grade:
+    numbers:
+    - column: net_revenue
+      decimals: 2
+      rows: all
+    names:
+    - column: channel
+      rows: all
+  gold:
+    numbers:
+    - label: net_revenue[0]
+      value: 899869.63
+      decimals: 2
+    - label: net_revenue[1]
+      value: 366250.69
+      decimals: 2
+    - label: net_revenue[2]
+      value: 123628.86
+      decimals: 2
+    names:
+    - web
+    - mobile
+    - marketplace
+
+- id: q08
+  topic: region breakdown
+  question: Which three regions had the most net revenue in August 2026?
+  expected_tools:
+  - run_sql
+  gold_sql: |
+    SELECT c.region,
+           round(sum(oi.quantity * oi.unit_price * (1 - oi.discount_pct)), 2) AS net_revenue
+    FROM orders o JOIN order_items oi USING (order_id) JOIN customers c USING (customer_id)
+    WHERE o.status = 'completed'
+      AND o.order_date BETWEEN DATE '2026-08-01' AND DATE '2026-08-31'
+    GROUP BY c.region
+    ORDER BY net_revenue DESC
+    LIMIT 3
+  grade:
+    names:
+    - column: region
+      rows: all
+    numbers:
+    - column: net_revenue
+      decimals: 2
+      rows:
+      - 0
+  gold:
+    numbers:
+    - label: net_revenue[0]
+      value: 48576.84
+      decimals: 2
+    names:
+    - Midlands
+    - Yorkshire
+    - South East
+
+- id: q09
+  topic: customer-type breakdown
+  question: What share of September 2026 net revenue came from wholesale customers?
+  expected_tools:
+  - run_sql
+  gold_sql: |
+    SELECT round(100 * sum(oi.quantity * oi.unit_price * (1 - oi.discount_pct))
+                   FILTER (WHERE c.customer_type = 'wholesale')
+                 / sum(oi.quantity * oi.unit_price * (1 - oi.discount_pct)), 1) AS wholesale_share_pct
+    FROM orders o JOIN order_items oi USING (order_id) JOIN customers c USING (customer_id)
+    WHERE o.status = 'completed'
+      AND o.order_date BETWEEN DATE '2026-09-01' AND DATE '2026-09-30'
+  grade:
+    numbers:
+    - column: wholesale_share_pct
+      decimals: 1
+  gold:
+    numbers:
+    - label: wholesale_share_pct
+      value: 37.7
+      decimals: 1
+
+- id: q10
+  topic: top-N products
+  question: What were the top 5 products by net revenue in September 2026?
+  expected_tools:
+  - run_sql
+  gold_sql: |
+    SELECT p.name AS product,
+           round(sum(oi.quantity * oi.unit_price * (1 - oi.discount_pct)), 2) AS net_revenue
+    FROM orders o JOIN order_items oi USING (order_id) JOIN products p USING (product_id)
+    WHERE o.status = 'completed'
+      AND o.order_date BETWEEN DATE '2026-09-01' AND DATE '2026-09-30'
+    GROUP BY p.name
+    ORDER BY net_revenue DESC
+    LIMIT 5
+  grade:
+    names:
+    - column: product
+      rows: all
+    numbers:
+    - column: net_revenue
+      decimals: 2
+      rows:
+      - 0
+  gold:
+    numbers:
+    - label: net_revenue[0]
+      value: 23978.3
+      decimals: 2
+    names:
+    - Ultra Power Bank
+    - Premium Webcam
+    - Premium Cutting Board
+    - Eco Bluetooth Speaker
+    - Smart Bottle Pro
+
+- id: q11
+  topic: top-N customers
+  question: Who were our top 3 customers by net revenue in the week ending 27 September 2026?
+  expected_tools:
+  - run_sql
+  gold_sql: |
+    SELECT c.name AS customer,
+           round(sum(oi.quantity * oi.unit_price * (1 - oi.discount_pct)), 2) AS net_revenue
+    FROM orders o JOIN order_items oi USING (order_id) JOIN customers c USING (customer_id)
+    WHERE o.status = 'completed'
+      AND o.order_date BETWEEN DATE '2026-09-21' AND DATE '2026-09-27'
+    GROUP BY c.name
+    ORDER BY net_revenue DESC
+    LIMIT 3
+  grade:
+    names:
+    - column: customer
+      rows: all
+    numbers:
+    - column: net_revenue
+      decimals: 2
+      rows:
+      - 0
+  gold:
+    numbers:
+    - label: net_revenue[0]
+      value: 2767.45
+      decimals: 2
+    names:
+    - Stokes, Robinson and Gough
+    - Freeman, Morris and George
+    - Norman, Hopkins and Oliver
+
+- id: q12
+  topic: trend
+  question: What was net revenue in each month from April to September 2026?
+  expected_tools:
+  - run_sql
+  gold_sql: |
+    SELECT strftime(date_trunc('month', o.order_date), '%Y-%m') AS month,
+           round(sum(oi.quantity * oi.unit_price * (1 - oi.discount_pct)), 2) AS net_revenue
+    FROM orders o JOIN order_items oi USING (order_id)
+    WHERE o.status = 'completed'
+      AND o.order_date BETWEEN DATE '2026-04-01' AND DATE '2026-09-30'
+    GROUP BY month
+    ORDER BY month
+  grade:
+    numbers:
+    - column: net_revenue
+      decimals: 2
+      rows: all
+  gold:
+    numbers:
+    - label: net_revenue[0]
+      value: 446185.42
+      decimals: 2
+    - label: net_revenue[1]
+      value: 457544.14
+      decimals: 2
+    - label: net_revenue[2]
+      value: 481371.23
+      decimals: 2
+    - label: net_revenue[3]
+      value: 470798.16
+      decimals: 2
+    - label: net_revenue[4]
+      value: 462431.56
+      decimals: 2
+    - label: net_revenue[5]
+      value: 456519.46
+      decimals: 2
+
+- id: q13
+  topic: returns
+  question: What was the return rate in September 2026, and how many orders were returned?
+  expected_tools:
+  - get_kpis
+  gold_sql: |
+    SELECT round(100 * count(*) FILTER (WHERE status = 'returned')
+                 / count(*) FILTER (WHERE status IN ('completed', 'returned')), 1) AS return_rate_pct,
+           count(*) FILTER (WHERE status = 'returned') AS returned_orders
+    FROM orders
+    WHERE order_date BETWEEN DATE '2026-09-01' AND DATE '2026-09-30'
+  grade:
+    numbers:
+    - column: return_rate_pct
+      decimals: 1
+    - column: returned_orders
+      decimals: 0
+  gold:
+    numbers:
+    - label: return_rate_pct
+      value: 5.3
+      decimals: 1
+    - label: returned_orders
+      value: 149
+      decimals: 0
+
+- id: q14
+  topic: cancellations, comparison
+  question: What was the cancellation rate in the week ending 27 September 2026, and how did it change
+    from the week before?
+  expected_tools:
+  - get_kpis
+  gold_sql: |
+    WITH r AS (
+      SELECT count(*) FILTER (WHERE status = 'cancelled' AND order_date >= DATE '2026-09-21')
+               / count(*) FILTER (WHERE order_date >= DATE '2026-09-21') AS cur,
+             count(*) FILTER (WHERE status = 'cancelled' AND order_date < DATE '2026-09-21')
+               / count(*) FILTER (WHERE order_date < DATE '2026-09-21') AS prev
+      FROM orders
+      WHERE order_date BETWEEN DATE '2026-09-14' AND DATE '2026-09-27'
+    )
+    SELECT round(100 * cur, 1) AS cancellation_rate_pct,
+           round(100 * (cur - prev), 1) AS change_pp
+    FROM r
+  grade:
+    numbers:
+    - column: cancellation_rate_pct
+      decimals: 1
+    - column: change_pp
+      decimals: 1
+  gold:
+    numbers:
+    - label: cancellation_rate_pct
+      value: 3.6
+      decimals: 1
+    - label: change_pp
+      value: 1.6
+      decimals: 1
+
+- id: q15
+  topic: gross margin by category
+  question: Which product category had the lowest gross margin in September 2026?
+  expected_tools:
+  - run_sql
+  gold_sql: |
+    SELECT p.category,
+           round(100 * (1 - sum(oi.quantity * p.unit_cost)
+                 / sum(oi.quantity * oi.unit_price * (1 - oi.discount_pct))), 1) AS gross_margin_pct
+    FROM orders o JOIN order_items oi USING (order_id) JOIN products p USING (product_id)
+    WHERE o.status = 'completed'
+      AND o.order_date BETWEEN DATE '2026-09-01' AND DATE '2026-09-30'
+    GROUP BY p.category
+    ORDER BY gross_margin_pct ASC
+    LIMIT 1
+  grade:
+    names:
+    - column: category
+    numbers:
+    - column: gross_margin_pct
+      decimals: 1
+  gold:
+    numbers:
+    - label: gross_margin_pct
+      value: 28.5
+      decimals: 1
+    names:
+    - Electronics
+
+- id: q16
+  topic: new customers
+  question: How many new customers did we gain in August 2026?
+  expected_tools:
+  - get_kpis
+  gold_sql: |
+    WITH first_orders AS (
+      SELECT customer_id, min(order_date) AS first_order
+      FROM orders
+      WHERE status <> 'cancelled'
+      GROUP BY customer_id
+    )
+    SELECT count(*) AS new_customers
+    FROM first_orders
+    WHERE first_order BETWEEN DATE '2026-08-01' AND DATE '2026-08-31'
+  grade:
+    numbers:
+    - column: new_customers
+      decimals: 0
+  gold:
+    numbers:
+    - label: new_customers
+      value: 82
+      decimals: 0
+
+- id: q17
+  topic: Apparel decline
+  question: How much has Apparel net revenue fallen from July to September 2026?
+  expected_tools:
+  - run_sql
+  gold_sql: |
+    WITH r AS (
+      SELECT sum(oi.quantity * oi.unit_price * (1 - oi.discount_pct))
+               FILTER (WHERE o.order_date BETWEEN DATE '2026-07-01' AND DATE '2026-07-31') AS jul,
+             sum(oi.quantity * oi.unit_price * (1 - oi.discount_pct))
+               FILTER (WHERE o.order_date BETWEEN DATE '2026-09-01' AND DATE '2026-09-30') AS sep
+      FROM orders o JOIN order_items oi USING (order_id) JOIN products p USING (product_id)
+      WHERE o.status = 'completed' AND p.category = 'Apparel'
+    )
+    SELECT round(jul, 2) AS july, round(sep, 2) AS september,
+           round(100 * (sep - jul) / jul, 1) AS change_pct
+    FROM r
+  grade:
+    numbers:
+    - column: july
+      decimals: 2
+    - column: september
+      decimals: 2
+    - column: change_pct
+      decimals: 1
+  gold:
+    numbers:
+    - label: july
+      value: 74035.8
+      decimals: 2
+    - label: september
+      value: 52952.75
+      decimals: 2
+    - label: change_pct
+      value: -28.5
+      decimals: 1
+
+- id: q18
+  topic: forecast vs actuals, Classic Denim Jacket
+  question: Across the 8 forecast weeks (3 Aug to 27 Sep 2026), what were total forecast units and total
+    actual demand for the Classic Denim Jacket (AP-1150)?
+  expected_tools:
+  - get_forecast
+  - run_sql
+  gold_sql: |
+    SELECT round((SELECT sum(f.forecast_qty) FROM forecasts f JOIN products p USING (product_id)
+                  WHERE p.sku = 'AP-1150'), 1) AS forecast_units,
+           (SELECT sum(oi.quantity) FROM orders o JOIN order_items oi USING (order_id)
+              JOIN products p USING (product_id)
+            WHERE p.sku = 'AP-1150' AND o.status <> 'cancelled'
+              AND o.order_date BETWEEN DATE '2026-08-03' AND DATE '2026-09-27') AS actual_units
+  grade:
+    numbers:
+    - column: forecast_units
+      decimals: 1
+    - column: actual_units
+      decimals: 0
+  gold:
+    numbers:
+    - label: forecast_units
+      value: 500.1
+      decimals: 1
+    - label: actual_units
+      value: 393
+      decimals: 0
+
+- id: q19
+  topic: chart request
+  question: Make a line chart of weekly net revenue for the 13 weeks ending 27 September 2026.
+  expected_tools:
+  - make_chart
+  gold_sql: |
+    SELECT count(DISTINCT date_trunc('week', order_date)) AS weeks
+    FROM orders
+    WHERE status = 'completed'
+      AND order_date BETWEEN DATE '2026-06-29' AND DATE '2026-09-27'
+  grade:
+    chart: true
+  gold:
+    chart: true
+
+- id: q20
+  topic: ambiguous period
+  question: How did we do last month?
+  expected_tools:
+  - get_kpis
+  note: Today is 2026-09-30, so "last month" can fairly mean August 2026 (the calendar month before today)
+    or September 2026 (the last complete month in the data). Either is correct if the numbers match that
+    month and the answer states the assumption.
+  require_assumption: true
+  alternatives:
+  - label: August 2026
+    gold_sql: |
+      SELECT round(sum(oi.quantity * oi.unit_price * (1 - oi.discount_pct)), 2) AS net_revenue,
+             count(DISTINCT o.order_id) AS orders
+      FROM orders o JOIN order_items oi USING (order_id)
+      WHERE o.status = 'completed'
+        AND o.order_date BETWEEN DATE '2026-08-01' AND DATE '2026-08-31'
+    grade:
+      numbers:
+      - column: net_revenue
+        decimals: 2
+      - column: orders
+        decimals: 0
+      names:
+      - literal: August
+    gold:
+      numbers:
+      - label: net_revenue
+        value: 462431.56
+        decimals: 2
+      - label: orders
+        value: 2747
+        decimals: 0
+      names:
+      - August
+  - label: September 2026
+    gold_sql: |
+      SELECT round(sum(oi.quantity * oi.unit_price * (1 - oi.discount_pct)), 2) AS net_revenue,
+             count(DISTINCT o.order_id) AS orders
+      FROM orders o JOIN order_items oi USING (order_id)
+      WHERE o.status = 'completed'
+        AND o.order_date BETWEEN DATE '2026-09-01' AND DATE '2026-09-30'
+    grade:
+      numbers:
+      - column: net_revenue
+        decimals: 2
+      - column: orders
+        decimals: 0
+      names:
+      - literal: September
+    gold:
+      numbers:
+      - label: net_revenue
+        value: 456519.46
+        decimals: 2
+      - label: orders
+        value: 2671
+        decimals: 0
+      names:
+      - September
