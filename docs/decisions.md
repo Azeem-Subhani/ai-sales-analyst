@@ -718,3 +718,18 @@ text are marked **(clarified)**.
   (3.4 s), so the default run still exercises statsforecast.
 - **Times (2026-10-21):** default `pytest` about 39 s (443 passed, 12 skipped);
   `pytest -m slow` about 101 s (12 tests).
+
+### Two changes from the approved Week 5 plan
+- **Code layout (2026-10-21):** the approved plan put the calculations in new files
+  under `src/demand/`. They live in `src/analytics/` instead, filling the empty Week 1
+  files the folder map already reserved:
+  - `customers.py`: customer alerts and RFM;
+  - `forecasting.py`: accuracy, forecasts and backtest;
+  - `prebuild.py`: pre-build;
+  - `demand.py` (new): the demand series, stock position, category and stock alerts.
+
+  `src/demand/` holds only the store (`store.py`), the CLIs (`run.py`, `approve.py`)
+  and the config loader (`config.py`).
+- **Single process (2026-10-21):** forecasting runs in one process (`n_jobs=1`)
+  because the statsforecast process pool crashed on macOS. A full `run_demand` takes
+  about 98 seconds.
