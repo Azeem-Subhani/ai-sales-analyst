@@ -12,3 +12,4 @@ extend-select = ["I", "UP", "B"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]  # lets tests import the src package from the repo root
