@@ -696,3 +696,9 @@ text are marked **(clarified)**.
 - **Result as of 2026-09-30:** 129 recommendations (72 urgent, 57 normal). The top 5:
   SB-1042 (11,441.73), EL-1028 (6,613.65), AP-1004 (3,704.05), EL-1024 (3,179.70),
   TO-1005 (2,849.50), all urgent.
+
+### Email pre-build table: 5 columns
+- **Decision (project owner, 2026-10-21):** the email's pre-build table shows only
+  product, days of cover, pre-build units, value at risk and reason (urgent or
+  normal), so it fits a phone screen. The "Demand alerts" Excel sheet keeps every
+  column, including the id the approval command needs.

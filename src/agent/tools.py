@@ -395,6 +395,8 @@ PREBUILD_FIELDS = {
     "category": None,
     "status": None,
     "recommended_units": builder.fmt_count,
+    "value_at_risk": builder.fmt_money,
+    "priority": None,
     "days_of_cover": builder.fmt_days,
     "on_hand": builder.fmt_count,
     "on_order": builder.fmt_count,
@@ -542,7 +544,8 @@ def get_prebuild_recommendations(args: GetPrebuildRecommendationsArgs, ctx: Tool
         **snapshot_header(as_of),
         "definitions": "pre-build = max(0, forecast over lead time + safety stock - on hand "
         "- on order); safety stock = 1.65 x sd of weekly demand (26 weeks) x sqrt(lead "
-        "time in weeks). Sorted by days of cover, lowest first. Only planners approve or "
+        "time in weeks). Ranked urgent first (days of cover below the lead time), then by "
+        "value at risk = pre-build units x unit price. Only planners approve or "
         "reject; the agent cannot change a status.",
         "status_counts": {k: int(v) for k, v in status_counts.items()},
         "matching": len(recs),

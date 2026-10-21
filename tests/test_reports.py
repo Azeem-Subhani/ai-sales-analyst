@@ -13,6 +13,7 @@ from pathlib import Path
 
 import matplotlib.image as mpimg
 import openpyxl
+import pandas as pd
 import pytest
 import yaml
 
@@ -272,3 +273,45 @@ def test_week2_hand_checked_figures_unchanged(reports: dict[str, Report]) -> Non
     for figure in ["114,286.82", "661", "172.90", "43.1%", "31,481.36", "2,767.45"]:
         assert figure in page, figure
     assert "Stokes, Robinson and Gough" in page
+
+
+def test_prebuild_email_table_has_5_columns_and_excel_has_all() -> None:
+    from src.reports import demand_sections
+
+    frame = pd.DataFrame(
+        [
+            {
+                "rank": 1,
+                "name": "Alpha",
+                "sku": "A-1",
+                "priority": "urgent",
+                "days_of_cover": 3.0,
+                "lead_time_weeks": 4.0,
+                "on_hand": 2,
+                "on_order": 0,
+                "recommended_units": 10,
+                "unit_price": 9.99,
+                "value_at_risk": 99.9,
+                "rec_id": "20260930-A-1",
+            }
+        ]
+    )
+    group = demand_sections.group(
+        "prebuild",
+        "Pre-build",
+        frame,
+        demand_sections.PREBUILD_COLUMNS,
+        email_columns=demand_sections.PREBUILD_EMAIL_COLUMNS,
+    )
+    section = {"title": "Demand alerts", "note": "", "name": "demand_alerts", "groups": [group]}
+    table = demand_sections.group_views(section)[1]
+    assert table["header"] == [
+        "Product",
+        "Days of cover",
+        "Pre-build units",
+        "Value at risk",
+        "Reason",
+    ]
+    assert [c["text"] for c in table["rows"][0]] == ["Alpha", "3.0", "10", "99.90", "urgent"]
+    _, sheet, _ = demand_sections.excel_frame(section)
+    assert {"Id", "On hand", "Unit price", "Value at risk"} <= set(sheet.columns)

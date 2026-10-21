@@ -101,12 +101,19 @@ PREBUILD_COLUMNS = [
     ("rank", "Rank", "count"),
     ("name", "Product", "text"),
     ("sku", "SKU", "text"),
+    ("priority", "Reason", "text"),
     ("days_of_cover", "Days of cover", "days"),
+    ("lead_time_weeks", "Lead time (weeks)", "days"),
     ("on_hand", "On hand", "count"),
     ("on_order", "On order", "count"),
     ("recommended_units", "Pre-build units", "count"),
+    ("unit_price", "Unit price", "money"),
+    ("value_at_risk", "Value at risk", "money"),
     ("rec_id", "Id", "text"),
 ]
+# The email shows only these; the Excel sheet keeps every column above.
+PREBUILD_EMAIL_COLUMNS = ["name", "days_of_cover", "recommended_units", "value_at_risk", "priority"]
+
 REVIEW_COLUMNS = [
     ("name", "Product", "text"),
     ("sku", "SKU", "text"),
@@ -144,7 +151,14 @@ def plain(value: object) -> object:
     return value
 
 
-def group(key: str, title: str, frame: pd.DataFrame, columns: list, email: bool = True) -> dict:
+def group(
+    key: str,
+    title: str,
+    frame: pd.DataFrame,
+    columns: list,
+    email: bool = True,
+    email_columns: list[str] | None = None,
+) -> dict:
     """One list: every row (rounded for storage), its columns and its count."""
     rows = []
     for record in frame.to_dict("records"):
@@ -161,6 +175,7 @@ def group(key: str, title: str, frame: pd.DataFrame, columns: list, email: bool 
         "rows": rows,
         "count": len(rows),
         "email": email,
+        "email_columns": email_columns or [c for c, _, _ in columns],
         "email_rows": min(len(rows), limit),
         "more": max(0, len(rows) - limit),  # the "and N more" in the email
     }
@@ -214,7 +229,13 @@ def demand_alerts_section(ctx: "builder.Context") -> dict:
             "stock", "Stock alerts", result.table("stock_alerts").sort_values("rank"), STOCK_COLUMNS
         ),
         group("forecast_flags", "Forecast-accuracy flags", flagged, ACCURACY_FLAG_COLUMNS),
-        group("prebuild", "Pre-build recommendations, pending approval", pending, PREBUILD_COLUMNS),
+        group(
+            "prebuild",
+            "Pre-build recommendations, pending approval (urgent first, then value at risk)",
+            pending,
+            PREBUILD_COLUMNS,
+            email_columns=PREBUILD_EMAIL_COLUMNS,
+        ),
         group(
             "planner_review",
             "Needs planner review (forecast bias)",
@@ -309,19 +330,21 @@ def group_views(section: dict) -> list[dict]:
         if not g["rows"]:
             views.append({"title": g["title"], "placeholder": NONE_TEXT, "minor": True})
             continue
+        by_key = {c["key"]: c for c in g["columns"]}
+        columns = [by_key[key] for key in g["email_columns"]]
         rows = [
             [
                 builder.cell(
                     shown(row[c["key"]], c["kind"]),
                     "left" if c["kind"] in ("text", "date") else "right",
                 )
-                for c in g["columns"]
+                for c in columns
             ]
             for row in g["rows"][: g["email_rows"]]
         ]
         view = {
             "title": g["title"],
-            "header": [c["label"] for c in g["columns"]],
+            "header": [c["label"] for c in columns],
             "rows": rows,
             "minor": True,
         }
