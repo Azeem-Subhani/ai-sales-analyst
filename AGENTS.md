@@ -25,6 +25,35 @@ on top of an e-commerce sales database (generated dummy data in v1).
 explains results.** It never does arithmetic, and never receives database access
 when writing report summaries.
 
+How the core rule is enforced (keep these in place; see `docs/decisions.md`):
+
+- **No LLM-calculated numbers.**
+  - Prompts tell the model to copy numbers, never to sum, average, round or
+    work out changes.
+  - Totals, differences, shares and percentage changes come from SQL or
+    Python tools.
+- **Summary number guard** (`src/reports/summary.py`): every number in a report
+  summary must be in the numbers sent, or a count from 1 to 10. On failure:
+  one retry, then the summary is dropped.
+- **Answer number guard** (`src/agent/answer_guard.py`):
+  - Every number in a chat answer must come from a tool result for that
+    question, the user's question, a date, or be a count from 1 to 10.
+  - On failure: one retry. Then the written answer is withheld and the tool
+    results are shown instead.
+  - The result is logged in `agent_log.answer_guard`.
+- **SQL guard blocks personal contact data** (`src/agent/sql_guard.py`):
+  - `customers.email` can never be queried.
+  - When a query reads `customers`, these are refused too: `SELECT *`, `c.*`,
+    `COLUMNS(...)`, positional references, the whole row as a value, and
+    renamed columns.
+  - A new personal contact column (phone, address) must be added to
+    `PERSONAL_DATA_COLUMNS` in the same change that adds it to the schema.
+- **Round once.**
+  - Percentages, rates and changes are calculated from unrounded values.
+  - They are stored unrounded and rounded once, when shown (`fmt_pct` /
+    `fmt_change`, Excel number formats).
+  - Never round a value and then round it again for display.
+
 ## Fixed decisions (do not change without asking the project owner)
 
 - Python 3.12, `venv` + `pip`, pinned `requirements.txt`.
@@ -72,7 +101,8 @@ docs/project_plan.md          full project plan (read-only)
 scripts/compare_models.py     Week 4 model comparison
 src/data/generate.py          dummy data generator (connector #1)
 src/analytics/                KPI SQL views, customer patterns, forecasting, pre-build
-src/agent/                    llm.py (only LLM client), tools, prompts, agent loop
+src/agent/                    llm.py (only LLM client), tools, prompts, agent loop,
+                              SQL guard, answer number guard, eval grader
 src/reports/                  report builder, emailer, scheduler, Jinja2 templates
 src/app/streamlit_app.py      chat + dashboard
 outputs/reports, outputs/logs dry-run reports and logs (git-ignored)
@@ -88,6 +118,8 @@ python -m src.data.generate              # build data/sales.duckdb (seed 42)
 pytest                                   # run all tests
 ruff format . && ruff check --fix .      # format and lint
 python -m src.reports.scheduler          # start scheduled reports (Week 3+)
+python -m src.agent.chat                 # chat agent in the terminal (spends credit)
+python scripts/run_eval.py --max-spend 0.40   # live eval (spends credit; ask first)
 streamlit run src/app/streamlit_app.py   # chat and dashboard (Week 6)
 ```
 

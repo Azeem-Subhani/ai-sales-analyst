@@ -10,4 +10,14 @@ For these tasks, read the matching checklist and follow every step in order:
 - Changing the dummy data generator: `.claude/skills/update-dummy-data/SKILL.md`
 - Comparing or switching models: `.claude/skills/compare-models/SKILL.md`
 
+Rules every one of these tasks must keep (details in `AGENTS.md`):
+
+- The LLM never calculates. The report summary guard and the chat answer
+  number guard reject numbers that no tool or report produced.
+- The SQL guard refuses personal contact data (`customers.email`, including
+  `SELECT *` on customers).
+- Percentages are calculated unrounded and rounded once, at display.
+- Live eval and model-check runs spend OpenRouter credit: ask the project owner
+  first.
+
 These files are shared with Claude Code. Edit the checklist there, not here.

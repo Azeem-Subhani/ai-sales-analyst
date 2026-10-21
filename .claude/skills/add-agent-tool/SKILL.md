@@ -18,15 +18,33 @@ send email, change data or approve recommendations.
 2. **JSON schema.** Add an OpenAI-style tool schema (name, description,
    parameters with types, enums and required fields). Keep the description
    short and concrete so low-cost models pick it correctly.
-3. **Registration.** Add the function and schema to the tool registry used by
-   `src/agent/agent.py`. Check argument validation against the schema
+3. **Registration.** Add the function and its pydantic argument model to the
+   `TOOLS` registry in `src/agent/tools.py` (schemas are generated from the
+   argument models). Check argument validation against the schema
    (invalid calls return a clear error, up to 2 retries).
 4. **Prompt.** If the tool changes how questions should be answered, update the
-   system prompt in `src/agent/prompts.py` ("fixed tools first, `run_sql` only
-   when they don't fit").
-5. **Unit test.** Add a test that calls the function directly with known inputs
-   and checks the output against a SQL result.
-6. **Evaluation question.** Add one new question with a known answer to the
-   agent evaluation (`tests/test_agent_questions.py`). Do not run the paid
-   evaluation unless the project owner asks; it uses the $10 OpenRouter budget.
-7. Run `ruff format . && ruff check --fix .` and `pytest`, then commit.
+   system prompt template `src/agent/prompts/system_prompt.md` ("fixed tools
+   first, `run_sql` only when they don't fit"). Schemas and dates are filled in
+   by `src/agent/prompts/__init__.py`; do not type them into the template.
+5. **Numbers for the answer guard.** The chat agent's answer may only use
+   numbers that appear in a tool result (`src/agent/answer_guard.py`). So the
+   tool must return every number the answer needs (totals, changes, shares)
+   already calculated. Return a pre-formatted `shown` value next to raw numbers
+   when the display format matters. Percentages are rounded once, at display:
+   return the unrounded value and format it with `builder.fmt_pct` /
+   `builder.fmt_change`, never round and then format.
+6. **Personal data.** Never return `customers.email` or any other personal
+   contact column. SQL goes through `sql_guard.run_query`, which refuses them.
+   A tool that reads customers with its own SQL must list its columns
+   explicitly and leave email out.
+7. **Unit test.** Add a test in `tests/test_tools.py` that calls the tool with
+   known inputs and checks the output against a SQL result. Add a scripted
+   agent test in `tests/test_agent.py` if the tool changes the loop.
+8. **Evaluation question.** Add one question to `tests/eval/questions.yaml`
+   with hand-written `gold_sql` and a `grade` block, then run
+   `python scripts/fill_gold.py` to write its gold values (never type them).
+   The question count is checked in `tests/test_eval_grader.py`; update it and
+   the 19/20 target with the project owner. Do not run the paid eval
+   (`scripts/run_eval.py`) unless the project owner asks; it uses the $10
+   OpenRouter budget.
+9. Run `ruff format . && ruff check --fix .` and `pytest`, then commit.
