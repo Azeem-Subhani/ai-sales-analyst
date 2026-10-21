@@ -1,0 +1,14 @@
+---
+description: Python coding conventions and the single-LLM-client rule
+globs: **/*.py
+alwaysApply: false
+---
+
+Apply the "Coding conventions" section of `AGENTS.md` to every Python file.
+
+Hard rule: only `src/agent/llm.py` may import `openai` or call the model API.
+Everything else calls functions in `src/agent/llm.py`.
+`tests/test_guardrails.py` fails if this is broken.
+
+After editing Python, run `ruff format <file>` and `ruff check --fix <file>`
+(Claude Code does this automatically with a hook; Cursor does not).

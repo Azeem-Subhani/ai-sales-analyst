@@ -1,0 +1,16 @@
+# Runtime dependencies (Python 3.12). Pinned to versions verified to install together.
+# Install: pip install -r requirements.txt -r requirements-dev.txt
+apscheduler==3.11.3
+duckdb==1.5.6
+faker==40.43.0
+jinja2==3.1.6
+matplotlib==3.11.2
+numpy==2.5.4
+openai==3.35.1
+openpyxl==3.1.5
+pandas==2.3.3
+plotly==7.1.0
+python-dotenv==1.2.4
+pyyaml==6.0.3
+statsforecast==2.1.1
+streamlit==1.66.0

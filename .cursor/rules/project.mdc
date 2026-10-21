@@ -1,0 +1,11 @@
+---
+description: Project context and working rules for ai-sales-analyst
+alwaysApply: true
+---
+
+Follow `AGENTS.md` in the repo root. It is the single source of truth for this
+project: summary, fixed decisions, design rules, folder map, run commands,
+coding conventions and working rules. Do not duplicate or override it here.
+
+The full project plan is `docs/project_plan.md` (read-only). If a request
+conflicts with `AGENTS.md` or the plan, say so before making changes.

@@ -1,0 +1,25 @@
+# Secrets: never commit the real .env (commit .env.example instead)
+.env
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Generated data and outputs
+# (data/ is fully generated; only .gitkeep is committed. data/*.duckdb listed for clarity.)
+data/*
+!data/.gitkeep
+data/*.duckdb
+outputs/
+
+# Personal Claude Code overrides
+.claude/settings.local.json
+
+# OS and editor clutter
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
