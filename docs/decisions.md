@@ -307,6 +307,9 @@ text are marked **(clarified)**.
   the switch. The 19/20 figure comes from the model check run with fallback
   off. Step 7's final eval with the `.env` main model is therefore not run;
   this is an open item.
+  - **Closed (2026-10-21):** the final eval with the `.env` main model and
+    fallback on scored 19/20 (20/20 after hand review) for $0.0077; see
+    `docs/eval_results_week4.md`.
 - **Trade-off:** 3 providers instead of DeepSeek's 15. A provider-wide outage
   at OpenAI is covered only partly, because the fallback is also an OpenAI model
   (served by OpenAI, Azure and Amazon Bedrock).
