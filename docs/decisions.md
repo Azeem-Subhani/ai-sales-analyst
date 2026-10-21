@@ -91,3 +91,47 @@ text are marked **(clarified)**.
   normal wholesale reorder cycles (2 to 6 weeks) produce larger swings. Kestrel rises in
   August because its last orders fall in the first half of the month. In September all
   three have zero net revenue.
+
+## Week 3: scheduling and delivery
+
+### Data clock (`DATA_END_DATE`)
+- **Decision:** a scheduled run reports the latest *complete* period on or before a
+  reference date. The reference date is `min(yesterday, DATA_END_DATE)`, with
+  "yesterday" taken in `TIMEZONE`.
+  - Daily: the reference date itself.
+  - Weekly: the last full Monday-to-Sunday week ending on or before it.
+  - Monthly: the last full calendar month ending on or before it.
+
+  With `DATA_END_DATE=2026-09-30`, every run reports the 30 Sep 2026 daily report,
+  week 39 (21 to 27 Sep 2026) and September 2026. The email states which period it
+  covers and the data end date. Code: `src/reports/data_clock.py`.
+- **Replaces:** the Week 2 line "The Week 3 scheduler passes yesterday". The builder
+  is unchanged: it still takes an explicit `as_of` and rejects partial periods.
+- **Why:** the dummy data ends on 2026-09-30, but the scheduler runs on real dates,
+  so "yesterday" has no data and would raise on every run.
+- **Real data later:** remove `DATA_END_DATE` from `.env`. The reference date then
+  becomes plain yesterday, with no code change.
+
+### Recipients come from `.env`, and the allowlist refuses the whole send
+- **Decision:** `config/reports.yaml` writes addresses as `${REPORT_OWNER_EMAIL}`, and
+  the value is read from `.env`. The top-level `delivery` block holds
+  `allowed_recipients` and `failure_recipients`.
+  - If any recipient is not on the allowlist, `send_report` refuses the whole send
+    and logs the refused address.
+  - The run is marked failed with no retry, and a failure notice goes to
+    `failure_recipients`.
+- **Why:** this keeps personal addresses out of git (Cinnova: no PII in committed
+  code). Refusing the whole send catches config typos instead of silently mailing
+  a subset.
+- **Considered:** literal addresses in reports.yaml (rejected: PII in git history).
+  Dropping the unknown address and sending to the rest (rejected: hides mistakes).
+
+### Retries
+- **Decision:** a failed run is retried once after `REPORT_RETRY_DELAY_SECONDS`
+  (default 300). If the retry also fails, a failure notice is sent.
+  - Config errors (allowlist, missing Gmail credentials, unset `${VAR}`, bad
+    `REPORT_MODE`) are not retried, because retrying cannot fix them.
+  - Missing Gmail credentials also mean no notice can be emailed. In that case
+    the error is only logged and written to `report_runs`.
+- Every attempt is one row in `report_runs` in `data/audit.duckdb` (see Week 1
+  follow-ups).

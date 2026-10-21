@@ -1,0 +1,149 @@
+I'm continuing a project from a previous chat. Below is the full context. Please read it,
+confirm in 3-4 bullets where we are, and wait for my next message (usually a Claude Code
+session result for you to summarise, or a request for the next prompt).
+
+# How I like to work
+- I have some Python experience. Explain in plain language.
+- Summaries of Claude Code results: easy bullet points, "what it did" then "what's next".
+- Make decisions for me with a clear recommendation and reason; don't leave open questions.
+- For each build step, write me a ready-to-paste Claude Code prompt (Week N), starting with
+  a "Step 0" that checks the previous branch is merged and creates the new branch.
+- I build with Claude Code and Cursor. Claude Code works on one branch per week, commits
+  per step, and never pushes until I say so. Every prompt asks it to show a plan first.
+
+# The project
+My team lead asked for a real-world agentic AI project. Scope agreed: an "AI sales and
+demand analyst" proof of concept on an e-commerce sales database:
+1. Sales reporting (fixed KPIs, reports, chat Q&A)
+2. Automated reporting (daily/weekly/monthly emails on a schedule, LLM-written summary)
+3. Demand planning (customer ordering-pattern alerts, forecast accuracy, pre-build
+   recommendations a planner approves)
+Out of scope for now: email-attachment processing, production scheduling (later phases).
+Core rule: every number is calculated by SQL or Python; the LLM only explains results.
+
+Repo: private GitHub "ai-sales-analyst". Full plan: docs/project_plan.md (Claude Code must
+not edit it). Clarifications and later decisions go in docs/decisions.md.
+The generated dummy data is the only reference for numbers; earlier mockup figures were invented.
+
+# Final tech stack (decided)
+- Python 3.12, venv + pip; requirements.txt (14 top-level pins), requirements-dev.txt
+  (pytest, ruff), requirements-lock.txt (pip freeze); pyproject.toml for ruff/pytest only
+- DuckDB: data/sales.duckdb (read-only for agent and reports); data/audit.duckdb for
+  report_runs and agent_log
+- Faker + NumPy generator, seed 42; pandas; statsforecast (AutoETS + SeasonalNaive)
+- matplotlib (email charts), Plotly + Streamlit (UI), Jinja2 (Gmail-safe HTML),
+  openpyxl (Excel), APScheduler (schedules in config/reports.yaml), PyYAML, python-dotenv
+- Email: dedicated Gmail account, SMTP + App Password; single function
+  send_report(report, recipients) in src/reports/emailer.py
+- LLM: OpenRouter via the openai SDK; ONLY src/agent/llm.py may import openai.
+  Main model xiaomi/mimo-v2.6-pro ($0.435/$0.87 per 1M tokens, 4 providers),
+  fallback deepseek/deepseek-v4-flash-0731 (~30 providers). Use OpenRouter Nitro routing
+  for speed. Key requested from Tech Ops with a $10 credit limit (status: check with me).
+  Week 4 model comparison candidates: mimo-v2.6-pro, deepseek-v4-flash-0731,
+  xiaomi/mimo-v2.6-flash, deepseek/deepseek-v4.1-flash, anthropic/claude-haiku-5.5.
+  Accuracy wins, speed breaks ties; runner-up with most providers becomes fallback.
+- No agent framework, no web framework in v1 (Streamlit only). FastAPI chosen for Phase 3.
+- .env keys: OPENROUTER_API_KEY, LLM_BASE_URL=https://openrouter.ai/api/v1, LLM_MODEL,
+  LLM_FALLBACK_MODEL, GMAIL_ADDRESS, GMAIL_APP_PASSWORD, REPORT_MODE (dry_run|send),
+  TIMEZONE, and from Week 3: DATA_END_DATE=2026-09-30
+
+Design rules: (1) analytics/reports/agent read only the 6 standard tables; the generator
+is "connector #1"; (2) one email function; (3) one LLM client, models set in .env.
+
+# AI-assistant setup (done in Week 1)
+- AGENTS.md = single source of truth; CLAUDE.md imports it (@AGENTS.md)
+- .claude/settings.json: deny reading/editing .env, deny force-push and rm -rf;
+  PostToolUse hook runs ruff format + check on edited .py files; PreToolUse hook
+  (Python script in .claude/hooks/) blocks openai imports outside llm.py and sk-or- keys
+- .claude/skills: add-report, add-agent-tool, update-dummy-data, compare-models
+- .cursor/rules: project.mdc (always), python.mdc (**/*.py), workflows.mdc (points to
+  the skill files)
+- tests/test_guardrails.py backs up the hooks; ruff skips docs/
+- Not yet verified by me: Cursor picking up the rules; hooks on Windows
+
+# Dummy data (generated, verified)
+2024-10-01 to 2026-09-30. customers 2,000 (150 wholesale); products 250 in 8 categories
+(Electronics, Home & Kitchen, Apparel, Beauty, Sports & Outdoors, Toys, Office,
+Pet Supplies); orders 70,067; order_items 178,153; inventory 24,772 weekly snapshots
+(none before a product launches); forecasts 1,960 rows (8 seeded weeks, Aug-Sep 2026).
+Net revenue 10,933,879 on completed orders; +15.6% YoY; Nov-Dec ~1.4x monthly average.
+Planted problems (all confirmed present):
+1. Wholesale churn: "Harbor & Pine Co.", "Bluegate Supplies", "Kestrel Home Stores" last
+   ordered 5-14 Aug 2026; ~89% of their buying is Apparel
+2. Apparel decline: -28.5% July to September 2026
+3. Stockouts: exactly 10 products with zero stock for 1-3 weeks in September, no sales
+4. Forecast bias: "Classic Denim Jacket" AP-1150 forecasts +27.5% high
+5. Pre-build: "Smart Bottle Pro" SB-1042 demand +55% in last 4 weeks, 9.0 days of stock,
+   nothing on order
+Descriptions in data/planted_issues.json.
+
+# KPI definitions (clarified, in docs/decisions.md)
+Line value = qty * unit_price * (1 - discount_pct). Net revenue = completed orders only.
+Returns = value of returned orders. Orders = completed count. AOV = net revenue / orders.
+COGS = qty * unit_cost on completed. Gross margin % = (net revenue - COGS) / net revenue.
+Cancellation rate = cancelled / all orders. Return rate = returned / (completed + returned).
+New customer = first-ever non-cancelled order in the period (only customers with a
+non-cancelled order in the period count). Weeks Mon-Sun; months calendar.
+Comparisons: daily vs same weekday last week; weekly vs previous week and same ISO week
+last year; monthly vs previous month and same month last year. % for money/counts,
+percentage points for rates. Every function takes an explicit as_of date.
+
+# Reports (built in Week 2)
+- Daily snapshot: Mon-Fri 07:00; KPIs incl. cancellations vs same day last week, top 5
+  products; no charts, no Excel
+- Weekly sales review: Mon 08:00; key figures with both comparisons, category/channel/
+  region/customer-type breakdowns, top 10 products and customers, "dropped out of top 10"
+  list (HTML only), 13-week trend + category charts, 7-sheet Excel, empty "Demand alerts"
+  section (Week 5)
+- Monthly business review: 1st 08:00; 12-month trend, gross margin by category, customer
+  growth, Excel, empty "Forecast accuracy" section (Week 5)
+- All have an empty "Summary added in Week 4" slot. build_report(name, as_of) returns a
+  Report object (subject, html, chart PNGs keyed by content id, excel path, numbers dict).
+  CLI: python -m src.reports.builder --report weekly_sales_review --as-of 2026-09-27
+  (--all skips reports the date doesn't fit). Dry-run output: outputs/reports/<report>_<as_of>/
+- Test dates: daily 2026-09-29, weekly 2026-09-27, monthly 2026-08-31
+- Weekly 2026-09-27 verified figures: net revenue 114,286.82; orders 661; AOV 172.90;
+  gross margin 43.1%; top category Electronics; top customer "Stokes, Robinson and Gough";
+  Apparel -25.3% vs previous week (11,190.74 vs 14,990.19). Hand-check SQL in
+  docs/hand_checks/week2_weekly_2026-09-27.md.
+- Week 5 acceptance criterion (in decisions.md): as of 2026-09-30, overdue-customer alerts
+  must flag the 3 churned wholesale customers as serious (>2x usual interval), and the
+  September monthly report's demand-alerts section must show them. (A monthly sales report
+  can't show this churn: they were never top-10 and churn started mid-August.)
+
+# Remaining plan
+- Week 3 (prompt already given to me): scheduling + Gmail. Data clock: scheduled runs use
+  the latest complete period on or before DATA_END_DATE. send_report with STARTTLS, inline
+  CID images, Excel attachment, plain-text part, recipient allowlist; dry_run vs send;
+  scheduler CLI --list, --run-now <report>, --test-every <minutes>; retry once after 5 min
+  then failure-notice email; clear error if Gmail password missing; every run logged to
+  report_runs in audit.duckdb; mocked SMTP in tests; then one real send to myself.
+  Done when: all 3 reports arrive in my inbox on schedule.
+- Week 4: llm.py (main + fallback, temperature 0), LLM-written 3-5 sentence summaries from
+  the numbers dict (report still sends without summary if both models fail), chat agent
+  with 7 tools (run_sql [single SELECT, 500 rows, 10 s timeout], get_kpis,
+  get_customer_alerts, get_forecast, get_forecast_accuracy, get_prebuild_recommendations,
+  make_chart), max 10 tool calls, tool args validated (2 retries), prompt with schema +
+  KPI definitions + 5 example question-to-SQL pairs, agent_log in audit.duckdb, SQL guard,
+  scripts/compare_models.py. Done when: 19 of 20 test questions correct.
+- Week 5: demand planning. Customer alerts (overdue >1.5x usual interval, serious >2x;
+  declining >25% last 90d vs prior 90d; new high-value; RFM segment moves), weekly
+  forecasts 12-week horizon excluding stockout weeks, WAPE/bias over 8 weeks (flag WAPE
+  >40% or |bias| >15%), 26-week backtest, pre-build = max(0, forecast over lead time +
+  safety stock - on hand - on order), safety stock = 1.65 * sd(weekly demand) * sqrt(lead
+  time weeks); biased products excluded. Done when: Monday report flags all 5 planted
+  problems.
+- Week 6: Streamlit dashboard + chat, README, guardrail tests, two weeks of reviewed
+  dry-run reports, live demo to team lead. Then Phase 2 gate (real data needs IT approval).
+- Phase 3 (later): multi-client connectors (Shopify, Salesforce, SQL, NoSQL via dlt)
+  into the standard tables, per-client databases, transactional email or client
+  mailboxes, FastAPI, login, cloud hosting.
+
+# Current status
+- Week 1: merged to main (PR #1).
+- Week 2: complete on branch week-2-reports, 85 tests pass, not yet pushed/merged.
+  I confirmed the new-vs-returning assumption. src/data/catalog.py refactor deferred.
+- My next steps: review Week 2 reports, push + merge, set up the Gmail account and App
+  Password, then run the Week 3 prompt in a new Claude Code session.
+- Pending for you if I ask: update docs/project_plan.md to reflect Weeks 1-2 changes
+  (audit.duckdb, decisions.md, AI-assistant files, data clock, clarified KPIs).

@@ -8,6 +8,13 @@
 #             is used for the change columns in top-product/customer and breakdown tables.
 # charts:     chart names from CHARTS in src/reports/builder.py.
 # The builder rejects unknown names, so a typo fails loudly instead of dropping a section.
+#
+# Addresses: write ${NAME} to take the value from .env, so no real address is committed.
+# Every recipient must be on delivery.allowed_recipients, or the whole send is refused.
+
+delivery:
+  allowed_recipients: ["${REPORT_OWNER_EMAIL}"]
+  failure_recipients: ["${REPORT_OWNER_EMAIL}"]  # who gets the "report failed" notice
 
 daily_sales_snapshot:
   title: Daily sales snapshot
@@ -17,7 +24,7 @@ daily_sales_snapshot:
   compare_to: [same_weekday_last_week]
   charts: []
   attach_excel: false
-  recipients: [you@example.com]
+  recipients: ["${REPORT_OWNER_EMAIL}"]
 
 weekly_sales_review:
   title: Weekly sales review
@@ -35,7 +42,7 @@ weekly_sales_review:
   compare_to: [previous_week, same_week_last_year]
   charts: [revenue_trend_13w, revenue_by_category]
   attach_excel: true
-  recipients: [you@example.com]
+  recipients: ["${REPORT_OWNER_EMAIL}"]
 
 monthly_business_review:
   title: Monthly business review
@@ -54,4 +61,4 @@ monthly_business_review:
   compare_to: [previous_month, same_month_last_year]
   charts: [revenue_trend_12m, margin_by_category]
   attach_excel: true
-  recipients: [you@example.com]
+  recipients: ["${REPORT_OWNER_EMAIL}"]

@@ -11,9 +11,9 @@ explains the results.
 - Full plan: [docs/project_plan.md](docs/project_plan.md)
 - Rules and conventions: [AGENTS.md](AGENTS.md)
 
-Status: **Week 1**. The AI-assistant setup, project scaffold and dummy data
-generator are done. Analytics, reports, the LLM client, the agent and the UI
-are placeholders for later weeks.
+Status: **Week 3**. The dummy data, KPI reports, scheduling and Gmail delivery
+are done. LLM summaries, the agent, demand planning and the UI come in later
+weeks.
 
 ## Setup
 
@@ -64,6 +64,80 @@ counts, the date range and total revenue.
 python -m src.data.generate              # rebuild the database
 pytest                                   # run all tests
 ruff format . && ruff check --fix .      # format and lint
+```
+
+## Scheduled reports and Gmail
+
+Three reports run on the schedules in `config/reports.yaml`, in `TIMEZONE`:
+
+- Daily snapshot: Monday to Friday at 07:00.
+- Weekly review: Monday at 08:00.
+- Monthly review: the 1st at 08:00.
+
+The weekly and monthly emails carry inline charts and an Excel attachment.
+
+### Gmail setup (once)
+
+Gmail needs an **App Password**, not your normal password.
+
+1. Turn on **2-Step Verification** for the Google account you send from
+   (Google Account > Security). App Passwords only exist when it is on.
+2. Open <https://myaccount.google.com/apppasswords>, create an app password
+   named e.g. `ai-sales-analyst`, and copy the 16 characters. Spaces don't
+   matter.
+3. Put it in `.env` (never in code or chat). You can revoke it on the same
+   page at any time.
+
+`.env` settings used by the scheduler (see `.env.example`):
+
+| Key | Example | Meaning |
+| --- | --- | --- |
+| `GMAIL_ADDRESS` | `you@gmail.com` | The account that sends |
+| `GMAIL_APP_PASSWORD` | 16 characters | App Password from step 2 |
+| `REPORT_OWNER_EMAIL` | `you@company.com` | Fills `${REPORT_OWNER_EMAIL}` in `reports.yaml`, so no address is committed |
+| `REPORT_MODE` | `dry_run` or `send` | `dry_run` (default) saves files to `outputs/reports/` and sends nothing |
+| `TIMEZONE` | `Europe/London` | Time zone for schedules and for "yesterday" |
+| `DATA_END_DATE` | `2026-09-30` | Last day of the dummy data (see below). Remove it for real data |
+| `REPORT_RETRY_DELAY_SECONDS` | `300` | Wait before the single retry |
+
+**Data clock.** The dummy data ends on 2026-09-30, so each run reports the
+latest *complete* period on or before `min(yesterday, DATA_END_DATE)`:
+
+- Daily: that day.
+- Weekly: the last full Monday-to-Sunday week.
+- Monthly: the last full month.
+
+The email says which period it covers. Details are in `docs/decisions.md`
+(Week 3).
+
+**Who can receive email.** Every report recipient must be on
+`delivery.allowed_recipients` in `reports.yaml`. If any one is not, nothing is
+sent, and a failure notice goes to `delivery.failure_recipients`.
+
+### Running the scheduler
+
+```bash
+python -m src.reports.scheduler --list                         # jobs and next run times
+python -m src.reports.scheduler --run-now weekly_sales_review  # one report, now
+python -m src.reports.scheduler                                # start; runs until Ctrl+C
+python -m src.reports.scheduler --test-every 2                 # testing only: all reports every 2 min
+```
+
+The scheduler only runs while that terminal is open and the computer is awake.
+
+If a run fails, it is retried once after `REPORT_RETRY_DELAY_SECONDS`. If the
+retry fails too, a short failure notice is emailed. Config problems (missing
+Gmail password, address not on the allowlist) are not retried. In send mode,
+missing settings are reported at start-up as one line, not a stack trace.
+
+### Run history
+
+Every attempt is a row in `report_runs` in `data/audit.duckdb`. The columns
+are: report, period, mode, recipients, status, error, duration and UTC
+timestamps. Logs go to `outputs/logs/scheduler.log`. To read the runs:
+
+```bash
+python -c "from src.reports import audit; print(audit.read_runs().tail(10).to_string())"
 ```
 
 ## Working with Claude Code and Cursor
