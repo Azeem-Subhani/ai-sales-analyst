@@ -11,7 +11,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from src.analytics import demand
+from src.analytics import customers, demand
 from src.demand import config as demand_config
 from src.demand import run, store
 
@@ -179,3 +179,127 @@ def test_as_of_after_the_data_is_rejected(built: dict, tmp_path: Path) -> None:
 def test_sales_database_is_opened_read_only() -> None:
     source = Path(run.__file__).read_text(encoding="utf-8")
     assert "kpis.open_db(" in source and "duckdb.connect(" not in source
+
+
+# ---------------------------------------------------------------- customer alerts
+
+
+ALERT_SETTINGS = demand_config.load_config()["customer_alerts"]
+DAY0 = date(2026, 9, 30)
+
+
+def orders_frame(dates_by_customer: dict[int, list[date]]) -> pd.DataFrame:
+    """Orders for hand-made customers, one row per order."""
+    rows = [
+        {"order_id": i, "customer_id": cid, "order_date": d}
+        for i, (cid, d) in enumerate(
+            (cid, d) for cid, days in dates_by_customer.items() for d in days
+        )
+    ]
+    return pd.DataFrame(rows)
+
+
+def test_overdue_uses_the_median_gap_and_both_severities() -> None:
+    every_14 = [DAY0 - timedelta(days=d) for d in (100, 86, 72, 58)]  # last order 58 days ago
+    every_30 = [DAY0 - timedelta(days=d) for d in (140, 110, 80, 50)]  # 50 / 30 = 1.67x
+    on_time = [DAY0 - timedelta(days=d) for d in (40, 30, 20, 10)]
+    too_few = [DAY0 - timedelta(days=d) for d in (200, 150, 100)]
+    orders = orders_frame({1: every_14, 2: every_30, 3: on_time, 4: too_few})
+    revenue = pd.Series({1: 100.0, 2: 500.0, 3: 900.0, 4: 50.0})
+    alerts = customers.overdue_alerts(orders, revenue, DAY0, ALERT_SETTINGS).set_index(
+        "customer_id"
+    )
+    assert set(alerts.index) == {1, 2}
+    assert alerts.loc[1, "severity"] == "serious" and alerts.loc[1, "usual_interval_days"] == 14
+    assert alerts.loc[2, "severity"] == "overdue"
+    assert alerts.loc[2, "rank"] == 1  # ranked by 365-day revenue
+
+
+def test_overdue_ignores_orders_older_than_the_window() -> None:
+    old = [DAY0 - timedelta(days=d) for d in (500, 400, 380, 20)]  # only 1 in the window
+    alerts = customers.overdue_alerts(
+        orders_frame({1: old}), pd.Series(dtype=float), DAY0, ALERT_SETTINGS
+    )
+    assert alerts.empty
+
+
+def test_declining_needs_a_drop_over_25_percent_and_prior_of_1000() -> None:
+    prior = pd.Series({1: 2000.0, 2: 2000.0, 3: 900.0, 4: 1000.0})
+    recent = pd.Series({1: 1400.0, 2: 1600.0, 3: 0.0})  # 4 has no recent revenue
+    alerts = customers.declining_alerts(recent, prior, ALERT_SETTINGS).set_index("customer_id")
+    assert set(alerts.index) == {1, 4}  # 2 fell 20%, 3 is too small
+    assert alerts.loc[1, "revenue_change_pct"] == pytest.approx(-30)
+    assert alerts.loc[4, "rank"] == 1  # lost 1,000 vs 600
+
+
+def test_new_high_value_needs_a_first_order_in_90_days_and_top_10_percent() -> None:
+    recent = pd.Series({cid: float(cid) for cid in range(1, 21)})  # bar = 18.1
+    first = {cid: [DAY0 - timedelta(days=200)] for cid in range(1, 21)}
+    first[19] = [DAY0 - timedelta(days=30)]  # new and 19 >= bar
+    first[5] = [DAY0 - timedelta(days=30)]  # new but small
+    alerts = customers.new_high_value_alerts(orders_frame(first), recent, DAY0, ALERT_SETTINGS)
+    assert alerts["customer_id"].tolist() == [19]
+
+
+@pytest.mark.parametrize(
+    ("scores", "segment"),
+    [
+        ((5, 5, 5), "Champions"),
+        ((4, 4, 3), "Loyal"),
+        ((3, 3, 1), "Loyal"),
+        ((5, 1, 1), "Promising"),
+        ((3, 2, 5), "Needs attention"),
+        ((2, 4, 4), "At risk"),
+        ((1, 2, 5), "Lapsed"),
+    ],
+)
+def test_segment_map(scores: tuple[int, int, int], segment: str) -> None:
+    assert customers.segment_for(*scores) == segment
+
+
+def test_quintile_scores_give_ties_the_same_score() -> None:
+    scores = customers.quintile_scores(pd.Series([1, 2, 3, 4, 5, 5, 5, 8, 9, 10]), 5)
+    assert scores.tolist() == [1, 1, 2, 2, 3, 3, 3, 4, 5, 5]
+
+
+def test_segment_change_flags_top_to_at_risk_only() -> None:
+    before = pd.DataFrame(
+        {
+            "customer_id": [1, 2, 3, 4],
+            "segment": ["Champions", "Loyal", "Promising", "Loyal"],
+            "monetary": [10.0, 20.0, 30.0, 40.0],
+        }
+    )
+    now = pd.DataFrame({"customer_id": [1, 2, 3], "segment": ["At risk", "Loyal", "Lapsed"]})
+    alerts = customers.segment_change_alerts(now, before)
+    assert alerts["customer_id"].tolist() == [4, 1]  # 4 has no order now: Lapsed
+    assert alerts.set_index("customer_id").loc[4, "segment_now"] == "Lapsed"
+
+
+def test_customer_alerts_never_carry_email(demand_runs: dict) -> None:
+    alerts = demand_runs[AS_OF_MONTH_END].table("customer_alerts")
+    assert not [c for c in alerts.columns if "email" in c]
+    assert set(alerts["alert_type"]) <= set(customers.ALERT_TYPES)
+
+
+# ---------------------------------------------------------------- category and stock alerts
+
+
+def test_category_alerts_cover_all_categories_and_8_week_windows(demand_runs: dict) -> None:
+    table = demand_runs[AS_OF_SUNDAY].table("category_alerts")
+    assert len(table) == 8
+    row = table.iloc[0]
+    assert pd.Timestamp(row["current_start"]).date() == date(2026, 8, 3)
+    assert pd.Timestamp(row["current_end"]).date() == date(2026, 9, 27)
+    assert pd.Timestamp(row["prior_start"]).date() == date(2026, 6, 8)
+    assert table["flagged"].sum() <= 2
+
+
+def test_stock_alerts_count_stockout_weeks_in_the_last_4_weeks() -> None:
+    inputs = small_inputs()
+    series = demand.weekly_series(inputs, impute_weeks=4)
+    alerts = demand.stock_alerts(inputs, series, {"weeks": 4, "cover_weeks": 4})
+    assert alerts["sku"].tolist() == ["B-2"]
+    row = alerts.iloc[0]
+    assert row["stockout_weeks"] == 1 and row["on_hand"] == 4
+    assert row["days_of_cover"] == pytest.approx(4 / ((7 + 5 + 6) / 3 / 7))

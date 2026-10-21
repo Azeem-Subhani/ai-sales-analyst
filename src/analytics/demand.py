@@ -169,3 +169,90 @@ def days_of_cover(on_hand: pd.Series, daily_demand: pd.Series) -> pd.Series:
     demand = daily_demand.reindex(on_hand.index)
     cover = on_hand.astype(float) / demand.where(demand > 0)
     return cover
+
+
+# ---------------------------------------------------------------- category alerts
+
+CATEGORY_REVENUE_SQL = """
+SELECT p.category,
+       SUM(oi.quantity * oi.unit_price * (1 - oi.discount_pct)) AS revenue
+FROM orders o
+JOIN order_items oi USING (order_id)
+JOIN products p USING (product_id)
+WHERE o.status = 'completed' AND o.order_date BETWEEN $start AND $end
+GROUP BY p.category
+"""
+CATEGORIES_SQL = "SELECT DISTINCT category FROM products ORDER BY category"
+
+
+def category_alerts(con: duckdb.DuckDBPyConnection, as_of: date, settings: dict) -> pd.DataFrame:
+    """Net revenue per category, last N complete weeks vs the N before; every category.
+
+    flagged = the drop is greater than settings["drop"] (a fraction). The change is
+    stored in percent and unrounded, like the KPI changes.
+    """
+    weeks = settings["weeks"]
+    current_end = last_complete_week(as_of) + timedelta(days=DAYS_IN_WEEK - 1)
+    current_start = current_end - timedelta(weeks=weeks) + timedelta(days=1)
+    prior_end = current_start - timedelta(days=1)
+    prior_start = current_start - timedelta(weeks=weeks)
+
+    def revenue(start: date, end: date) -> dict[str, float]:
+        rows = con.execute(CATEGORY_REVENUE_SQL, {"start": start, "end": end}).fetchall()
+        return {category: float(value) for category, value in rows}
+
+    current, prior = revenue(current_start, current_end), revenue(prior_start, prior_end)
+    rows = []
+    for (category,) in con.execute(CATEGORIES_SQL).fetchall():
+        now, before = current.get(category, 0.0), prior.get(category, 0.0)
+        change = (now / before - 1) * 100 if before else None
+        rows.append(
+            {
+                "category": category,
+                "current_start": current_start,
+                "current_end": current_end,
+                "prior_start": prior_start,
+                "prior_end": prior_end,
+                "current_revenue": now,
+                "prior_revenue": before,
+                "revenue_change_pct": change,
+                "flagged": change is not None and change < -settings["drop"] * 100,
+            }
+        )
+    return pd.DataFrame(rows).sort_values(["revenue_change_pct", "category"]).reset_index(drop=True)
+
+
+# ---------------------------------------------------------------- stock alerts
+
+
+def cover_table(inputs: DemandInputs, series: pd.DataFrame, cover_weeks: int) -> pd.DataFrame:
+    """Stock position, average daily demand and days of cover for products in stock records."""
+    stock = latest_stock(inputs).set_index("product_id")
+    daily = average_daily_demand(series, cover_weeks)
+    stock["avg_daily_demand"] = daily.reindex(stock.index)
+    stock["days_of_cover"] = days_of_cover(stock["on_hand"], stock["avg_daily_demand"])
+    return stock
+
+
+def stock_alerts(inputs: DemandInputs, series: pd.DataFrame, settings: dict) -> pd.DataFrame:
+    """Products with at least one stockout week in the last N complete weeks.
+
+    Ranked by stockout weeks (most first), then days of cover (lowest first), then SKU.
+    """
+    recent = series.groupby("product_id", group_keys=False).tail(settings["weeks"])
+    out = recent[recent["is_stockout"]].groupby("product_id")
+    flagged = pd.DataFrame(
+        {"stockout_weeks": out.size(), "last_stockout_week": out["week_start"].max()}
+    )
+    if flagged.empty:
+        return pd.DataFrame(columns=["product_id", "rank", "stockout_weeks"])
+    cover = cover_table(inputs, series, settings["cover_weeks"])
+    products = inputs.products.set_index("product_id")[["sku", "name", "category"]]
+    alerts = flagged.join(products).join(cover).rename_axis("product_id").reset_index()
+    alerts = alerts.sort_values(
+        ["stockout_weeks", "days_of_cover", "sku"],
+        ascending=[False, True, True],
+        na_position="last",
+    ).reset_index(drop=True)
+    alerts["rank"] = range(1, len(alerts) + 1)
+    return alerts

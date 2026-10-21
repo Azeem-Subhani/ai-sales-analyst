@@ -490,3 +490,49 @@ text are marked **(clarified)**.
 - **Stock position:** on hand and on order come from the latest inventory snapshot
   on or before as_of. A product with no row in that snapshot (discontinued) has no
   stock position, so it gets no stock alert and no pre-build recommendation.
+
+### Demand alert rules decided in Week 5
+- **Decision (2026-10-21):** rules the brief left open, as built in
+  `src/analytics/customers.py` and `src/analytics/demand.py`:
+  - **Revenue** in customer and category alerts is net revenue (completed orders),
+    the KPI definition, summed exactly in SQL. **Orders** and order dates use all
+    non-cancelled orders (the demand definition).
+  - **Windows** are inclusive and end on as_of: the last 365 days is
+    as_of - 364 to as_of; the last 90 days is as_of - 89 to as_of, and the prior 90
+    days are the 90 days before that.
+  - **Overdue:** the usual interval is the median gap between distinct order dates
+    in the window (two orders on one day count as one date). Serious and overdue
+    customers are ranked together by last-365-day revenue.
+  - **Declining** customers are ranked by revenue lost (prior minus recent).
+  - **New high-value:** the bar is the 90th percentile of last-90-day revenue over
+    all customers with revenue in that window. A new customer at or above the bar is
+    flagged.
+  - **Category alerts:** the last 8 complete weeks are the 8 Monday-to-Sunday weeks
+    ending on or before as_of (to 2026-09-27 for both 09-27 and 09-30). All
+    categories are stored, with `flagged` true for a drop greater than 15%.
+  - **Stock alerts** are ranked by stockout weeks (most first), then days of cover
+    (lowest first). Days of cover is n/a when the last 4 weeks are all stockout
+    weeks or have no demand.
+- **RFM segment map:** R, F and M are scored 1 to 5 by percentile rank (ties share
+  a score) over customers with a non-cancelled order in the 365 days to the scoring
+  date. R = days since the last order (fewer is better), F = orders in the window,
+  M = net revenue in the window. First match wins:
+
+  | Segment | Rule |
+  | --- | --- |
+  | Champions | R >= 4, F >= 4 and M >= 4 |
+  | Loyal | R >= 3 and F >= 3 |
+  | Promising | R >= 4 |
+  | Needs attention | R = 3 |
+  | At risk | F >= 3 (R is 1 or 2) |
+  | Lapsed | everyone else (R is 1 or 2, F is 1 or 2) |
+
+  The top segments are Champions and Loyal; the at-risk ones are At risk and Lapsed.
+  A customer in a top segment 28 days earlier with no order in the window now
+  counts as Lapsed.
+- **Alert counts on the seed-42 data (as of 2026-09-30):** overdue 609 (482
+  serious, 127 overdue; 603 of them retail), declining 158, new high-value 1,
+  segment moves 197, category 1 (Apparel), stock 10. The overdue list is long
+  because many retail customers order every 2 to 3 days, so 5 days without an order
+  is already over 2x their interval. This is reported to the project owner and not
+  changed; reports show the top 10 by revenue.

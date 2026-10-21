@@ -17,9 +17,10 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
 
+import duckdb
 import pandas as pd
 
-from src.analytics import demand, kpis
+from src.analytics import customers, demand, kpis
 from src.demand import config as demand_config
 from src.demand import store
 
@@ -40,10 +41,19 @@ class DemandResult:
         return self.tables[name]
 
 
-def compute(inputs: demand.DemandInputs, config: dict) -> dict[str, pd.DataFrame]:
-    """Every snapshot table for inputs.as_of, in memory."""
+def compute(
+    con: duckdb.DuckDBPyConnection, inputs: demand.DemandInputs, config: dict
+) -> dict[str, pd.DataFrame]:
+    """Every snapshot table for inputs.as_of, in memory (con is the read-only sales DB)."""
     series = demand.weekly_series(inputs, config["forecasts"]["impute_weeks"])
-    return {"demand_weekly": series}
+    alerts, rfm = customers.customer_alerts(con, inputs, config["customer_alerts"])
+    return {
+        "demand_weekly": series,
+        "customer_alerts": alerts,
+        "customer_rfm": rfm,
+        "category_alerts": demand.category_alerts(con, inputs.as_of, config["category_alerts"]),
+        "stock_alerts": demand.stock_alerts(inputs, series, config["stock_alerts"]),
+    }
 
 
 def run_demand(
@@ -60,9 +70,9 @@ def run_demand(
     con = kpis.open_db(sales_db)
     try:
         inputs = demand.load_inputs(con, as_of)
+        frames = compute(con, inputs, config)
     finally:
         con.close()
-    frames = compute(inputs, config)
     stock = demand.latest_stock(inputs)
     snapshot = {
         "created_at_utc": datetime.now(UTC).replace(tzinfo=None),
