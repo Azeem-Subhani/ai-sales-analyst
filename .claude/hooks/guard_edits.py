@@ -19,10 +19,11 @@ OPENAI_IMPORT = re.compile(r"^\s*(import\s+openai\b|from\s+openai\b)", re.MULTIL
 API_KEY = re.compile(r"sk-or-[A-Za-z0-9_-]{8,}")
 # ".env" as a whole file name; not ".env.example", ".venv" or "x.env".
 ENV_FILE = r"(?<![\w.])\.env(?![\w.])"
-# Shell commands that would print or copy the contents of .env.
+# Shell commands that would print or copy the contents of .env. The match stops at
+# a pipe, ;, & or line break, so text in a later heredoc line does not trigger it.
 ENV_READ_COMMAND = re.compile(
     r"(\b(cat|less|more|head|tail|grep|rg|sed|awk|source|cp|mv|base64|xxd|"
-    r"strings|vi|vim|nano|open|code|bat|type|Get-Content)\b[^|;&]*|<\s*)" + ENV_FILE
+    r"strings|vi|vim|nano|open|code|bat|type|Get-Content)\b[^|;&\n]*|<\s*)" + ENV_FILE
 )
 
 

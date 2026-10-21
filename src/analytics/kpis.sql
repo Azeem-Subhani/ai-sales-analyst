@@ -1,0 +1,1 @@
+-- KPI view definitions (Week 2). Standard SQL only, so it can move to PostgreSQL later.
