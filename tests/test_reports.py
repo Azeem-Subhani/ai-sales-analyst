@@ -228,3 +228,21 @@ def test_unknown_query_name_in_config_is_rejected(tmp_path: Path) -> None:
     path.write_text(yaml.safe_dump(config), encoding="utf-8")
     with pytest.raises(ValueError, match="top_widgets"):
         builder.load_config(path)
+
+
+def test_money_is_rounded_half_up_from_the_exact_sum(reports: dict[str, Report]) -> None:
+    # Regression (Week 5): August 2026 net revenue is exactly 462,431.555 in SQL.
+    # Python's round() on the float gave 462,431.55; SQL ROUND gives 462,431.56.
+    report = reports["monthly_business_review"]
+    rows = report.numbers["sections"]["kpis_month"]["rows"]
+    net = next(r for r in rows if r["kpi"] == "net_revenue")["current"]
+    assert net == 462431.56
+    assert "462,431.56" in report.html and "462,431.55" not in report.html
+
+
+def test_week2_hand_checked_figures_unchanged(reports: dict[str, Report]) -> None:
+    # docs/hand_checks/week2_weekly_2026-09-27.md
+    page = visible_text(reports["weekly_sales_review"].html)
+    for figure in ["114,286.82", "661", "172.90", "43.1%", "31,481.36", "2,767.45"]:
+        assert figure in page, figure
+    assert "Stokes, Robinson and Gough" in page

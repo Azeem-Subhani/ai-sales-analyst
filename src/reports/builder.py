@@ -22,6 +22,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
 import matplotlib
@@ -61,6 +62,7 @@ TREND_MONTHS = 12
 
 # Rounding applied once, when numbers enter the Report (display and Excel use these).
 MONEY_DECIMALS = 2
+MONEY_STEP = Decimal(1).scaleb(-MONEY_DECIMALS)  # 0.01
 # Rates and changes are not rounded when stored: they are rounded once, when shown
 # (fmt_pct, fmt_change, Excel number formats). Rounding them on the way in as well
 # turned a true +8.6495% into "+8.7%" (Week 4 wrap-up, docs/decisions.md).
@@ -200,8 +202,21 @@ def rounded(value: float | None, kind: str) -> float | int | None:
     if kind in UNROUNDED_KINDS:
         return value
     if kind == "money":
-        return round(value, MONEY_DECIMALS)
+        return round_money(value)
     raise ValueError(f"Unknown value kind {kind!r}.")
+
+
+def round_money(value: float) -> float:
+    """Money to cents, half-up, from the exact decimal the SQL sum produced.
+
+    DuckDB sums DECIMAL columns exactly (August 2026 net revenue is 462,431.555), but
+    pandas hands the sum over as a float, and Python's round() works on the binary
+    value just below it, giving 462,431.55. str() of the float gives back the exact
+    decimal (sums here have at most 15 significant digits), and that is rounded
+    half-up like SQL ROUND, giving 462,431.56.
+    """
+    exact = Decimal(str(value))
+    return float(exact.quantize(MONEY_STEP, rounding=ROUND_HALF_UP))
 
 
 def fmt_money(value: float | None) -> str:

@@ -372,3 +372,21 @@ def test_key_balance_measures_spend_and_survives_a_failed_read(
     assert balance.spent() == pytest.approx(0.01)
     assert balance.spent() == pytest.approx(0.01)  # failed read keeps the last figure
     assert balance.spent() == pytest.approx(0.03)
+
+
+@pytest.mark.parametrize(
+    "period",
+    ["1–31 May 2026", "1-31 May", "May 1-31, 2026", "July 1-31", "1 to 30 September"],
+)
+def test_date_ranges_are_not_unsupported_numbers(period: str) -> None:
+    # q12-style answer (Week 5): the grader blanks dates with the answer guard's
+    # patterns, so the day numbers in a month range are not flagged.
+    evidence = ['{"rows": [["2026-05", 401234.56]]}']
+    answer = f"Net revenue for {period} was 401,234.56."
+    assert eval_grader.unsupported_numbers(answer, evidence) == []
+
+
+def test_date_range_does_not_hide_a_made_up_number() -> None:
+    evidence = ['{"rows": [["2026-05", 401234.56]]}']
+    answer = "Net revenue for 1-31 May was 401,234.56, about 12,943 a day."
+    assert eval_grader.unsupported_numbers(answer, evidence) == ["12,943"]

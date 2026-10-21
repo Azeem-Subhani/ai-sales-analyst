@@ -436,3 +436,30 @@ text are marked **(clarified)**.
   `stop` at 602 tokens, and the summary is `ok` and complete.
 - **Not changed:** the chat agent sets no `max_tokens`, so its answers are not
   cut by our own cap. Its `finish_reason` is recorded but not acted on.
+
+## Week 5: demand planning
+
+### main is the only base branch; dev is dropped
+- **Decision (project owner, 2026-10-21):** every week branches from `main` and
+  merges back into `main` through a PR with tests. There will be no `dev` branch.
+  This replaces the "if a `dev` branch is created later" note in the Week 4 entry
+  "Base branch is `main` (no `dev` yet)".
+- **Why:** there is one developer, every week still goes through a reviewed PR with
+  the full test suite, and the dev/main split caused confusion in Weeks 3 and 4.
+
+### Money is rounded half-up, once, from the exact sum
+- **Decision (2026-10-21):** closes the Week 4 wrap-up "Known limit (money)". Money
+  is still summed in SQL from unrounded line values (DuckDB DECIMAL, exact) and
+  rounded once when it enters the Report. `builder.round_money` now rounds the exact
+  decimal half-up, like SQL `ROUND`, instead of Python's `round()` on the float.
+- **Cause:** pandas returns the DECIMAL sum as a float. August 2026 net revenue is
+  exactly 462,431.555, but the float is just below it, so `round()` gave 462,431.55.
+  `str()` of the float gives back the exact decimal, because these sums have at most
+  15 significant digits.
+- **Effect:** August 2026 net revenue shows 462,431.56, matching SQL. The Week 2
+  hand-checked figures are unchanged (covered by a test).
+
+### Eval grader skips dates like the answer guard
+- **Decision (2026-10-21):** the grader's "no unsupported numbers" check blanks
+  dates with `answer_guard.without_dates_and_code`, so "1–31 May" or "July 1-31" no
+  longer sends a q12-style answer to review. This closes the Week 4 "Grader limit".

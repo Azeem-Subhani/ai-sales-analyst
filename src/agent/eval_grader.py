@@ -10,7 +10,8 @@ Checks for one question:
 - names: each gold name must appear (case and punctuation ignored, "&" = "and").
 - chart: make_chart must have succeeded.
 - assumption: for ambiguous questions, the answer must say what it assumed.
-- no unsupported numbers: every number in the answer (outside SQL code) must match
+- no unsupported numbers: every number in the answer (outside SQL code and dates,
+  using the answer guard's date patterns) must match
   a number in the question, the tool arguments or the tool results, within
   rounding; whole numbers 1 to 10 are allowed as counts. This catches numbers the
   model worked out itself (an average, a gap, a fraction turned into a percentage).
@@ -26,6 +27,7 @@ from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
+from src.agent.answer_guard import without_dates_and_code
 from src.reports.summary import extract_numbers, to_decimal
 
 MONEY_DROP_DECIMALS_FROM = Decimal(1000)
@@ -36,7 +38,6 @@ ASSUMPTION_WORDS = re.compile(
     re.IGNORECASE,
 )
 NON_WORD = re.compile(r"[^a-z0-9]+")
-CODE_BLOCK = re.compile(r"```.*?```", re.DOTALL)
 INLINE_CODE = re.compile(r"`[^`]*`")
 SMALL_COUNTS = {Decimal(n) for n in range(1, 11)}
 
@@ -118,8 +119,12 @@ def supported(token: str, allowed: set[Decimal]) -> bool:
 
 
 def unsupported_numbers(answer: str, evidence: list[str]) -> list[str]:
-    """Numbers in the answer (SQL code excluded) that no evidence supports."""
-    prose = INLINE_CODE.sub(" ", CODE_BLOCK.sub(" ", answer))
+    """Numbers in the answer (SQL code and dates excluded) that no evidence supports.
+
+    Dates are blanked with the answer guard's own patterns, so "1-31 May" or
+    "July 1-31" is graded the same way the guard checked it.
+    """
+    prose = without_dates_and_code(INLINE_CODE.sub(" ", answer))
     allowed = evidence_numbers(evidence)
     found = [t for t in extract_numbers(prose) if not supported(t, allowed)]
     return list(dict.fromkeys(found))
