@@ -67,3 +67,27 @@ text are marked **(clarified)**.
   comparison value is zero the change is empty and shown as "n/a".
 - Money is shown with thousands separators and 2 decimals, no currency symbol
   (assumption: the dummy data has no currency column).
+
+## Week 5 acceptance criterion: wholesale churn (planted problem 1)
+
+- **Criterion:** as of 2026-09-30, the overdue-customer alerts must flag
+  Harbor & Pine Co., Bluegate Supplies and Kestrel Home Stores as serious (more than
+  2x their usual interval), and the September monthly report must show them in its
+  demand-alerts section. (The monthly report has no demand-alerts section yet;
+  Week 5 adds it.)
+- **Why not in Week 2:** the original Week 2 expectation (the August monthly report
+  shows the three dropping out of top customers or declining) was wrong. A monthly
+  sales report cannot show churn that starts mid-month among customers outside the
+  top 10, so the check was dropped rather than weakened or marked xfail.
+- **Context (measured on the seed-42 data with `src/analytics/kpis.py`, Week 2):**
+
+  | Customer | July 2026 net revenue (rank) | August 2026 net revenue (rank) | Change |
+  | --- | --- | --- | --- |
+  | Harbor & Pine Co. | 2,588.32 (11) | 1,358.74 (60) | -47.5% |
+  | Kestrel Home Stores | 1,113.63 (106) | 1,795.54 (33) | +61.2% |
+  | Bluegate Supplies | 970.67 (123) | 256.87 (543) | -73.5% |
+
+  Ranked by revenue drop from July to August, Harbor & Pine is 18th and Bluegate 56th;
+  normal wholesale reorder cycles (2 to 6 weeks) produce larger swings. Kestrel rises in
+  August because its last orders fall in the first half of the month. In September all
+  three have zero net revenue.
