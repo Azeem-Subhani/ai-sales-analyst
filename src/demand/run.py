@@ -47,6 +47,7 @@ def compute(
     """Every snapshot table for inputs.as_of, in memory (con is the read-only sales DB)."""
     series = demand.weekly_series(inputs, config["forecasts"]["impute_weeks"])
     alerts, rfm = customers.customer_alerts(con, inputs, config["customer_alerts"])
+    forecasts, backtest = forecasting.own_forecasts(inputs, series, config["forecasts"])
     return {
         "demand_weekly": series,
         "customer_alerts": alerts,
@@ -56,6 +57,8 @@ def compute(
         "forecast_accuracy": forecasting.forecast_accuracy(
             con, inputs, series, config["forecast_accuracy"]
         ),
+        "model_forecasts": forecasts,
+        "backtest_results": backtest,
     }
 
 

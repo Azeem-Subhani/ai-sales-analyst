@@ -6,6 +6,7 @@ tests/test_demand_acceptance.py, the only test file that reads the planted issue
 """
 
 from datetime import date, timedelta
+from itertools import pairwise
 from pathlib import Path
 
 import pandas as pd
@@ -308,7 +309,6 @@ def test_stock_alerts_count_stockout_weeks_in_the_last_4_weeks() -> None:
 # ---------------------------------------------------------------- forecast accuracy
 
 
-
 def test_wape_and_bias_formulas() -> None:
     wape, bias = forecasting.wape_and_bias(actual=100, forecast=125, abs_error=30)
     assert wape == pytest.approx(0.30) and bias == pytest.approx(0.25)
@@ -341,3 +341,74 @@ def test_accuracy_levels_and_small_products(demand_runs: dict) -> None:
     overall = table[table["level"] == "overall"].iloc[0]
     products = table[table["level"] == "product"]
     assert overall["actual_units"] == products["actual_units"].sum()
+
+
+# ---------------------------------------------------------------- our own forecasts
+
+FORECAST_SETTINGS = demand_config.load_config()["forecasts"]
+
+
+def test_backtest_windows_are_every_4_weeks_inside_the_last_26() -> None:
+    last = date(2026, 9, 21)
+    windows = forecasting.backtest_windows(last, FORECAST_SETTINGS)
+    assert len(windows) == 6
+    assert windows[-1][1] == last and (last - windows[-1][0]).days == 21
+    assert all((b[0] - a[0]).days == 28 for a, b in pairwise(windows))
+    assert (last - windows[0][0]).days < 26 * 7
+
+
+def test_recent_mean_fallback_skips_stockout_weeks() -> None:
+    weeks = [date(2026, 8, 3) + timedelta(weeks=w) for w in range(6)]
+    series = pd.DataFrame(
+        {
+            "product_id": 1,
+            "week_start": weeks,
+            "units": [1, 10, 20, 0, 30, 40],
+            "is_stockout": [False, False, False, True, False, False],
+        }
+    )
+    forecast = forecasting.recent_mean_forecast(series, [1], FORECAST_SETTINGS)
+    assert len(forecast) == 12
+    assert forecast["forecast_qty"].iloc[0] == pytest.approx((10 + 20 + 30 + 40) / 4)
+    assert forecast["week_start"].iloc[0] == date(2026, 9, 14)
+
+
+def test_model_choice_prefers_lower_wape_and_autoets_on_ties() -> None:
+    results = pd.DataFrame(
+        {
+            "product_id": [1, 1, 2, 2, 3],
+            "model": ["AutoETS", "SeasonalNaive"] * 2 + ["AutoETS"],
+            "wape": [0.5, 0.3, 0.4, 0.4, 0.2],
+        }
+    )
+    assert forecasting.choose_models(results).to_dict() == {
+        1: "SeasonalNaive",
+        2: "AutoETS",
+        3: "AutoETS",
+    }
+
+
+def test_forecasts_are_never_negative() -> None:
+    weeks = [date(2025, 1, 6) + timedelta(weeks=w) for w in range(30)]
+    falling = pd.DataFrame(
+        {"product_id": 1, "week_start": weeks, "y": [60 - 2 * w for w in range(30)]}
+    )
+    forecast = forecasting.fit_and_forecast(falling, horizon=12, season_length=52)
+    assert set(forecast["model"]) == {"AutoETS"}  # under 52 weeks: no SeasonalNaive
+    assert (forecast["forecast_qty"] >= 0).all()
+
+
+def test_own_forecasts_on_seed_data(demand_runs: dict) -> None:
+    result = demand_runs[AS_OF_MONTH_END]
+    forecasts = result.table("model_forecasts")
+    chosen = forecasts[forecasts["is_chosen"]]
+    assert chosen.groupby("product_id").size().eq(12).all()  # one chosen model, 12 weeks
+    assert pd.Timestamp(chosen["week_start"].min()).date() == date(2026, 9, 28)
+    smart = chosen[chosen["sku"] == "SB-1042"]
+    assert smart["model"].unique().tolist() == ["recent_mean"] and smart["is_fallback"].all()
+    backtest = result.table("backtest_results")
+    assert backtest["windows"].max() == 6
+    assert set(backtest["model"]) == {"AutoETS", "SeasonalNaive"}
+    assert backtest.groupby("product_id")["is_chosen"].sum().eq(1).all()
+    summary = forecasting.backtest_summary(backtest)
+    assert 0 < summary["chosen_mix"] <= min(summary["AutoETS"], summary["SeasonalNaive"]) + 1e-9

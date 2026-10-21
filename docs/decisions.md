@@ -550,3 +550,31 @@ text are marked **(clarified)**.
   has bias +27.3%. 8 of the 10 stockout products are among the flagged, because the
   seeded forecast did not know about the stockout and actual demand was 0 in those
   weeks. Being flagged for bias keeps them out of pre-build ("needs planner review").
+
+### Our own forecasts and backtest
+- **Decision (2026-10-21):** `src/analytics/forecasting.py` fits statsforecast AutoETS
+  and SeasonalNaive (season length 52), weekly, 12 weeks ahead, on every product with
+  at least 26 weeks of history. Rules decided in the build:
+  - **Fallback (project owner, 2026-10-21):** products with fewer than 26 weeks (3 on
+    the seed data, including SB-1042 Smart Bottle Pro) get the mean of their last 4
+    non-stockout weeks, held flat, stored as model `recent_mean` with
+    `is_fallback = true`.
+  - Products with fewer than 52 weeks get no SeasonalNaive forecast (it needs a full
+    season), so AutoETS is used. AutoETS treats a season of 52 as non-seasonal
+    (statsforecast handles seasons up to 24).
+  - Forecasts are clipped at 0, because a falling ETS trend can go negative.
+  - **Backtest windows:** 6 windows of 4 weeks, every 4 weeks, with the newest
+    ending on the last complete week, so all of them lie inside the last 26 weeks
+    ((26 - 4) / 4 + 1 = 6). A product is skipped in a window with fewer than 13
+    training weeks. Stockout weeks are imputed for fitting and **not scored**,
+    because they have no real demand to compare with.
+  - The model with the lower backtest WAPE is chosen per product; AutoETS on a tie
+    or when SeasonalNaive has no score.
+  - statsforecast runs in one process (`n_jobs=1`). A process pool crashed under
+    macOS spawn, and reports build inside scheduler threads.
+  - Fits are cached in the process by series content, so as_of dates with the same
+    complete weeks (2026-09-27 and 2026-09-30) fit once.
+- **Result on the seed-42 data (as of 2026-09-30):** backtest WAPE, on the 242
+  products scored by both models: AutoETS 40.5%, SeasonalNaive 53.7%; chosen mix
+  40.3%. Chosen: AutoETS 226, SeasonalNaive 21, recent_mean 3. A full
+  `run_demand` takes about 98 seconds, almost all of it statsforecast.
