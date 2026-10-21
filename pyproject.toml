@@ -13,3 +13,6 @@ extend-select = ["I", "UP", "B"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]  # lets tests import the src package from the repo root
+# Slow tests (real statsforecast fits, Week 5 acceptance) are skipped by default; run
+# them with "pytest -m slow" (only those) or "pytest --runslow" (everything).
+markers = ["slow: real forecast fits and acceptance tests (about 2 minutes)"]

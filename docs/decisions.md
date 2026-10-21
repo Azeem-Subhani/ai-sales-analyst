@@ -702,3 +702,19 @@ text are marked **(clarified)**.
   product, days of cover, pre-build units, value at risk and reason (urgent or
   normal), so it fits a phone screen. The "Demand alerts" Excel sheet keeps every
   column, including the id the approval command needs.
+
+### Slow tests are skipped by default
+- **Decision (project owner, 2026-10-21):** tests that need the real statsforecast fit
+  (the seed-data forecast and backtest checks, the gold-value check, which q24
+  depends on, and every Week 5 acceptance test) are marked `slow`.
+  - `pytest` skips them.
+  - `pytest -m slow` runs only them; `pytest --runslow` runs everything.
+  - The marker is registered in `pyproject.toml`; the skip logic is in
+    `tests/conftest.py`.
+- **How:** default tests replace the fit with a recent-mean stand-in (session fixture
+  `fast_forecasts`). Slow tests use `real_demand_runs`, which runs the real fit on its
+  own copy of the sales database, so fast and real snapshots never share a
+  `planning.duckdb`. The forecasting unit test fits a 3-product subset for real
+  (3.4 s), so the default run still exercises statsforecast.
+- **Times (2026-10-21):** default `pytest` about 39 s (443 passed, 12 skipped);
+  `pytest -m slow` about 101 s (12 tests).

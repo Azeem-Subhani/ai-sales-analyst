@@ -56,13 +56,14 @@ def test_coverage_of_required_topics() -> None:
     assert any(q.get("require_assumption") for q in QUESTIONS)
 
 
-def test_gold_values_match_the_sql(built: dict, demand_runs: dict) -> None:
+@pytest.mark.slow
+def test_gold_values_match_the_sql(real_demand_runs: dict) -> None:
     """Stored gold values equal a fresh run of every gold SQL on the seed-42 data.
 
-    Demand questions read the 2026-09-30 snapshot that demand_runs stored next to the
-    test database.
+    Demand questions read the 2026-09-30 snapshot with real forecasts (q24 depends on
+    them), stored next to the slow tests' copy of the database.
     """
-    assert fill_gold.main(["--check", "--db", str(built["db_path"])]) == 0
+    assert fill_gold.main(["--check", "--db", str(real_demand_runs["db_path"])]) == 0
 
 
 def test_known_gold_values() -> None:

@@ -390,6 +390,7 @@ def test_model_choice_prefers_lower_wape_and_autoets_on_ties() -> None:
     }
 
 
+@pytest.mark.slow
 def test_forecasts_are_never_negative() -> None:
     weeks = [date(2025, 1, 6) + timedelta(weeks=w) for w in range(30)]
     falling = pd.DataFrame(
@@ -400,8 +401,30 @@ def test_forecasts_are_never_negative() -> None:
     assert (forecast["forecast_qty"] >= 0).all()
 
 
-def test_own_forecasts_on_seed_data(demand_runs: dict) -> None:
-    result = demand_runs[AS_OF_MONTH_END]
+def test_own_forecasts_on_a_small_product_subset(demand_runs: dict, real_own_forecasts) -> None:
+    # Real statsforecast fit on 3 products (a long history, a short one, a stockout one).
+    series = demand_runs[AS_OF_MONTH_END].table("demand_weekly")
+    series = series[series["sku"].isin(["AP-1150", "SB-1042", "TO-1019"])].copy()
+    series["week_start"] = pd.to_datetime(series["week_start"]).dt.date
+    products = series.groupby("product_id", as_index=False)["sku"].first()
+    inputs = demand.DemandInputs(
+        AS_OF_MONTH_END, pd.DataFrame(), products, pd.DataFrame(), date(2024, 10, 1)
+    )
+    forecasts, backtest = real_own_forecasts(inputs, series, FORECAST_SETTINGS)
+    chosen = forecasts[forecasts["is_chosen"]]
+    assert chosen.groupby("sku").size().eq(12).all() and set(chosen["sku"]) == {
+        "AP-1150",
+        "SB-1042",
+        "TO-1019",
+    }
+    assert chosen.loc[chosen["sku"] == "SB-1042", "model"].unique().tolist() == ["recent_mean"]
+    assert set(backtest["sku"]) == {"AP-1150", "TO-1019"} and backtest["windows"].max() == 6
+    assert (forecasts["forecast_qty"] >= 0).all()
+
+
+@pytest.mark.slow
+def test_own_forecasts_on_seed_data(real_demand_runs: dict) -> None:
+    result = real_demand_runs[AS_OF_MONTH_END]
     forecasts = result.table("model_forecasts")
     chosen = forecasts[forecasts["is_chosen"]]
     assert chosen.groupby("product_id").size().eq(12).all()  # one chosen model, 12 weeks
