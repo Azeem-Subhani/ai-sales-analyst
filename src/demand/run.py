@@ -20,7 +20,7 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
-from src.analytics import customers, demand, forecasting, kpis
+from src.analytics import customers, demand, forecasting, kpis, prebuild
 from src.demand import config as demand_config
 from src.demand import store
 
@@ -48,17 +48,19 @@ def compute(
     series = demand.weekly_series(inputs, config["forecasts"]["impute_weeks"])
     alerts, rfm = customers.customer_alerts(con, inputs, config["customer_alerts"])
     forecasts, backtest = forecasting.own_forecasts(inputs, series, config["forecasts"])
+    accuracy = forecasting.forecast_accuracy(con, inputs, series, config["forecast_accuracy"])
+    recommendations, review = prebuild.prebuild(inputs, series, forecasts, accuracy, config)
     return {
         "demand_weekly": series,
         "customer_alerts": alerts,
         "customer_rfm": rfm,
         "category_alerts": demand.category_alerts(con, inputs.as_of, config["category_alerts"]),
         "stock_alerts": demand.stock_alerts(inputs, series, config["stock_alerts"]),
-        "forecast_accuracy": forecasting.forecast_accuracy(
-            con, inputs, series, config["forecast_accuracy"]
-        ),
+        "forecast_accuracy": accuracy,
         "model_forecasts": forecasts,
         "backtest_results": backtest,
+        "prebuild_recommendations": recommendations,
+        "planner_review": review,
     }
 
 

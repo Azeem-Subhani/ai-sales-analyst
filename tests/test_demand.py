@@ -5,6 +5,7 @@ demand_runs fixture (conftest.py). Planted-problem checks are in
 tests/test_demand_acceptance.py, the only test file that reads the planted issues.
 """
 
+import math
 from datetime import date, timedelta
 from itertools import pairwise
 from pathlib import Path
@@ -12,9 +13,9 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from src.analytics import customers, demand, forecasting
+from src.analytics import customers, demand, forecasting, prebuild
+from src.demand import approve, run, store
 from src.demand import config as demand_config
-from src.demand import run, store
 
 AS_OF_SUNDAY = date(2026, 9, 27)
 AS_OF_MONTH_END = date(2026, 9, 30)  # a Wednesday
@@ -412,3 +413,157 @@ def test_own_forecasts_on_seed_data(demand_runs: dict) -> None:
     assert backtest.groupby("product_id")["is_chosen"].sum().eq(1).all()
     summary = forecasting.backtest_summary(backtest)
     assert 0 < summary["chosen_mix"] <= min(summary["AutoETS"], summary["SeasonalNaive"]) + 1e-9
+
+
+# ---------------------------------------------------------------- pre-build and approval
+
+
+def test_forecast_over_counts_a_part_week_in_proportion() -> None:
+    assert prebuild.forecast_over([10, 20, 30], 2.0) == 30
+    assert prebuild.forecast_over([10, 20, 30], 30 / 7) == pytest.approx(60)  # capped at 3 weeks
+    assert prebuild.forecast_over([10, 20, 30, 40], 2.5) == pytest.approx(45)
+
+
+def test_demand_sd_leaves_out_stockout_weeks() -> None:
+    series = pd.DataFrame(
+        {
+            "product_id": 1,
+            "units": [10, 20, 0, 30],
+            "is_stockout": [False, False, True, False],
+        }
+    )
+    assert prebuild.demand_sd(series, weeks=26, min_weeks=2)[1] == pytest.approx(10.0)
+    assert prebuild.demand_sd(series.head(1), weeks=26, min_weeks=2)[1] == 0.0
+
+
+def test_prebuild_formula_review_list_and_order() -> None:
+    inputs = small_inputs()
+    series = demand.weekly_series(inputs, impute_weeks=4)
+    weeks = [date(2026, 2, 2) + timedelta(weeks=w) for w in range(12)]
+    forecasts = pd.DataFrame(
+        [
+            {
+                "product_id": p,
+                "week_start": w,
+                "model": "AutoETS",
+                "forecast_qty": q,
+                "is_chosen": True,
+                "is_fallback": False,
+            }
+            for p, q in ((1, 5.0), (2, 1.0))
+            for w in weeks
+        ]
+    )
+    config = demand_config.load_config()
+    accuracy = pd.DataFrame(columns=["level", "product_id", "flag_bias", "bias", "wape"])
+    recs, review = prebuild.prebuild(inputs, series, forecasts, accuracy, config)
+    assert recs["sku"].tolist() == ["B-2", "A-1"]  # by days of cover: 4.7 vs 32
+    rec = recs.set_index("sku").loc["A-1"]
+    sd = pd.Series([3, 4, 0, 0]).std()
+    assert rec["safety_stock"] == pytest.approx(1.65 * sd * 2)
+    assert rec["prebuild_raw"] == pytest.approx(20 + 1.65 * sd * 2 - 8 - 0)
+    assert rec["recommended_units"] == math.ceil(rec["prebuild_raw"])
+    assert rec["status"] == "pending" and rec["rec_id"] == "20260201-A-1"
+    assert rec["lead_time_weeks"] == 4 and rec["forecast_lead_time"] == 20
+    assert review.empty
+
+    biased = pd.DataFrame(
+        [{"level": "product", "product_id": 1, "flag_bias": True, "bias": 0.3, "wape": 0.4}]
+    )
+    recs, review = prebuild.prebuild(inputs, series, forecasts, biased, config)
+    assert recs["sku"].tolist() == ["B-2"] and review["sku"].tolist() == ["A-1"]
+    assert "+30.0%" in review.iloc[0]["reason"]
+
+
+def test_prebuild_on_seed_data(demand_runs: dict) -> None:
+    result = demand_runs[AS_OF_MONTH_END]
+    recs = result.table("prebuild_recommendations")
+    assert (recs["recommended_units"] > 0).all() and (recs["status"] == "pending").all()
+    cover = recs["days_of_cover"].dropna().tolist()
+    assert cover == sorted(cover) and recs["rank"].tolist() == list(range(1, len(recs) + 1))
+    review = result.table("planner_review")
+    assert not set(review["sku"]) & set(recs["sku"])
+    flagged = result.table("forecast_accuracy").query("level == 'product' and flag_bias")
+    assert set(review["sku"]) == set(flagged["key"])
+
+
+@pytest.fixture
+def planning_copy(built: dict, demand_runs: dict, tmp_path: Path) -> Path:
+    """A copy of the 2026-09-30 planning database for tests that write decisions."""
+    import shutil
+
+    source = demand_runs[AS_OF_MONTH_END].planning_db
+    target = tmp_path / "planning.duckdb"
+    shutil.copy(source, target)
+    return target
+
+
+def first_rec_id(planning: Path) -> str:
+    """The rank-1 recommendation of 2026-09-30."""
+    with store.connect_read(planning) as con:
+        query = "SELECT rec_id FROM prebuild_recommendations WHERE as_of = $d AND rank = 1"
+        return con.execute(query, {"d": AS_OF_MONTH_END}).fetchone()[0]
+
+
+def test_approve_records_who_when_and_note(planning_copy: Path) -> None:
+    rec = first_rec_id(planning_copy)
+    approve.main(
+        [
+            "--id",
+            rec,
+            "--approve",
+            "--by",
+            "A. Planner",
+            "--note",
+            "ok",
+            "--planning-db",
+            str(planning_copy),
+        ]
+    )
+    with store.connect_read(planning_copy) as con:
+        status, by, at, note = con.execute(
+            "SELECT status, decided_by, decided_at_utc, note FROM prebuild_recommendations "
+            "WHERE rec_id = $r",
+            {"r": rec},
+        ).fetchone()
+        history = con.execute("SELECT decision, decided_by FROM prebuild_decisions").fetchall()
+    assert (status, by, note) == ("approved", "A. Planner", "ok") and at is not None
+    assert history == [("approved", "A. Planner")]
+
+
+def test_a_decision_is_final(planning_copy: Path) -> None:
+    rec = first_rec_id(planning_copy)
+    approve.decide(rec, "reject", "A. Planner", planning_db=planning_copy)
+    with pytest.raises(approve.ApprovalError, match="already rejected"):
+        approve.decide(rec, "approve", "B. Planner", planning_db=planning_copy)
+
+
+@pytest.mark.parametrize(
+    ("rec", "by", "message"),
+    [("nope", "A. Planner", "No pre-build"), (None, "  ", "--by")],
+)
+def test_bad_approvals_are_refused(
+    planning_copy: Path, rec: str | None, by: str, message: str
+) -> None:
+    with pytest.raises(approve.ApprovalError, match=message):
+        approve.decide(rec or first_rec_id(planning_copy), "approve", by, planning_db=planning_copy)
+
+
+def test_rerun_refuses_a_decided_snapshot_without_force(built: dict, planning_copy: Path) -> None:
+    rec = first_rec_id(planning_copy)
+    approve.decide(rec, "approve", "A. Planner", planning_db=planning_copy)
+    with pytest.raises(store.PlanningStoreError, match="--force"):
+        run.run_demand(AS_OF_MONTH_END, built["db_path"], planning_copy)
+    result = run.run_demand(AS_OF_MONTH_END, built["db_path"], planning_copy, force=True)
+    assert (result.table("prebuild_recommendations")["status"] == "pending").all()
+    with store.connect_read(planning_copy) as con:  # the history survives --force
+        assert con.execute("SELECT count(*) FROM prebuild_decisions").fetchone()[0] == 1
+
+
+def test_only_the_approval_cli_can_change_a_status() -> None:
+    root = Path(__file__).resolve().parents[1] / "src"
+    for folder in ("agent", "reports", "app"):
+        for path in (root / folder).rglob("*.py"):
+            text = path.read_text(encoding="utf-8")
+            assert "demand.approve" not in text and "import approve" not in text, path
+            assert "UPDATE prebuild_recommendations" not in text, path

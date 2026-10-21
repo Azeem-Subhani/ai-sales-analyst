@@ -578,3 +578,30 @@ text are marked **(clarified)**.
   products scored by both models: AutoETS 40.5%, SeasonalNaive 53.7%; chosen mix
   40.3%. Chosen: AutoETS 226, SeasonalNaive 21, recent_mean 3. A full
   `run_demand` takes about 98 seconds, almost all of it statsforecast.
+
+### Pre-build recommendations and approval
+- **Decision (2026-10-21):** `src/analytics/prebuild.py` follows the brief's formula
+  with our own chosen forecast (Step 5) and the latest stock snapshot on or before
+  as_of. Rules decided in the build:
+  - **Lead time** in weeks is `lead_time_days / 7`. A part week counts in proportion
+    (30 days = 4 full forecast weeks plus 2/7 of the fifth).
+  - **Safety stock sd** is the sample sd (n - 1) of weekly units over the last 26
+    weeks with stockout weeks left out. It is 0 when fewer than 2 weeks remain.
+  - **Rounding:** the formula result is stored unrounded (`prebuild_raw`), and the
+    recommended units are that result rounded up to a whole unit.
+  - **Planner review:** every product flagged for bias in forecast accuracy goes
+    to `planner_review`, whatever its pre-build result, and gets no recommendation.
+  - **Order:** by days of cover (on hand / average daily demand of the last 4
+    non-stockout weeks), lowest first; unknown cover last; ties by SKU.
+  - **Id:** `YYYYMMDD-SKU` (for example `20260930-SB-1042`), so a rerun keeps the id.
+- **Approval:** `python -m src.demand.approve --id <id> --approve|--reject --by
+  <name> [--note]`. Only a pending recommendation can be decided, once. The status
+  update and the `prebuild_decisions` row are written in one transaction. No code
+  in `src/agent`, `src/reports` or `src/app` imports the approval module (a test
+  checks this).
+- **Result on the seed-42 data:** 122 recommendations and 24 products for planner
+  review as of 2026-09-30; 96 and 24 as of 2026-09-27. SB-1042 Smart Bottle Pro:
+  327 units, 9.1 days of cover, **ranked 5th** as of 2026-09-30. Four smaller
+  products have less cover (AP-1007 5.0, AP-1002 5.3, AP-1003 7.5 and BE-1015 8.1
+  days). This is reported to the project owner at the acceptance step and no rule
+  is changed.

@@ -261,6 +261,7 @@ def write_snapshot(
         raise ValueError(f"Unknown planning tables: {sorted(unknown)}.")
     with _write_lock:
         con = connect_write(path)
+        in_transaction = False
         try:
             decided = decided_rec_ids(con, as_of)
             if decided and not force:
@@ -269,6 +270,7 @@ def write_snapshot(
                     "rerun with --force to replace it (the decisions stay in prebuild_decisions)."
                 )
             con.execute("BEGIN TRANSACTION")
+            in_transaction = True
             for table in ["demand_snapshots", *SNAPSHOT_TABLES]:
                 con.execute(f"DELETE FROM {table} WHERE as_of = $as_of", {"as_of": as_of})
             insert_frame(con, "demand_snapshots", pd.DataFrame([{"as_of": as_of, **snapshot}]))
@@ -276,7 +278,7 @@ def write_snapshot(
                 insert_frame(con, table, frame.assign(as_of=as_of))
             con.execute("COMMIT")
         except Exception:
-            if con.in_transaction:
+            if in_transaction:
                 con.execute("ROLLBACK")
             raise
         finally:
