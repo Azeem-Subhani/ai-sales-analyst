@@ -62,15 +62,6 @@ WEEKLY_DEMAND_SQL = """
 
 
 @pytest.fixture(scope="session")
-def built(tmp_path_factory: pytest.TempPathFactory) -> dict:
-    """Build the data once per test run into a temporary database."""
-    tables, issues = gen.build_tables(gen.SEED)
-    db_path = tmp_path_factory.mktemp("data") / "sales.duckdb"
-    gen.write_database(tables, db_path)
-    return {"tables": tables, "issues": issues, "db_path": db_path}
-
-
-@pytest.fixture(scope="session")
 def con(built: dict) -> Iterator[duckdb.DuckDBPyConnection]:
     """Read-only connection to the temporary database."""
     connection = duckdb.connect(str(built["db_path"]), read_only=True)
