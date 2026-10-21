@@ -135,3 +135,24 @@ text are marked **(clarified)**.
     the error is only logged and written to `report_runs`.
 - Every attempt is one row in `report_runs` in `data/audit.duckdb` (see Week 1
   follow-ups).
+
+## Week 4: LLM client, summaries and agent
+
+### Base branch is `main` (no `dev` yet)
+- **Decision:** `week-4-agent` was created from `main` (992d404, the merge of
+  `week-3-delivery`). Week 4 is merged back into `main` through a PR.
+- **Why:** the Week 4 brief says to branch from `dev`, but `origin` had no `dev`
+  branch on 2026-10-21. `week-3-delivery` was confirmed merged into `origin/main`.
+- **How to update:** if a `dev` branch is created later, rebase or merge
+  `week-4-agent` onto it and update this entry.
+
+### Fast provider routing: sort by throughput, not `:nitro`
+- **Decision:** every OpenRouter call sends
+  `extra_body={"provider": {"sort": "throughput"}}`. `.env` holds plain model IDs
+  with no `:nitro` suffix.
+- **Why:** this keeps model IDs clean and switching models a `.env` change.
+- **Difference from `:nitro` (OpenRouter provider-routing docs, checked
+  2026-10-21):** `:nitro` is a superset of `sort: "throughput"`. It also makes
+  priority-service-tier endpoints eligible, which `sort` alone does not. Setting
+  `sort` also turns off OpenRouter's default price-weighted load balancing, so
+  providers are tried fastest first. Chosen by the project owner.
