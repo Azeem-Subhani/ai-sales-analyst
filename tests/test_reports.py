@@ -1,0 +1,199 @@
+"""Report builder tests (plan sections 7, 8 and 13).
+
+Builds the three reports from a freshly generated seed-42 database (shared `built`
+fixture in conftest.py) into a temporary folder, then checks the HTML, numbers,
+Excel file and charts. Also checks the planted Apparel decline is visible.
+"""
+
+import html
+import io
+import re
+from datetime import date
+from pathlib import Path
+
+import matplotlib.image as mpimg
+import openpyxl
+import pytest
+import yaml
+
+from src.reports import builder
+from src.reports.builder import Report
+
+AS_OF = {
+    "daily_sales_snapshot": date(2026, 9, 29),
+    "weekly_sales_review": date(2026, 9, 27),
+    "monthly_business_review": date(2026, 8, 31),
+}
+EXCEL_SHEETS = [
+    "KPIs",
+    "Categories",
+    "Channels",
+    "Regions",
+    "Customer types",
+    "Top products",
+    "Top customers",
+]
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+EXPECTED_CHART_WIDTH_PX = 1200  # 6 inches at 200 dpi
+NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")
+TAG = re.compile(r"<[^>]+>")
+
+
+@pytest.fixture(scope="module")
+def reports(built: dict, tmp_path_factory: pytest.TempPathFactory) -> dict[str, Report]:
+    """All three reports built once from the generated database."""
+    out = tmp_path_factory.mktemp("reports")
+    return {
+        name: builder.build_report(name, as_of, db_path=built["db_path"], output_root=out)
+        for name, as_of in AS_OF.items()
+    }
+
+
+def visible_text(page: str) -> str:
+    """The text a reader sees: tags removed, entities decoded."""
+    return html.unescape(TAG.sub(" ", page))
+
+
+def leaves(value: object) -> list[object]:
+    """Every scalar inside a nested dict/list."""
+    if isinstance(value, dict):
+        return [leaf for v in value.values() for leaf in leaves(v)]
+    if isinstance(value, list):
+        return [leaf for v in value for leaf in leaves(v)]
+    return [value]
+
+
+def allowed_numbers(numbers: dict) -> set[str]:
+    """Every numeric token the HTML may show, derived from Report.numbers only.
+
+    Numbers are allowed in any of the builder's formats; text values (labels, dates,
+    section titles) contribute the digits they contain.
+    """
+    allowed: set[str] = set()
+    for leaf in leaves(numbers):
+        if isinstance(leaf, bool) or leaf is None:
+            continue
+        if isinstance(leaf, int | float):
+            shown = [
+                builder.fmt_money(leaf),
+                builder.fmt_count(leaf),
+                builder.fmt_pct(leaf),
+                builder.fmt_change(leaf, "pct"),
+                builder.fmt_change(leaf, "pp"),
+            ]
+        else:
+            shown = [str(leaf)]
+        for text in shown:
+            allowed.update(NUMBER.findall(text))
+    # Fixed wording outside the numbers: the Week 4 summary placeholder.
+    allowed.update(NUMBER.findall(builder.SUMMARY_PLACEHOLDER))
+    return allowed
+
+
+@pytest.mark.parametrize("name", list(AS_OF))
+def test_no_template_tags_left(reports: dict[str, Report], name: str) -> None:
+    page = reports[name].html
+    for tag in ("{{", "}}", "{%", "%}", "{#", "#}"):
+        assert tag not in page
+
+
+@pytest.mark.parametrize("name", list(AS_OF))
+def test_every_number_in_html_comes_from_numbers(reports: dict[str, Report], name: str) -> None:
+    report = reports[name]
+    shown = set(NUMBER.findall(visible_text(report.html)))
+    unexplained = shown - allowed_numbers(report.numbers)
+    assert not unexplained, f"numbers in HTML not in Report.numbers: {sorted(unexplained)}"
+
+
+@pytest.mark.parametrize("name", list(AS_OF))
+def test_headline_net_revenue_is_shown(reports: dict[str, Report], name: str) -> None:
+    report = reports[name]
+    kpi_section = next(s for s in report.numbers["sections"].values() if s["type"] == "kpis")
+    net = next(r for r in kpi_section["rows"] if r["kpi"] == "net_revenue")
+    assert net["current"] > 0
+    assert builder.fmt_money(net["current"]) in visible_text(report.html)
+
+
+@pytest.mark.parametrize("name", list(AS_OF))
+def test_placeholders_present(reports: dict[str, Report], name: str) -> None:
+    text = visible_text(reports[name].html)
+    assert builder.SUMMARY_PLACEHOLDER in text
+    if name == "weekly_sales_review":
+        assert "Demand alerts" in text and builder.DEMAND_ALERTS_PLACEHOLDER in text
+
+
+def test_daily_has_no_charts_or_excel(reports: dict[str, Report]) -> None:
+    report = reports["daily_sales_snapshot"]
+    assert report.images == {}
+    assert report.excel_path is None
+
+
+@pytest.mark.parametrize("name", ["weekly_sales_review", "monthly_business_review"])
+def test_excel_sheets_and_formats(reports: dict[str, Report], name: str) -> None:
+    path = reports[name].excel_path
+    assert path is not None and path.exists()
+    workbook = openpyxl.load_workbook(path)
+    assert workbook.sheetnames == EXCEL_SHEETS
+    for sheet in workbook.worksheets:
+        assert sheet.freeze_panes == "A2"
+    categories = workbook["Categories"]
+    headers = [c.value for c in categories[1]]
+    assert categories.cell(2, headers.index("Net revenue") + 1).number_format == "#,##0.00"
+    assert categories.cell(2, headers.index("Share") + 1).number_format == "0.0%"
+
+
+@pytest.mark.parametrize(
+    ("name", "charts"),
+    [
+        ("weekly_sales_review", {"revenue_trend_13w", "revenue_by_category"}),
+        ("monthly_business_review", {"revenue_trend_12m", "margin_by_category"}),
+    ],
+)
+def test_charts_are_valid_pngs(reports: dict[str, Report], name: str, charts: set[str]) -> None:
+    report = reports[name]
+    assert set(report.images) == charts
+    for cid, png in report.images.items():
+        assert png.startswith(PNG_SIGNATURE)
+        assert mpimg.imread(io.BytesIO(png), format="png").shape[1] == EXPECTED_CHART_WIDTH_PX
+        assert f'src="cid:{cid}"' in report.html
+
+
+@pytest.mark.parametrize("name", list(AS_OF))
+def test_dry_run_files_open_in_a_browser(reports: dict[str, Report], name: str) -> None:
+    report = reports[name]
+    saved = (report.output_dir / builder.HTML_FILENAME).read_text(encoding="utf-8")
+    assert "cid:" not in saved
+    for cid in report.images:
+        assert (report.output_dir / f"{cid}.png").exists()
+
+
+def test_planted_apparel_decline_visible_in_weekly(reports: dict[str, Report]) -> None:
+    report = reports["weekly_sales_review"]
+    rows = report.numbers["sections"]["category_breakdown"]["rows"]
+    apparel = next(r for r in rows if r["value"] == "Apparel")
+    assert apparel["net_revenue_change"] < 0
+    assert builder.fmt_change(apparel["net_revenue_change"], "pct").startswith("-")
+    assert builder.fmt_change(apparel["net_revenue_change"], "pct") in report.html
+
+
+@pytest.mark.parametrize(
+    ("name", "as_of"),
+    [
+        ("weekly_sales_review", date(2026, 9, 26)),  # a Saturday
+        ("monthly_business_review", date(2026, 9, 29)),  # not a month end
+        ("weekly_sales_review", date(2026, 10, 4)),  # after the last order
+        ("no_such_report", date(2026, 9, 27)),
+    ],
+)
+def test_bad_requests_are_rejected(built: dict, tmp_path: Path, name: str, as_of: date) -> None:
+    with pytest.raises(ValueError):
+        builder.build_report(name, as_of, db_path=built["db_path"], output_root=tmp_path)
+
+
+def test_unknown_query_name_in_config_is_rejected(tmp_path: Path) -> None:
+    config = yaml.safe_load(builder.CONFIG_PATH.read_text(encoding="utf-8"))
+    config["weekly_sales_review"]["queries"].append("top_widgets")
+    path = tmp_path / "reports.yaml"
+    path.write_text(yaml.safe_dump(config), encoding="utf-8")
+    with pytest.raises(ValueError, match="top_widgets"):
+        builder.load_config(path)

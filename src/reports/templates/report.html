@@ -1,1 +1,70 @@
-{# Jinja2 HTML email template (Week 2): summary, KPI table, charts, top-10 tables. #}
+<!DOCTYPE html>
+{#- Report email (plan section 8). Gmail-safe: table layout, inline styles only, no external
+    CSS or JavaScript. Every value comes pre-formatted from builder.py, which builds it from
+    Report.numbers. Changes always carry a + or - sign; colour only reinforces it. -#}
+{%- set ink = "#0b0b0b" -%}
+{%- set muted = "#52514e" -%}
+{%- set rule = "#e4e2dc" -%}
+{%- set band = "#f4f3ef" -%}
+{%- set tones = {"good": "#1a7f37", "bad": "#c4312f", "flat": ink} -%}
+{%- set font = "font-family:Arial,Helvetica,sans-serif;" -%}
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ numbers.subject }}</title>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;">
+<tr><td align="center" style="padding:16px 8px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:640px;width:100%;{{ font }}color:{{ ink }};">
+
+<tr><td style="padding:0 0 4px 0;font-size:20px;font-weight:bold;{{ font }}">{{ numbers.title }}</td></tr>
+<tr><td style="padding:0 0 16px 0;font-size:14px;color:{{ muted }};{{ font }}">{{ numbers.period.label }}
+{%- for comparison in numbers.comparisons.values() %}{% if loop.first %} &middot; compared with {% else %} and {% endif %}{{ comparison.name }} ({{ comparison.label }}){% endfor %}</td></tr>
+
+{#- Summary slot: the LLM summary goes here in Week 4. #}
+<tr><td style="padding:12px;background:{{ band }};border-left:4px solid {{ rule }};font-size:14px;color:{{ muted }};{{ font }}">
+{%- if numbers.summary %}{{ numbers.summary }}{% else %}<em>{{ summary_placeholder }}</em>{% endif -%}
+</td></tr>
+
+{%- for block in blocks %}
+<tr><td style="padding:24px 0 6px 0;font-size:{{ '14px' if block.get('minor') else '16px' }};font-weight:bold;{{ font }}">{{ block.title }}</td></tr>
+{%- if block.get('note') %}
+<tr><td style="padding:0 0 6px 0;font-size:12px;color:{{ muted }};{{ font }}">{{ block.note }}</td></tr>
+{%- endif %}
+{%- if block.get('chart') %}
+<tr><td style="padding:0;">
+<img src="cid:{{ block.chart }}" alt="{{ block.title }}" width="{{ block.width }}" style="display:block;width:100%;max-width:{{ block.width }}px;height:auto;border:0;">
+</td></tr>
+{%- elif block.get('placeholder') %}
+<tr><td style="padding:10px 12px;border:1px dashed {{ rule }};font-size:13px;color:{{ muted }};{{ font }}"><em>{{ block.placeholder }}</em></td></tr>
+{%- else %}
+<tr><td style="padding:0;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;font-size:12px;{{ font }}">
+<tr>
+{%- for heading in block.header %}
+<th align="{{ 'left' if loop.first or heading in ('Product', 'Customer', 'Category', 'Type') else 'right' }}" style="padding:5px 3px;border-bottom:2px solid {{ rule }};color:{{ muted }};font-weight:bold;font-size:11px;">{{ heading }}</th>
+{%- endfor %}
+</tr>
+{%- for row in block.rows %}
+<tr>
+{%- for c in row %}
+<td align="{{ c.align }}" style="padding:5px 3px;border-bottom:1px solid {{ rule }};text-align:{{ c.align }};color:{{ tones[c.tone] }};{{ 'white-space:nowrap;' if c.align == 'right' }}">{{ c.text }}</td>
+{%- endfor %}
+</tr>
+{%- endfor %}
+</table>
+</td></tr>
+{%- endif %}
+{%- endfor %}
+
+<tr><td style="padding:24px 0 0 0;font-size:11px;color:{{ muted }};{{ font }}">
+Net revenue counts completed orders only (returned and cancelled orders excluded). Changes are percent, or percentage points (pp) for rates; n/a means there is nothing to compare with. Data as of {{ numbers.as_of }}.
+</td></tr>
+
+</table>
+</td></tr>
+</table>
+</body>
+</html>

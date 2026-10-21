@@ -1,28 +1,57 @@
 # Scheduled reports (plan sections 7 and 8). Adding a report = adding a block here.
 # Times use TIMEZONE from .env. REPORT_MODE=dry_run saves to outputs/reports/ instead
 # of emailing. During the build, recipients list only the project owner.
-# Query and chart names are placeholders until Week 2 builds them.
+#
+# period:     day | week | month. The report covers the period ending on as_of.
+# queries:    section names from QUERY_SECTIONS in src/reports/builder.py, in display order.
+# compare_to: comparison names from COMPARISONS in src/analytics/kpis.py; the first one
+#             is used for the change columns in top-product/customer and breakdown tables.
+# charts:     chart names from CHARTS in src/reports/builder.py.
+# The builder rejects unknown names, so a typo fails loudly instead of dropping a section.
 
 daily_sales_snapshot:
+  title: Daily sales snapshot
+  period: day
   schedule: { day_of_week: mon-fri, hour: 7, minute: 0 }
-  queries: [kpis_day, top_products_5, cancellations_day]
+  queries: [kpis_day, top_products_5]
   compare_to: [same_weekday_last_week]
-  charts: [revenue_trend_14d]
+  charts: []
   attach_excel: false
   recipients: [you@example.com]
 
 weekly_sales_review:
+  title: Weekly sales review
+  period: week
   schedule: { day_of_week: mon, hour: 8, minute: 0 }
-  queries: [kpis_week, category_breakdown, channel_breakdown, top_products, top_customers, demand_alerts]
+  queries:
+    - kpis_week
+    - category_breakdown
+    - channel_breakdown
+    - region_breakdown
+    - customer_type_breakdown
+    - top_products
+    - top_customers
+    - demand_alerts
   compare_to: [previous_week, same_week_last_year]
   charts: [revenue_trend_13w, revenue_by_category]
   attach_excel: true
   recipients: [you@example.com]
 
 monthly_business_review:
+  title: Monthly business review
+  period: month
   schedule: { day: 1, hour: 8, minute: 0 }
-  queries: [kpis_month, margin_by_category, customer_growth, forecast_accuracy]
+  queries:
+    - kpis_month
+    - margin_by_category
+    - channel_breakdown
+    - region_breakdown
+    - customer_type_breakdown
+    - customer_growth
+    - top_products
+    - top_customers
+    - forecast_accuracy
   compare_to: [previous_month, same_month_last_year]
-  charts: [revenue_trend_12m, margin_by_category, new_vs_returning]
+  charts: [revenue_trend_12m, margin_by_category]
   attach_excel: true
   recipients: [you@example.com]
