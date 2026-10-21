@@ -1,0 +1,14 @@
+# Tool settings only. Dependencies live in requirements.txt / requirements-dev.txt.
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+# docs/project_plan.md is read-only; ruff would otherwise reformat its code blocks.
+extend-exclude = ["docs"]
+
+[tool.ruff.lint]
+# Default rules plus import sorting, pyupgrade and common bug patterns.
+extend-select = ["I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

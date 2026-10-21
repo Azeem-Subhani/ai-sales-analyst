@@ -1,0 +1,13 @@
+---
+description: Use when adding a scheduled report, adding an agent tool, changing the dummy data generator, or comparing or switching LLM models
+alwaysApply: false
+---
+
+For these tasks, read the matching checklist and follow every step in order:
+
+- Adding or changing a scheduled report: `.claude/skills/add-report/SKILL.md`
+- Adding or changing an agent tool: `.claude/skills/add-agent-tool/SKILL.md`
+- Changing the dummy data generator: `.claude/skills/update-dummy-data/SKILL.md`
+- Comparing or switching models: `.claude/skills/compare-models/SKILL.md`
+
+These files are shared with Claude Code. Edit the checklist there, not here.

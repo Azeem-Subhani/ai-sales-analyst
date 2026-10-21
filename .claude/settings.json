@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Edit(./.env)",
+      "Write(./.env)",
+      "Read(./data/*.duckdb)",
+      "Edit(./data/*.duckdb)",
+      "Write(./data/*.duckdb)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git push origin --force:*)",
+      "Bash(git push origin -f:*)",
+      "Bash(rm -rf:*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py=\"$CLAUDE_PROJECT_DIR/.venv/bin/python\"; [ -x \"$py\" ] || py=\"$CLAUDE_PROJECT_DIR/.venv/Scripts/python.exe\"; [ -x \"$py\" ] || py=python; \"$py\" \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_edits.py\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py=\"$CLAUDE_PROJECT_DIR/.venv/bin/python\"; [ -x \"$py\" ] || py=\"$CLAUDE_PROJECT_DIR/.venv/Scripts/python.exe\"; [ -x \"$py\" ] || py=python; \"$py\" \"$CLAUDE_PROJECT_DIR/.claude/hooks/format_python.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
