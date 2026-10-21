@@ -605,3 +605,25 @@ text are marked **(clarified)**.
   products have less cover (AP-1007 5.0, AP-1002 5.3, AP-1003 7.5 and BE-1015 8.1
   days). This is reported to the project owner at the acceptance step and no rule
   is changed.
+
+### Demand sections in the reports
+- **Decision (2026-10-21):** `src/reports/demand_sections.py` builds the sections from
+  the snapshot for the report's own as_of (`get_or_run`: reused if stored, otherwise
+  computed, which adds about 100 seconds to that report). The scheduler is unchanged.
+  - **Weekly and monthly, "Demand alerts":** overdue customers (serious and overdue
+    together, by 365-day revenue), declining customers, flagged categories, stock
+    alerts, forecast-accuracy flags (largest bias first), pending pre-build
+    recommendations (by days of cover) and the planner-review list. The email
+    shows 10 rows per list and "and N more". The "Demand alerts" Excel sheet has
+    every row of every list in one table, with a List column, plus the new
+    high-value and segment-change lists, which are not in the email.
+  - **Monthly, "Forecast accuracy":** overall, by category and flagged products in
+    the email; the Excel sheet adds every product.
+  - The daily snapshot has no demand sections.
+  - **Summaries:** each list's count and first 3 rows are added to the summary
+    input as text lines. The number guard is unchanged; it now also accepts the
+    numbers in those lines.
+  - The template gained one optional element, a muted footer line under a table
+    (the "and N more").
+- **Test time:** the report and demand tests fit forecasts for 2026-08-31 and
+  2026-09-27/30 (about 100 seconds each), so `pytest` now takes about 4 minutes.

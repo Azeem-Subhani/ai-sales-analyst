@@ -80,6 +80,7 @@ def allowed_numbers(numbers: dict) -> set[str]:
                 builder.fmt_pct(leaf),
                 builder.fmt_change(leaf, "pct"),
                 builder.fmt_change(leaf, "pp"),
+                builder.fmt_days(leaf),
             ]
         else:
             shown = [str(leaf)]
@@ -118,8 +119,29 @@ def test_headline_net_revenue_is_shown(reports: dict[str, Report], name: str) ->
 def test_placeholders_present(reports: dict[str, Report], name: str) -> None:
     text = visible_text(reports[name].html)
     assert builder.SUMMARY_PLACEHOLDER in text
-    if name == "weekly_sales_review":
-        assert "Demand alerts" in text and builder.DEMAND_ALERTS_PLACEHOLDER in text
+    assert "Added in Week 5" not in text  # the Week 2 placeholders are filled
+
+
+def test_demand_sections_by_report(reports: dict[str, Report]) -> None:
+    sections = {name: set(r.numbers["sections"]) for name, r in reports.items()}
+    assert "demand_alerts" not in sections["daily_sales_snapshot"]
+    assert "forecast_accuracy" not in sections["daily_sales_snapshot"]
+    assert "demand_alerts" in sections["weekly_sales_review"]
+    assert {"demand_alerts", "forecast_accuracy"} <= sections["monthly_business_review"]
+
+
+def test_demand_lists_are_cut_at_10_rows_with_and_n_more(reports: dict[str, Report]) -> None:
+    report = reports["weekly_sales_review"]
+    overdue = next(
+        g for g in report.numbers["sections"]["demand_alerts"]["groups"] if g["key"] == "overdue"
+    )
+    assert overdue["count"] > 10 and len(overdue["rows"]) == overdue["count"]  # all stored
+    text = visible_text(report.html)
+    assert overdue["more"] == overdue["count"] - 10
+    assert f"and {builder.fmt_count(overdue['more'])} more" in text
+    sheet = openpyxl.load_workbook(report.excel_path)["Demand alerts"]
+    lists = [row[0] for row in sheet.iter_rows(min_row=2, values_only=True)]
+    assert lists.count(overdue["title"]) == overdue["count"]
 
 
 def test_daily_has_no_charts_or_excel(reports: dict[str, Report]) -> None:
@@ -133,7 +155,11 @@ def test_excel_sheets_and_formats(reports: dict[str, Report], name: str) -> None
     path = reports[name].excel_path
     assert path is not None and path.exists()
     workbook = openpyxl.load_workbook(path)
-    assert workbook.sheetnames == EXCEL_SHEETS
+    demand_sheets = {
+        "weekly_sales_review": ["Demand alerts"],
+        "monthly_business_review": ["Demand alerts", "Forecast accuracy"],
+    }
+    assert workbook.sheetnames == EXCEL_SHEETS + demand_sheets[name]
     for sheet in workbook.worksheets:
         assert sheet.freeze_panes == "A2"
     categories = workbook["Categories"]

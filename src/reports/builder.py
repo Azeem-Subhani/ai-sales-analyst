@@ -24,6 +24,8 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
+from types import ModuleType
+from typing import Any
 
 import matplotlib
 
@@ -52,8 +54,6 @@ HTML_FILENAME = "report.html"
 RESERVED_CONFIG_KEYS = {"delivery"}
 
 SUMMARY_PLACEHOLDER = "Summary unavailable for this run"
-DEMAND_ALERTS_PLACEHOLDER = "Added in Week 5"
-FORECAST_ACCURACY_PLACEHOLDER = "Added in Week 5"
 
 TOP_N = 10
 DAILY_TOP_N = 5
@@ -109,6 +109,7 @@ EXCEL_FORMATS = {
     "count": "#,##0",
     "rate": "0.0%",
     "change": "+0.0;-0.0;0.0",
+    "days": "0.0",
 }
 
 # Chart look: one blue series for the current period, warm gray for the comparison,
@@ -229,6 +230,11 @@ def fmt_count(value: float | None) -> str:
     return "n/a" if value is None else f"{value:,.0f}"
 
 
+def fmt_days(value: float | None) -> str:
+    """Days with one decimal: 9.087 -> '9.1' (days of cover, usual order gap)."""
+    return "n/a" if value is None else f"{value:,.1f}"
+
+
 def fmt_pct(value: float | None) -> str:
     """A rate stored as a fraction: 0.4314 -> '43.1%'."""
     return "n/a" if value is None else f"{value * 100:.1f}%"
@@ -281,6 +287,9 @@ class Context:
     con: duckdb.DuckDBPyConnection
     period: kpis.Period
     comparisons: dict[str, kpis.Period]
+    as_of: date | None = None
+    db_path: Path = kpis.DB_PATH
+    demand: Any = None  # the demand snapshot, loaded by the first section that needs it
 
     @property
     def primary(self) -> str:
@@ -443,6 +452,13 @@ def placeholder_section(title: str, note: str) -> dict:
     return {"type": "placeholder", "title": title, "note": note}
 
 
+def demand_sections() -> ModuleType:
+    """src.reports.demand_sections, imported on use (it uses this module's formatters)."""
+    from src.reports import demand_sections as module
+
+    return module
+
+
 # Query name in reports.yaml -> function building that section's numbers.
 QUERY_SECTIONS: dict[str, Callable[[Context], dict]] = {
     "kpis_day": lambda ctx: kpi_section(ctx, DAILY_KPIS),
@@ -467,10 +483,8 @@ QUERY_SECTIONS: dict[str, Callable[[Context], dict]] = {
     "top_products_5": lambda ctx: top_section(ctx, "products", DAILY_TOP_N),
     "top_customers": lambda ctx: top_section(ctx, "customers", TOP_N),
     "customer_growth": customer_growth_section,
-    "demand_alerts": lambda ctx: placeholder_section("Demand alerts", DEMAND_ALERTS_PLACEHOLDER),
-    "forecast_accuracy": lambda ctx: placeholder_section(
-        "Forecast accuracy", FORECAST_ACCURACY_PLACEHOLDER
-    ),
+    "demand_alerts": lambda ctx: demand_sections().demand_alerts_section(ctx),
+    "forecast_accuracy": lambda ctx: demand_sections().forecast_accuracy_section(ctx),
 }
 
 
@@ -726,6 +740,8 @@ def section_views(section: dict, comparisons: list[str]) -> list[dict]:
         return [breakdown_table_view(section)]
     if section["type"] == "top":
         return top_table_views(section)
+    if section["type"] == "groups":
+        return demand_sections().group_views(section)
     return [{"title": section["title"], "placeholder": section["note"]}]
 
 
@@ -765,6 +781,8 @@ def excel_frames(numbers: dict) -> list[tuple[str, pd.DataFrame, dict[str, str]]
             frames.append((EXCEL_SHEETS[section["dimension"]], *breakdown_frame(section)))
         elif section["type"] == "top":
             frames.append((EXCEL_SHEETS[f"top_{section['entity']}"], *top_frame(section)))
+        elif section["type"] == "groups":
+            frames.append(demand_sections().excel_frame(section))
     return frames
 
 
@@ -894,7 +912,7 @@ def build_report(
         last = kpis.last_order_date(con)
         if as_of > last:
             raise ValueError(f"as_of {as_of} is after the last order date {last}.")
-        ctx = Context(con, period, comparisons)
+        ctx = Context(con, period, comparisons, as_of=as_of, db_path=db_path)
         sections = {query: QUERY_SECTIONS[query](ctx) for query in block["queries"]}
         images, charts = {}, {}
         for chart in block.get("charts", []):

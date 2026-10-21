@@ -57,6 +57,7 @@ monthly_business_review:
     - customer_growth
     - top_products
     - top_customers
+    - demand_alerts
     - forecast_accuracy
   compare_to: [previous_month, same_month_last_year]
   charts: [revenue_trend_12m, margin_by_category]
