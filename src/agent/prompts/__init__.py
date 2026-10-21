@@ -5,10 +5,12 @@ time instead of being typed by hand:
 - table schemas and useful column values, read from sales.duckdb (read-only);
 - KPI definitions, copied from docs/decisions.md (the agreed source);
 - "today": DATA_END_DATE when set (the dummy data ends 2026-09-30), else the real date;
+- what "last month", "this week" and so on mean: the latest complete periods on or
+  before "today", worked out here so the model never does date arithmetic;
 - the 5 example question/SQL pairs in examples.yaml, which tests run against the data.
 """
 
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import yaml
@@ -40,6 +42,29 @@ DISTINCT_SQL = "SELECT DISTINCT {column} FROM {table} ORDER BY 1"
 def today(data_end: date | None = None) -> date:
     """DATA_END_DATE if set (the agent's "today"), else the real date."""
     return data_end or data_clock.data_end_from_env() or date.today()
+
+
+def relative_periods(end: date) -> str:
+    """The latest complete day, week and month on or before end, as prompt lines.
+
+    With end 2026-09-30: last month = September 2026, last week = 21-27 Sep 2026.
+    "This week" and "this month" mean the same latest complete period, because the
+    data has no partial periods after end.
+    """
+    week_end = data_clock.last_sunday_on_or_before(end)
+    week_start = week_end - timedelta(days=kpis.DAYS_IN_WEEK - 1)
+    month_end = data_clock.last_month_end_on_or_before(end)
+    month_start = month_end.replace(day=1)
+    day = f'   - "today", "yesterday", "latest day": {end:%d %b %Y} ({end.isoformat()})'
+    week = (
+        f'   - "this week", "last week", "latest week": {week_start:%d %b} to '
+        f"{week_end:%d %b %Y} ({week_start.isoformat()} to {week_end.isoformat()})"
+    )
+    month = (
+        f'   - "this month", "last month", "latest month": {month_start:%B %Y} '
+        f"({month_start.isoformat()} to {month_end.isoformat()})"
+    )
+    return f"{day}\n{week}\n{month}"
 
 
 def table_schemas(db_path: Path) -> str:
@@ -94,6 +119,7 @@ def build_system_prompt(db_path: Path = kpis.DB_PATH, data_end: date | None = No
     return template.format(
         today=today(end).isoformat(),
         data_end=end.isoformat() if end else "the latest order date",
+        relative_periods=relative_periods(today(end)),
         kpi_definitions=kpi_definitions(),
         schemas=table_schemas(db_path),
         column_values=column_values(db_path),

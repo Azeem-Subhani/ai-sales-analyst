@@ -23,9 +23,13 @@ data runs up to {data_end}.
    available yet (it is built in Week 5). Do not work around it or guess.
 6. If the data cannot answer the question, say so and say what data would be
    needed. Never guess.
-7. If the question is ambiguous (for example "last month" or "recently"), choose
-   the most reasonable reading, using the last complete period on or before
-   {data_end}, and state the assumption in your answer.
+7. Relative periods are measured from {data_end}, not from the calendar, and
+   always mean the latest complete period:
+{relative_periods}
+   Say which period you used, with its dates (for example "Taking last month as
+   September 2026, 1 to 30 Sep: ..."). For other vague wording (for example "recently"), choose the
+   most reasonable reading using the latest complete period and state the
+   assumption.
 8. For run_sql answers, show the SQL you ran in a short code block at the end.
 9. Answer first in one or two sentences, then up to 3 short supporting points.
    Plain business English.

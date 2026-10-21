@@ -3,8 +3,8 @@
 agent_log has one row per question; agent_tool_calls has one row per tool call,
 linked by question_id. Like report_runs, they live in audit.duckdb, never in
 sales.duckdb, and the agent's own database connection never sees them. Timestamps are
-UTC. Inserts name their columns, so columns can be added later without breaking
-older files.
+UTC. Inserts name their columns, and new columns are added to older files by
+MIGRATIONS, so an existing audit.duckdb keeps working.
 """
 
 import threading
@@ -32,9 +32,16 @@ CREATE TABLE IF NOT EXISTS agent_log (
     latency_seconds   DOUBLE NOT NULL,
     stopped_early     VARCHAR,            -- NULL | tool_limit | time_limit
     final_answer      VARCHAR,
-    error             VARCHAR
+    error             VARCHAR,
+    answer_guard      VARCHAR,            -- ok | retried_ok | withheld | not_run (wrap-up)
+    answer_guard_failed VARCHAR           -- numbers no tool returned, comma-separated
 )
 """
+# Week 4 wrap-up: the answer number guard. NULL for questions logged before it.
+MIGRATIONS = [
+    "ALTER TABLE agent_log ADD COLUMN IF NOT EXISTS answer_guard VARCHAR",
+    "ALTER TABLE agent_log ADD COLUMN IF NOT EXISTS answer_guard_failed VARCHAR",
+]
 CREATE_AGENT_TOOL_CALLS = """
 CREATE TABLE IF NOT EXISTS agent_tool_calls (
     question_id       VARCHAR NOT NULL,
@@ -52,11 +59,11 @@ INSERT_AGENT_LOG = """
 INSERT INTO agent_log (
     question_id, asked_at_utc, question, model, fallback_used, tool_call_count,
     input_tokens, output_tokens, total_tokens, cost_usd, latency_seconds,
-    stopped_early, final_answer, error
+    stopped_early, final_answer, error, answer_guard, answer_guard_failed
 ) VALUES (
     $question_id, $asked_at_utc, $question, $model, $fallback_used, $tool_call_count,
     $input_tokens, $output_tokens, $total_tokens, $cost_usd, $latency_seconds,
-    $stopped_early, $final_answer, $error
+    $stopped_early, $final_answer, $error, $answer_guard, $answer_guard_failed
 )
 """
 INSERT_TOOL_CALL = """
@@ -92,6 +99,8 @@ class QuestionRecord:
     stopped_early: str | None
     final_answer: str | None
     error: str | None
+    answer_guard: str | None = None
+    answer_guard_failed: str | None = None
 
 
 @dataclass
@@ -118,6 +127,8 @@ def record_question(
     db_path.parent.mkdir(parents=True, exist_ok=True)
     with _write_lock, duckdb.connect(str(db_path)) as con:
         con.execute(CREATE_AGENT_LOG)
+        for migration in MIGRATIONS:
+            con.execute(migration)
         con.execute(CREATE_AGENT_TOOL_CALLS)
         con.execute(INSERT_AGENT_LOG, asdict(question))
         for call in tool_calls:

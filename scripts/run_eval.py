@@ -69,6 +69,8 @@ class QuestionResult:
     stopped_early: str | None
     error: str | None
     rate_limited: int = 0  # times this question hit HTTP 429 and was asked again
+    answer_guard: str | None = None  # ok | retried_ok | withheld | not_run
+    answer_guard_failed: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -110,6 +112,8 @@ class EvalRun:
             "undecided": [r.id for r in self.undecided],
             "fallback_used": [r.id for r in self.results if r.fallback_used],
             "rate_limited_429": sum(r.rate_limited for r in self.results),
+            "answer_guard_retried": [r.id for r in self.results if r.answer_guard == "retried_ok"],
+            "answer_guard_withheld": [r.id for r in self.results if r.answer_guard == "withheld"],
             "median_latency_seconds": round(statistics.median(latencies), 2) if latencies else None,
             "p90_latency_seconds": round(percentile(latencies, P90), 2) if latencies else None,
             "total_cost_usd": round(self.spend, 6),
@@ -176,6 +180,8 @@ def grade_answer(question: dict, answer: agent.AgentAnswer) -> QuestionResult:
         latency_seconds=answer.latency_seconds,
         stopped_early=answer.stopped_early,
         error=answer.error,
+        answer_guard=answer.answer_guard,
+        answer_guard_failed=answer.answer_guard_failed,
     )
 
 

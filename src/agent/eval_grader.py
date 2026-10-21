@@ -16,8 +16,8 @@ Checks for one question:
 
 Result: correct (True) when every check passes; wrong (False) when fewer than half
 pass, or the agent errored; undecided (None) otherwise, for a human to review.
-Questions with alternatives (e.g. "last month") are graded against each alternative
-and the best one counts.
+Questions with alternatives (none in the current set) are graded against each
+alternative and the best one counts.
 """
 
 import re
