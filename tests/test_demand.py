@@ -72,6 +72,7 @@ def small_inputs(as_of: date = date(2026, 2, 1)) -> demand.DemandInputs:
             "category": ["X", "Y"],
             "launch_date": [date(2025, 1, 1), date(2026, 1, 7)],
             "lead_time_days": [28, None],
+            "unit_price": [10.0, 2.5],
         }
     )
     inventory = pd.DataFrame(
@@ -457,13 +458,15 @@ def test_prebuild_formula_review_list_and_order() -> None:
     config = demand_config.load_config()
     accuracy = pd.DataFrame(columns=["level", "product_id", "flag_bias", "bias", "wape"])
     recs, review = prebuild.prebuild(inputs, series, forecasts, accuracy, config)
-    assert recs["sku"].tolist() == ["B-2", "A-1"]  # by days of cover: 4.7 vs 32
+    assert recs["sku"].tolist() == ["B-2", "A-1"]  # B-2 urgent (4.7 < 28 days), A-1 not
+    assert recs["priority"].tolist() == ["urgent", "normal"]
     rec = recs.set_index("sku").loc["A-1"]
     sd = pd.Series([3, 4, 0, 0]).std()
     assert rec["safety_stock"] == pytest.approx(1.65 * sd * 2)
     assert rec["prebuild_raw"] == pytest.approx(20 + 1.65 * sd * 2 - 8 - 0)
     assert rec["recommended_units"] == math.ceil(rec["prebuild_raw"])
     assert rec["status"] == "pending" and rec["rec_id"] == "20260201-A-1"
+    assert rec["value_at_risk"] == rec["recommended_units"] * 10.0
     assert rec["lead_time_weeks"] == 4 and rec["forecast_lead_time"] == 20
     assert review.empty
 
@@ -479,8 +482,14 @@ def test_prebuild_on_seed_data(demand_runs: dict) -> None:
     result = demand_runs[AS_OF_MONTH_END]
     recs = result.table("prebuild_recommendations")
     assert (recs["recommended_units"] > 0).all() and (recs["status"] == "pending").all()
-    cover = recs["days_of_cover"].dropna().tolist()
-    assert cover == sorted(cover) and recs["rank"].tolist() == list(range(1, len(recs) + 1))
+    assert recs["rank"].tolist() == list(range(1, len(recs) + 1))
+    urgent = recs["priority"] == "urgent"
+    assert urgent.iloc[: urgent.sum()].all()  # every urgent row before every normal one
+    assert (urgent == (recs["days_of_cover"] < recs["lead_time_weeks"] * 7)).all()
+    for _, group in recs.groupby("priority"):
+        values = group["value_at_risk"].tolist()
+        assert values == sorted(values, reverse=True)
+    assert (recs["value_at_risk"] == recs["recommended_units"] * recs["unit_price"]).all()
     review = result.table("planner_review")
     assert not set(review["sku"]) & set(recs["sku"])
     flagged = result.table("forecast_accuracy").query("level == 'product' and flag_bias")

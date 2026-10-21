@@ -152,7 +152,7 @@ TABLES: dict[str, str] = {
     "prebuild_recommendations": """
         rec_id              VARCHAR PRIMARY KEY,   -- YYYYMMDD-SKU
         as_of               DATE NOT NULL,
-        rank                INTEGER NOT NULL,      -- by days of cover, lowest first
+        rank                INTEGER NOT NULL,      -- urgent first, then value at risk
         product_id          INTEGER NOT NULL,
         sku                 VARCHAR NOT NULL,
         name                VARCHAR NOT NULL,
@@ -170,6 +170,9 @@ TABLES: dict[str, str] = {
         days_of_cover       DOUBLE,
         prebuild_raw        DOUBLE NOT NULL,       -- unrounded formula result
         recommended_units   INTEGER NOT NULL,      -- prebuild_raw rounded up
+        unit_price          DOUBLE,
+        value_at_risk       DOUBLE,                -- recommended_units x unit_price
+        priority            VARCHAR,               -- urgent | normal
         status              VARCHAR NOT NULL,      -- pending | approved | rejected
         decided_by          VARCHAR,
         decided_at_utc      TIMESTAMP,
@@ -198,6 +201,12 @@ TABLES: dict[str, str] = {
         note            VARCHAR
     """,
 }
+# Columns added after the first Week 5 schema; added to an existing file on first use.
+MIGRATIONS = [
+    "ALTER TABLE prebuild_recommendations ADD COLUMN IF NOT EXISTS unit_price DOUBLE",
+    "ALTER TABLE prebuild_recommendations ADD COLUMN IF NOT EXISTS value_at_risk DOUBLE",
+    "ALTER TABLE prebuild_recommendations ADD COLUMN IF NOT EXISTS priority VARCHAR",
+]
 SNAPSHOT_TABLES = [
     name for name in TABLES if name not in ("demand_snapshots", "prebuild_decisions")
 ]
@@ -218,6 +227,8 @@ def create_schema(con: duckdb.DuckDBPyConnection) -> None:
     """Create every planning table that does not exist yet."""
     for name, columns in TABLES.items():
         con.execute(f"CREATE TABLE IF NOT EXISTS {name} ({columns})")
+    for migration in MIGRATIONS:
+        con.execute(migration)
 
 
 def connect_write(path: Path) -> duckdb.DuckDBPyConnection:

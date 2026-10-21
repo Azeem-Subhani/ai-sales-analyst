@@ -678,3 +678,21 @@ text are marked **(clarified)**.
   calculation. HK-1011 Ultra Mixing Bowls is still flagged: its bias over its 7
   non-stockout weeks is +16.3%.
 - This replaces the result paragraph in "Forecast accuracy of the seeded forecasts".
+
+### Pre-build ranking: urgent first, then value at risk
+- **Decision (project owner, 2026-10-21):** this replaces the "Order: by days of cover"
+  rule. Pre-build recommendations are ranked in two groups:
+  1. **urgent:** days of cover below the lead time in days (stock runs out before
+     a new order could arrive);
+  2. **normal:** everything else, including unknown cover.
+
+  Within each group they are ranked by **value at risk** = pre-build units x unit
+  price, largest first; ties by SKU. `value_at_risk`, `unit_price` and `priority`
+  are stored on `prebuild_recommendations` (added to an existing planning.duckdb on
+  first use) and shown in the reports.
+- **Why:** a planner prioritises by urgency, then by money at stake, not by days of
+  cover alone. Days of cover alone put four small products (10 to 55 units) ahead of
+  SB-1042 Smart Bottle Pro (327 units).
+- **Result as of 2026-09-30:** 129 recommendations (72 urgent, 57 normal). The top 5:
+  SB-1042 (11,441.73), EL-1028 (6,613.65), AP-1004 (3,704.05), EL-1024 (3,179.70),
+  TO-1005 (2,849.50), all urgent.

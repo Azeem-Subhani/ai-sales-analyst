@@ -9,7 +9,10 @@ Per product with a current stock record and one of our own forecasts:
 
 Products flagged for forecast bias (seeded forecasts, forecast_accuracy) are not
 recommended; they are listed for planner review instead. Recommendations above 0 are
-stored with status "pending" and sorted by days of cover, lowest first. Only the
+stored with status "pending" and ordered the way a planner works:
+- urgent first: days of cover below the lead time in days (stock runs out before a
+  new order could arrive), then the rest ("normal");
+- within each group, by value at risk = pre-build units x unit price, largest first. Only the
 approval CLI (src/demand/approve.py) changes a status; the agent and reports never do.
 """
 
@@ -21,6 +24,8 @@ import pandas as pd
 from src.analytics import demand
 
 STATUS_PENDING = "pending"
+PRIORITY_URGENT = "urgent"
+PRIORITY_NORMAL = "normal"
 REC_ID_FORMAT = "{as_of:%Y%m%d}-{sku}"
 
 
@@ -120,17 +125,36 @@ def prebuild(
                 "avg_daily_demand": stock["avg_daily_demand"],
                 "prebuild_raw": raw,
                 "recommended_units": math.ceil(raw),
+                "unit_price": float(product["unit_price"]),
+                "value_at_risk": math.ceil(raw) * float(product["unit_price"]),
+                "priority": priority(stock["days_of_cover"], weeks),
                 "status": STATUS_PENDING,
             }
         )
-    return sorted_by_cover(pd.DataFrame(recommendations)), sorted_by_cover(pd.DataFrame(review))
+    return sorted_by_priority(pd.DataFrame(recommendations)), sorted_by_cover(pd.DataFrame(review))
+
+
+def priority(days_of_cover: float, lead_time_weeks: float) -> str:
+    """urgent when stock covers less than the lead time; unknown cover is normal."""
+    if pd.isna(days_of_cover):
+        return PRIORITY_NORMAL
+    urgent = days_of_cover < lead_time_weeks * demand.DAYS_IN_WEEK
+    return PRIORITY_URGENT if urgent else PRIORITY_NORMAL
+
+
+def sorted_by_priority(frame: pd.DataFrame) -> pd.DataFrame:
+    """Urgent first, then by value at risk (largest first), ties by SKU; ranked from 1."""
+    if frame.empty:
+        return frame
+    frame = frame.assign(is_normal=frame["priority"] != PRIORITY_URGENT)
+    frame = frame.sort_values(["is_normal", "value_at_risk", "sku"], ascending=[True, False, True])
+    frame = frame.drop(columns="is_normal").reset_index(drop=True)
+    frame["rank"] = range(1, len(frame) + 1)
+    return frame
 
 
 def sorted_by_cover(frame: pd.DataFrame) -> pd.DataFrame:
-    """Lowest days of cover first (unknown cover last), ties by SKU, ranked from 1."""
+    """Planner-review list: lowest days of cover first (unknown last), ties by SKU."""
     if frame.empty:
         return frame
-    frame = frame.sort_values(["days_of_cover", "sku"], na_position="last").reset_index(drop=True)
-    if "rec_id" in frame.columns:
-        frame["rank"] = range(1, len(frame) + 1)
-    return frame
+    return frame.sort_values(["days_of_cover", "sku"], na_position="last").reset_index(drop=True)

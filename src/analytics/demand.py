@@ -25,7 +25,8 @@ FROM orders o JOIN order_items oi USING (order_id)
 WHERE o.status <> 'cancelled' AND o.order_date <= $as_of
 """
 PRODUCTS_SQL = """
-SELECT product_id, sku, name, category, launch_date, lead_time_days
+SELECT product_id, sku, name, category, launch_date, lead_time_days,
+       CAST(unit_price AS DOUBLE) AS unit_price
 FROM products ORDER BY product_id
 """
 INVENTORY_SQL = """
