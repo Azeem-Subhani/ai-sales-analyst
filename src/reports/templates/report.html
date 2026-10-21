@@ -21,7 +21,8 @@
 
 <tr><td style="padding:0 0 4px 0;font-size:20px;font-weight:bold;{{ font }}">{{ numbers.title }}</td></tr>
 <tr><td style="padding:0 0 16px 0;font-size:14px;color:{{ muted }};{{ font }}">{{ numbers.period.label }}
-{%- for comparison in numbers.comparisons.values() %}{% if loop.first %} &middot; compared with {% else %} and {% endif %}{{ comparison.name }} ({{ comparison.label }}){% endfor %}</td></tr>
+{%- for comparison in numbers.comparisons.values() %}{% if loop.first %} &middot; compared with {% else %} and {% endif %}{{ comparison.name }} ({{ comparison.label }}){% endfor %}<br>
+Covers {{ numbers.period.start }} to {{ numbers.period.end }}{% if numbers.data_end %} (data available through {{ numbers.data_end }}){% endif %}</td></tr>
 
 {#- Summary slot: the LLM summary goes here in Week 4. #}
 <tr><td style="padding:12px;background:{{ band }};border-left:4px solid {{ rule }};font-size:14px;color:{{ muted }};{{ font }}">

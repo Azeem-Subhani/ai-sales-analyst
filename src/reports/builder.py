@@ -41,6 +41,8 @@ OUTPUT_ROOT = PROJECT_ROOT / "outputs" / "reports"
 TEMPLATE_DIR = Path(__file__).with_name("templates")
 TEMPLATE_NAME = "report.html"
 HTML_FILENAME = "report.html"
+# Top-level keys in reports.yaml that are settings, not reports.
+RESERVED_CONFIG_KEYS = {"delivery"}
 
 SUMMARY_PLACEHOLDER = "Summary added in Week 4"
 DEMAND_ALERTS_PLACEHOLDER = "Added in Week 5"
@@ -138,9 +140,18 @@ class Report:
 # ---------------------------------------------------------------- config
 
 
+def read_config_file(config_path: Path = CONFIG_PATH) -> dict:
+    """The whole of config/reports.yaml, including the non-report `delivery` block."""
+    return yaml.safe_load(config_path.read_text(encoding="utf-8"))
+
+
 def load_config(config_path: Path = CONFIG_PATH) -> dict[str, dict]:
-    """Read config/reports.yaml and check every name in it is known."""
-    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    """Read the report blocks of config/reports.yaml and check every name in them is known."""
+    config = {
+        name: block
+        for name, block in read_config_file(config_path).items()
+        if name not in RESERVED_CONFIG_KEYS
+    }
     for name, block in config.items():
         validate_report_config(name, block)
     return config
@@ -827,11 +838,13 @@ def build_report(
     db_path: Path = kpis.DB_PATH,
     output_root: Path = OUTPUT_ROOT,
     config_path: Path = CONFIG_PATH,
+    data_end: date | None = None,
 ) -> Report:
     """Build one report for the period ending on as_of and save the dry-run files.
 
-    Raises ValueError for an unknown report, a partial period (see kpis.period_for)
-    or an as_of after the last order in the database.
+    data_end (DATA_END_DATE, set by the scheduler) is only shown in the email, so the
+    reader knows the data stops there. Raises ValueError for an unknown report, a
+    partial period (see kpis.period_for) or an as_of after the last order in the database.
     """
     config = load_config(config_path)
     if report_name not in config:
@@ -860,6 +873,7 @@ def build_report(
         "title": title,
         "subject": subject,
         "as_of": as_of.isoformat(),
+        "data_end": data_end.isoformat() if data_end else None,
         "period": period_info(period),
         "comparisons": {
             name: {**period_info(p), "name": COMPARISON_LABELS[name]}
