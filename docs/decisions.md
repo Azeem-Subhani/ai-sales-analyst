@@ -287,3 +287,20 @@ text are marked **(clarified)**.
   runs: the first invalid, the second cut short, the third reported here.
 - **Grader limit:** a date range written as "July 1-31" can be flagged as an
   unsupported number. Such flags go to review, not to wrong.
+
+### Main model switched to openai/gpt-5.6-luna
+- **Decision (project owner, 2026-10-21):** after the model check, the main
+  model is switched from `deepseek/deepseek-v4-flash` to `openai/gpt-5.6-luna`.
+  The fallback stays `openai/gpt-6-luna`.
+- **Why:** `gpt-5.6-luna` was the only model at 19/20, with the lowest p90
+  latency (10.1 s), at $0.00072 per question. DeepSeek scored 13/20, mostly by
+  adding numbers it calculated itself. The fallback passed its rule with 18/20.
+- **How:** the owner changes `LLM_MODEL` in `.env` and `.env.example`; Claude
+  Code cannot edit those files. No code change is needed.
+- **Not re-measured:** at the owner's request, the eval was not run again after
+  the switch. The 19/20 figure comes from the model check run with fallback
+  off. Step 7's final eval with the `.env` main model is therefore not run;
+  this is an open item.
+- **Trade-off:** 3 providers instead of DeepSeek's 15. A provider-wide outage
+  at OpenAI is covered only partly, because the fallback is also an OpenAI model
+  (served by OpenAI, Azure and Amazon Bedrock).

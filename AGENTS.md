@@ -36,8 +36,9 @@ when writing report summaries.
   (Excel), APScheduler, Gmail SMTP with an App Password, python-dotenv, PyYAML.
 - LLM: OpenRouter via the `openai` Python SDK (OpenAI-compatible API).
   - `LLM_BASE_URL`, `OPENROUTER_API_KEY`, `LLM_MODEL`
-    (default `xiaomi/mimo-v2.6-pro`), `LLM_FALLBACK_MODEL`
-    (default `deepseek/deepseek-v4-flash-0731`), all from `.env`.
+    (`openai/gpt-5.6-luna`), `LLM_FALLBACK_MODEL` (`openai/gpt-6-luna`),
+    all from `.env`. Chosen by the project owner after the Week 4 model
+    check (`docs/model_comparison_week4.md`).
   - **Every model call goes through `src/agent/llm.py`. No other file imports
     `openai` or calls the API.**
 - Not allowed in v1: the `anthropic` SDK, agent frameworks (LangChain,

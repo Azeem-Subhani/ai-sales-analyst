@@ -150,7 +150,7 @@ put the key in code or chat:
 | --- | --- | --- |
 | `OPENROUTER_API_KEY` | from Tech Ops | Required. The key has a $10 credit limit |
 | `LLM_BASE_URL` | `https://openrouter.ai/api/v1` | OpenRouter's OpenAI-compatible API |
-| `LLM_MODEL` | `deepseek/deepseek-v4-flash` | Main model |
+| `LLM_MODEL` | `openai/gpt-5.6-luna` | Main model |
 | `LLM_FALLBACK_MODEL` | `openai/gpt-6-luna` | Tried once if the main model times out, is rate limited, errors (5xx) or returns nothing |
 | `LLM_TIMEOUT_SECONDS` | `60` | Per request |
 
