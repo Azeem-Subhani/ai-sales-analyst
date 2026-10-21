@@ -39,8 +39,17 @@ How the pieces fit:
 2. **Reuse sections first.** Existing: `kpis_day`, `kpis_week`, `kpis_month`,
    `category_breakdown`, `margin_by_category`, `channel_breakdown`,
    `region_breakdown`, `customer_type_breakdown`, `top_products`,
-   `top_products_5`, `top_customers`, `customer_growth`, plus placeholders
-   `demand_alerts` and `forecast_accuracy` (Week 5).
+   `top_products_5`, `top_customers`, `customer_growth`, `demand_alerts` and
+   `forecast_accuracy`.
+   - The two demand sections (Week 5, `src/reports/demand_sections.py`) read
+     the demand snapshot for the report's as_of through
+     `src.demand.run.get_or_run`. They reuse a stored snapshot, or compute one,
+     which adds about 100 s.
+   - They are `groups` sections: lists cut at `reports.max_rows_per_type` in
+     `config/demand.yaml`, with "and N more", and one Excel sheet with every row.
+     `email_columns` picks the columns the email shows (the pre-build table shows
+     5).
+   - Never read `data/planted_issues.json` in report code.
 3. **Only if a new number is needed:**
    - Add a named block to `kpis.sql` using `$start` / `$end`; never build SQL from
      strings. Expose it from `kpis.py` returning a DataFrame.
@@ -48,7 +57,7 @@ How the pieces fit:
      with the working in the module docstring).
    - Add a section function in `builder.py` that returns plain, rounded values
      (`rounded(value, kind)`) and a `type` the template already handles
-     (`kpis`, `breakdown`, `top`, `placeholder`), then register it in
+     (`kpis`, `breakdown`, `top`, `groups`, `placeholder`), then register it in
      `QUERY_SECTIONS`. Add an Excel frame in `excel_frames` if it needs a sheet.
    - Everything shown must come from the section's numbers: the HTML test fails on
      any number in the HTML that is not in `Report.numbers`.
@@ -73,4 +82,5 @@ How the pieces fit:
    - `REPORT_MODE=dry_run python -m src.reports.scheduler --run-now <name>` builds
      the period chosen by the data clock and writes a `report_runs` row.
    - If the new period kind needs it, add a case to `tests/test_data_clock.py`.
-10. Run `ruff format . && ruff check --fix .` and `pytest`, then commit.
+10. Run `ruff format . && ruff check --fix .`, `pytest` and `pytest --runslow`
+    (the Week 5 acceptance tests build the weekly and monthly reports), then commit.

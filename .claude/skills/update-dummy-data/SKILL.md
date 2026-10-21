@@ -24,7 +24,18 @@ the AI evaluation depend on its output being identical on every run and on the
    constants at the top of `generate.py`.
 5. **Regenerate:** `python -m src.data.generate` and check the printed summary
    (row counts, date range, total revenue) against the plan's targets.
-6. **Re-run tests:** `pytest`. `tests/test_data.py` checks row counts, foreign
-   keys, date range, reproducibility and every planted problem.
+6. **Re-run tests:** `pytest --runslow`.
+   - `tests/test_data.py` checks row counts, foreign keys, date range,
+     reproducibility and every planted problem.
+   - **The Week 5 acceptance tests (`tests/test_demand_acceptance.py`) depend on
+     `planted_issues.json`.** They check that demand planning still finds all 5
+     planted problems: the 3 churned customers serious overdue, the Apparel
+     decline, exactly the 10 stockout products, the AP-1150 bias between +25% and
+     +30%, and the SB-1042 pre-build ranked first or second as of 2026-09-30.
+   - A generator change that moves any of these fails there. Stop and tell the
+     project owner; do not loosen the test.
+   - Rebuild the demand snapshots (`python -m src.demand.run --as-of 2026-09-27`
+     and `--as-of 2026-09-30`), then run `python scripts/fill_gold.py`. The demand
+     eval gold values come from the 2026-09-30 snapshot.
 7. If row counts or planted-problem details changed on purpose, say so in the
    commit message. Run `ruff format . && ruff check --fix .`, then commit.

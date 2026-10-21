@@ -17,6 +17,13 @@ Rules every one of these tasks must keep (details in `AGENTS.md`):
 - The SQL guard refuses personal contact data (`customers.email`, including
   `SELECT *` on customers).
 - Percentages are calculated unrounded and rounded once, at display.
+- Demand means units on non-cancelled orders per Monday-to-Sunday week, everywhere.
+  Demand results go to `data/planning.duckdb`, with thresholds in
+  `config/demand.yaml`.
+- The agent and the reports never change a pre-build approval status; only
+  `src/demand/approve.py` does.
+- `data/planted_issues.json` is for tests only (`tests/test_demand_acceptance.py`).
+- Run `pytest --runslow` before a PR; the acceptance tests are marked slow.
 - Live eval and model-check runs spend OpenRouter credit: ask the project owner
   first.
 

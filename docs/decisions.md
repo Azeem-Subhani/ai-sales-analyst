@@ -733,3 +733,17 @@ text are marked **(clarified)**.
 - **Single process (2026-10-21):** forecasting runs in one process (`n_jobs=1`)
   because the statsforecast process pool crashed on macOS. A full `run_demand` takes
   about 98 seconds.
+
+### Week 6 demo uses the September monthly business review
+- **Decision (project owner, 2026-10-21):** the Week 6 demo uses the September 2026
+  monthly business review (as of 2026-09-30). It is the one report that shows all 5
+  planted problems:
+  - the 3 churned wholesale customers, serious overdue and ranked 1 to 3;
+  - the Apparel decline;
+  - the 10 stockout products;
+  - the AP-1150 bias;
+  - the SB-1042 Smart Bottle Pro pre-build, ranked 1st.
+- **Why not the weekly review (as of 2026-09-27):** it cannot show the SB-1042
+  pre-build. The latest inventory snapshot on or before 27 Sep is the 21 Sep one
+  (329 on hand, 202 on order), which still covers the product's 4-week lead time.
+  The low stock (123 on hand, none on order) appears only in the 28 Sep snapshot.
