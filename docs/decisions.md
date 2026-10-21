@@ -536,3 +536,17 @@ text are marked **(clarified)**.
   because many retail customers order every 2 to 3 days, so 5 days without an order
   is already over 2x their interval. This is reported to the project owner and not
   changed; reports show the top 10 by revenue.
+
+### Forecast accuracy of the seeded forecasts
+- **Decision (2026-10-21):** accuracy uses the `forecasts` rows with model `seeded`
+  whose week is complete on as_of and that were created on or before it. Actuals
+  are the demand series (the `get_forecast` definition), so a stockout week counts
+  as 0 actual units.
+- Category and overall rows are totals (all product-weeks summed, then divided) and
+  are never flagged. WAPE and bias are stored as unrounded fractions.
+- **Result on the seed-42 data (as of 2026-09-27 and 2026-09-30, the same 8 weeks):**
+  overall WAPE 16.9%, bias +0.6%. 24 products are flagged: 24 for bias, 3 also for
+  WAPE. 18 products are under 20 units and not flagged. AP-1150 Classic Denim Jacket
+  has bias +27.3%. 8 of the 10 stockout products are among the flagged, because the
+  seeded forecast did not know about the stockout and actual demand was 0 in those
+  weeks. Being flagged for bias keeps them out of pre-build ("needs planner review").

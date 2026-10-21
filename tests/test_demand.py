@@ -11,7 +11,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from src.analytics import customers, demand
+from src.analytics import customers, demand, forecasting
 from src.demand import config as demand_config
 from src.demand import run, store
 
@@ -303,3 +303,41 @@ def test_stock_alerts_count_stockout_weeks_in_the_last_4_weeks() -> None:
     row = alerts.iloc[0]
     assert row["stockout_weeks"] == 1 and row["on_hand"] == 4
     assert row["days_of_cover"] == pytest.approx(4 / ((7 + 5 + 6) / 3 / 7))
+
+
+# ---------------------------------------------------------------- forecast accuracy
+
+
+
+def test_wape_and_bias_formulas() -> None:
+    wape, bias = forecasting.wape_and_bias(actual=100, forecast=125, abs_error=30)
+    assert wape == pytest.approx(0.30) and bias == pytest.approx(0.25)
+    assert forecasting.wape_and_bias(0, 5, 5) == (None, None)
+
+
+def test_accuracy_rows_sum_before_dividing() -> None:
+    pairs = pd.DataFrame(
+        {
+            "week_start": [date(2026, 8, 3), date(2026, 8, 10)],
+            "actual": [10.0, 30.0],
+            "forecast_qty": [20.0, 25.0],
+        }
+    )
+    row = forecasting.accuracy_rows("product", "A-1", pairs, "seeded")
+    assert row["wape"] == pytest.approx(15 / 40)  # (10 + 5) / 40
+    assert row["bias"] == pytest.approx(5 / 40)  # (45 - 40) / 40
+    assert row["weeks"] == 2
+
+
+def test_accuracy_levels_and_small_products(demand_runs: dict) -> None:
+    table = demand_runs[AS_OF_SUNDAY].table("forecast_accuracy")
+    assert set(table["level"]) == {"product", "category", "overall"}
+    assert (table.loc[table["level"] == "category", "weeks"] == 8).all()
+    small = table[table["below_min_units"]]
+    assert not small.empty and not small["flagged"].any()  # stored, never flagged
+    assert small["wape"].notna().any()
+    totals = table[table["level"] != "product"]
+    assert not totals["flagged"].any()
+    overall = table[table["level"] == "overall"].iloc[0]
+    products = table[table["level"] == "product"]
+    assert overall["actual_units"] == products["actual_units"].sum()

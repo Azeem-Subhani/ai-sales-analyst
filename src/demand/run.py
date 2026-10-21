@@ -20,7 +20,7 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
-from src.analytics import customers, demand, kpis
+from src.analytics import customers, demand, forecasting, kpis
 from src.demand import config as demand_config
 from src.demand import store
 
@@ -53,6 +53,9 @@ def compute(
         "customer_rfm": rfm,
         "category_alerts": demand.category_alerts(con, inputs.as_of, config["category_alerts"]),
         "stock_alerts": demand.stock_alerts(inputs, series, config["stock_alerts"]),
+        "forecast_accuracy": forecasting.forecast_accuracy(
+            con, inputs, series, config["forecast_accuracy"]
+        ),
     }
 
 
