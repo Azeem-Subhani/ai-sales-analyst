@@ -29,8 +29,13 @@ How the pieces fit:
    cron fields), `queries` (section names from `QUERY_SECTIONS`, in display order),
    `compare_to` (names from `kpis.COMPARISONS` that fit the period; the first one
    drives the change columns in breakdown and top tables), `charts` (names from
-   `CHARTS`), `attach_excel`, `recipients` (only the project owner during the build).
-   `load_config` rejects unknown names, so a typo fails loudly.
+   `CHARTS`), `attach_excel`, `recipients`.
+   - During the build, recipients are only `"${REPORT_OWNER_EMAIL}"`. Write
+     addresses as `${NAME}` taken from `.env`, never as literals.
+   - Every recipient must be on `delivery.allowed_recipients`, or the whole send
+     is refused.
+   - `load_config` rejects unknown names, so a typo fails loudly. The top-level
+     `delivery` key is settings, not a report.
 2. **Reuse sections first.** Existing: `kpis_day`, `kpis_week`, `kpis_month`,
    `category_breakdown`, `margin_by_category`, `channel_breakdown`,
    `region_breakdown`, `customer_type_breakdown`, `top_products`,
@@ -63,4 +68,9 @@ How the pieces fit:
    `outputs/reports/<name>_<as_of>/report.html` in a browser and the `.xlsx` in Excel,
    and check headline numbers against plain SQL (see
    `docs/hand_checks/week2_weekly_2026-09-27.md` for the pattern).
-9. Run `ruff format . && ruff check --fix .` and `pytest`, then commit.
+9. **Schedule check:** `python -m src.reports.scheduler --list` shows the new job
+   and its next run time.
+   - `REPORT_MODE=dry_run python -m src.reports.scheduler --run-now <name>` builds
+     the period chosen by the data clock and writes a `report_runs` row.
+   - If the new period kind needs it, add a case to `tests/test_data_clock.py`.
+10. Run `ruff format . && ruff check --fix .` and `pytest`, then commit.
