@@ -19,9 +19,13 @@ ACCEPTED = [
         "GROUP BY 1"
     ),
     (
-        "SELECT * FROM (SELECT * FROM customers) c WHERE EXISTS "
-        "(SELECT 1 FROM orders o WHERE o.customer_id = c.customer_id) LIMIT 3"
+        "SELECT c.name, c.region FROM (SELECT customer_id, name, region FROM customers) c "
+        "WHERE EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.customer_id) LIMIT 3"
     ),
+    "SELECT count(*) FROM customers",  # count(*) is not a star
+    "SELECT c.name, c.customer_type FROM customers c ORDER BY 1 LIMIT 5",
+    "WITH x AS (SELECT name, region FROM customers) SELECT x FROM x",  # no email in x
+    "SELECT * FROM orders WHERE customer_id = 7",  # star without customers is fine
     "SELECT * FROM orders WHERE status = 'drop table orders; pragma version'",  # text, not SQL
     "SELECT * FROM inventory -- COPY in a comment is fine\nLIMIT 1",
     "WITH a AS (SELECT 1 AS x), b AS (SELECT x FROM a) SELECT * FROM b",
@@ -60,6 +64,32 @@ REJECTED = {
     "empty": "   ",
 }
 
+# Personal contact data (customers.email): every way of reading it without asking nicely.
+PERSONAL_DATA = {
+    "email column": "SELECT name, email FROM customers",
+    "qualified email": "SELECT c.email FROM customers c",
+    "email with an alias": "SELECT c.email AS contact FROM customers c",
+    "quoted upper case": 'SELECT "EMAIL" FROM customers',
+    "email in where": "SELECT name FROM customers WHERE email LIKE '%@example.com'",
+    "email in subquery": "SELECT * FROM (SELECT email FROM customers) t",
+    "email in cte": "WITH x AS (SELECT email FROM customers) SELECT count(*) FROM x",
+    "email in function": "SELECT lower(email) FROM customers",
+    "select star": "SELECT * FROM customers",
+    "select star with limit": "SELECT * FROM customers LIMIT 1",
+    "table star": "SELECT o.order_id, c.* FROM orders o JOIN customers c USING (customer_id)",
+    "star in subquery": "SELECT name FROM (SELECT * FROM customers) t",
+    "star in cte": "WITH x AS (SELECT * FROM customers) SELECT name FROM x",
+    "star over a join": "SELECT * FROM orders JOIN customers USING (customer_id)",
+    "star exclude": "SELECT * EXCLUDE (email) FROM customers",
+    "columns expression": "SELECT COLUMNS('e.*') FROM customers",
+    "cte shadowing customers": "WITH customers AS (SELECT * FROM customers) SELECT 1",
+    "whole row": "SELECT c FROM customers c",
+    "whole row by table name": "SELECT customers FROM customers",
+    "whole row to json": "SELECT to_json(c) FROM customers c",
+    "positional reference": "SELECT #3 FROM customers",
+    "renamed columns": "SELECT c FROM customers t(a, b, c)",
+}
+
 
 @pytest.mark.parametrize("query", ACCEPTED)
 def test_guard_accepts_selects_and_ctes(query: str) -> None:
@@ -70,6 +100,19 @@ def test_guard_accepts_selects_and_ctes(query: str) -> None:
 def test_guard_rejects(query: str) -> None:
     with pytest.raises(sql_guard.SQLGuardError):
         sql_guard.check_sql(query)
+
+
+@pytest.mark.parametrize("query", list(PERSONAL_DATA.values()), ids=list(PERSONAL_DATA))
+def test_guard_blocks_personal_contact_data(query: str) -> None:
+    with pytest.raises(sql_guard.SQLGuardError, match="(?i)email"):
+        sql_guard.check_sql(query)
+
+
+def test_personal_data_messages_say_how_to_recover() -> None:
+    with pytest.raises(sql_guard.SQLGuardError, match="List the columns you need"):
+        sql_guard.check_sql("SELECT * FROM customers")
+    with pytest.raises(sql_guard.SQLGuardError, match="personal contact data"):
+        sql_guard.check_sql("SELECT email FROM customers")
 
 
 def test_rejection_names_the_standard_tables() -> None:

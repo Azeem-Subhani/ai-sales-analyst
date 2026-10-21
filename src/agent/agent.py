@@ -7,8 +7,13 @@ A plain loop, no framework:
 
 Limits per question: 10 tool calls and 120 seconds. At the tool limit the model is
 asked once more, with tools switched off, to answer from what it already has, and
-the answer says it stopped early. Every question and tool call is written to
-agent_log in data/audit.duckdb.
+the answer says it stopped early.
+
+The written answer then goes through the number guard (src/agent/answer_guard.py):
+every number must come from a tool result. On a failure the model gets one retry;
+if that fails too, the written answer is withheld and the tool results are shown
+instead. Every question, tool call and guard result is written to agent_log in
+data/audit.duckdb.
 """
 
 import dataclasses
@@ -22,7 +27,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
-from src.agent import agent_log, llm, prompts, tools
+from src.agent import agent_log, answer_guard, llm, prompts, tools
 from src.analytics import kpis
 from src.reports.audit import AUDIT_DB_PATH
 
@@ -71,6 +76,8 @@ class AgentAnswer:
     latency_seconds: float = 0.0
     stopped_early: str | None = None  # tool_limit | time_limit
     error: str | None = None
+    answer_guard: str = answer_guard.GUARD_NOT_RUN  # ok | retried_ok | withheld | not_run
+    answer_guard_failed: list[str] = field(default_factory=list)  # numbers no tool returned
 
     @property
     def total_tokens(self) -> int:
@@ -173,7 +180,10 @@ def _run_loop(
         )
         _add_usage(answer, result)
         if at_limit or not result.tool_calls:
-            text = result.text or NO_TEXT_ANSWER
+            messages.append(result.assistant_message())
+            text = _guarded_text(
+                question, result.text, messages, config, chat, settings, started, answer
+            )
             if at_limit:
                 answer.stopped_early = "tool_limit"
                 text = f"{TOOL_LIMIT_NOTE}\n\n{text}".strip()
@@ -190,6 +200,60 @@ def _run_loop(
                 answer.tool_calls.append(outcome)
                 content = outcome.content()
             messages.append({"role": "tool", "tool_call_id": call.id, "content": content})
+
+
+def _guarded_text(
+    question: str,
+    text: str | None,
+    messages: list[dict[str, Any]],
+    config: AgentConfig,
+    chat: ChatFunction,
+    settings: llm.LLMSettings,
+    started: float,
+    answer: AgentAnswer,
+) -> str:
+    """The model's answer if its numbers pass the guard, after at most one retry.
+
+    messages already ends with the model's answer. If the retry also fails, or there
+    is no time left for it, the written answer is withheld and the tool results are
+    returned instead.
+    """
+    if not text:
+        return NO_TEXT_ANSWER
+    failed = answer_guard.check_answer(text, question, answer.tool_calls)
+    if not failed:
+        answer.answer_guard = answer_guard.GUARD_OK
+        return text
+    logger.warning("Answer used numbers no tool returned: %s", ", ".join(failed))
+    remaining = config.max_seconds - (config.clock() - started)
+    if remaining >= MIN_CALL_SECONDS:
+        messages.append(
+            {
+                "role": "user",
+                "content": answer_guard.RETRY_PROMPT.format(numbers=", ".join(failed)),
+            }
+        )
+        result = chat(
+            messages,
+            tools.tool_schemas(),
+            tool_choice="none",
+            model=config.model,
+            fallback=config.fallback,
+            settings=_with_timeout(settings, remaining),
+        )
+        _add_usage(answer, result)
+        retry_text = result.text or ""
+        failed_again = answer_guard.check_answer(retry_text, question, answer.tool_calls)
+        if retry_text and not failed_again:
+            answer.answer_guard = answer_guard.GUARD_RETRIED_OK
+            answer.answer_guard_failed = failed
+            return retry_text
+        if retry_text:
+            failed = failed_again
+        logger.warning("Answer withheld after the retry: %s", ", ".join(failed))
+    answer.answer_guard = answer_guard.GUARD_WITHHELD
+    answer.answer_guard_failed = failed
+    return answer_guard.withheld_answer(failed, answer.tool_calls)
 
 
 def _with_timeout(settings: llm.LLMSettings, remaining: float) -> llm.LLMSettings:
@@ -228,6 +292,8 @@ def _log(answer: AgentAnswer, asked_at: datetime, config: AgentConfig) -> None:
         stopped_early=answer.stopped_early,
         final_answer=answer.answer,
         error=answer.error,
+        answer_guard=answer.answer_guard,
+        answer_guard_failed=", ".join(answer.answer_guard_failed) or None,
     )
     calls = [
         agent_log.ToolCallRecord(

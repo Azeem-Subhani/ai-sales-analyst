@@ -161,6 +161,97 @@ provider instead (see `docs/decisions.md`, Week 4). If the key is rejected
 Tests never reach OpenRouter. An autouse fixture in `tests/conftest.py` blocks
 the host.
 
+**Current models** (chosen by the project owner after the Week 4 model check,
+`docs/model_comparison_week4.md`):
+
+- Main: `openai/gpt-5.6-luna`, 19/20 in the check.
+- Fallback: `openai/gpt-6-luna`, 18/20.
+
+Both are OpenAI models, so an OpenAI-wide outage is not covered. That is
+accepted for the proof of concept; see `docs/decisions.md`.
+
+**Spend.** OpenRouter reports a cost of $0 per call, so spend is measured from
+the key's credit balance. Do not run the eval or the model check without the
+project owner's OK.
+
+## Report summaries
+
+Each report opens with a 3 to 5 sentence summary written by the main model.
+The model only sees the report's numbers, formatted as the email shows them,
+and never the database.
+
+- **Number guard:** every number in the summary must be one of the numbers
+  sent, possibly rounded to fewer decimals, or a count from 1 to 10.
+- **Retry:** if the guard fails, or the summary is cut off at the output token
+  cap, the model gets one retry. If that fails too, the summary is dropped.
+- **Never blocks a report:** a dropped or unavailable summary is replaced by
+  "Summary unavailable for this run" and the report still sends.
+- **Status:** each run records `summary_status` in `report_runs`. The values are
+  `ok`, `guard_failed`, `truncated`, `llm_unavailable`, or `skipped`.
+
+`--no-summary` skips the model call (no spend), with status `skipped`:
+
+```bash
+python -m src.reports.builder --report weekly_sales_review --as-of 2026-09-27 --no-summary
+python -m src.reports.scheduler --run-now weekly_sales_review --no-summary
+```
+
+## Chat agent
+
+Ask questions about the sales data in plain English:
+
+```bash
+python -m src.agent.chat                                    # interactive; empty line to quit
+python -m src.agent.chat --question "How did we do last month?"
+```
+
+**Tools.** The agent answers with seven read-only tools:
+
+- Working now: `get_kpis`, `run_sql`, `make_chart` and `get_forecast`.
+- Week 5: customer alerts, forecast accuracy and pre-build. These say "not
+  available yet".
+
+**Rules that keep its numbers honest:**
+
+- **The model never calculates.** Every number comes from a tool.
+- **Answer number guard:**
+  - Every number in the answer must come from a tool result for that question.
+    Numbers the user wrote, dates and counts from 1 to 10 are also allowed.
+  - If the guard fails, the model gets one retry. If that fails too, the
+    written answer is withheld and the tool results are shown instead.
+- **SQL guard:** only a single read-only SELECT on the six standard tables.
+  - Max 500 rows, 10 seconds.
+  - `customers.email` is personal contact data and is refused, including via
+    `SELECT *` on customers.
+- **Relative periods:** "last month", "this week" and similar phrases mean the
+  latest complete period on or before `DATA_END_DATE`. With 2026-09-30, last
+  month is September 2026.
+- **Limits:** 10 tool calls and 120 seconds per question.
+
+Each question, tool call and guard result is logged in `agent_log` and
+`agent_tool_calls` in `data/audit.duckdb`.
+
+## Eval and model check
+
+Both scripts call OpenRouter and spend credit; pytest never does.
+
+```bash
+python scripts/fill_gold.py --check          # free: stored gold values still match the SQL
+python scripts/run_eval.py --max-spend 0.40  # the 20 eval questions on LLM_MODEL, fallback on
+python scripts/run_eval.py --ids q17,q20     # a subset
+python scripts/compare_models.py --reference openai/gpt-5.6-luna         # free preflight + estimate
+python scripts/compare_models.py --reference openai/gpt-5.6-luna --run   # live model check
+```
+
+- **Gold values:** `tests/eval/questions.yaml` holds the 20 questions. Their
+  gold values come from SQL via `scripts/fill_gold.py`; nobody types them.
+- **`run_eval.py` output:** results go to `outputs/eval/<timestamp>_<model>/`.
+  The target is 19/20. `--max-spend` is checked against the key balance.
+- **`compare_models.py`:** runs main, fallback and a reference model with
+  fallback off, and writes `docs/model_comparison_week4.md`.
+
+The latest eval results are in `docs/eval_results_week4.md`.
+
 ## Working with Claude Code and Cursor
 
 The repo is set up so both tools follow the same rules without copying them.

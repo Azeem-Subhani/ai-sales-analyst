@@ -9,6 +9,13 @@ A query is accepted only if all of these hold:
 3. Walking DuckDB's own parse tree (json_serialize_sql), every table read is one
    of the six standard tables or a CTE defined in the query, every table function
    is on a short allowlist, and no file-reading or system function is called.
+4. Personal contact data is never read (Week 4 wrap-up). customers.email is the
+   only such column in the schema; customers.name stays readable because reports
+   and "top customers" answers need it. So no column named email may appear
+   anywhere, and when customers is read anywhere in the query, these are refused
+   too, because each can return email without naming it: SELECT * / c.* /
+   COLUMNS(...), positional references (#3), the whole row as a value
+   (SELECT c FROM customers c, to_json(c)) and renamed columns (customers t(a, b, c)).
 
 The connection the agent uses is also read-only with external access disabled
 (see open_readonly), so a query that somehow slipped past the guard still could not
@@ -53,6 +60,31 @@ BLOCKED_FUNCTION = re.compile(
     r"duckdb_\w+|pragma_\w+|load_\w+|current_setting|which_secret)$",
     re.IGNORECASE,
 )
+# Personal contact columns (customers.email is the only one in the schema).
+PERSONAL_DATA_COLUMNS = frozenset({"email"})
+PERSONAL_DATA_TABLE = "customers"
+PERSONAL_COLUMN_MESSAGE = (
+    "Column {column!r} is personal contact data and cannot be queried. "
+    "Leave it out; refer to customers by name or customer_id."
+)
+CUSTOMERS_STAR_MESSAGE = (
+    "SELECT *, table.* and COLUMNS(...) are not allowed when the query reads customers, "
+    "because customers.email is personal contact data. List the columns you need, "
+    "for example customer_id, name, customer_type, region."
+)
+CUSTOMERS_ROW_MESSAGE = (
+    "The customers row cannot be used as a single value ({shown}), because it includes "
+    "email. List the customer columns you need, without email."
+)
+CUSTOMERS_POSITION_MESSAGE = (
+    "Column positions (#{index}) are not allowed when the query reads customers. "
+    "Name the columns you need, without email."
+)
+CUSTOMERS_RENAME_MESSAGE = (
+    "Renaming the columns of customers in FROM is not allowed. Use column aliases "
+    "in SELECT instead, without email."
+)
+
 FIRST_KEYWORD = re.compile(r"^\s*(\w+)")
 STRING_LITERAL = re.compile(r"'(?:[^']|'')*'")
 LINE_COMMENT = re.compile(r"--[^\n]*")
@@ -131,7 +163,9 @@ def check_tree(query: str) -> None:
     if tree.get("error"):
         raise SQLGuardError(f"The query does not parse: {tree.get('error_message', '')}")
     cte_names = {name.lower() for name in collect_cte_names(tree)}
-    for node in walk(tree):
+    nodes = walk(tree)
+    check_personal_data(nodes)
+    for node in nodes:
         node_type = node.get("type")
         if node_type == "BASE_TABLE":
             check_table(node, cte_names)
@@ -145,6 +179,36 @@ def check_tree(query: str) -> None:
             name = function_name(node)
             if BLOCKED_FUNCTION.match(name):
                 raise SQLGuardError(f"Function {name}() is not allowed.")
+
+
+def check_personal_data(nodes: list[dict]) -> None:
+    """Refuse anything that could return customers.email (see rule 4 in the module doc)."""
+    # A CTE named customers counts too: it may wrap the real table.
+    customer_tables = [
+        node
+        for node in nodes
+        if node.get("type") == "BASE_TABLE"
+        and node.get("table_name", "").lower() == PERSONAL_DATA_TABLE
+    ]
+    # The names that mean "the whole customers row": the table name and its aliases.
+    row_names = {PERSONAL_DATA_TABLE} | {
+        node["alias"].lower() for node in customer_tables if node.get("alias")
+    }
+    for node in nodes:
+        if node.get("class") == "COLUMN_REF":
+            parts = [str(part) for part in node.get("column_names", [])]
+            if parts and parts[-1].lower() in PERSONAL_DATA_COLUMNS:
+                raise SQLGuardError(PERSONAL_COLUMN_MESSAGE.format(column=".".join(parts)))
+            if customer_tables and len(parts) == 1 and parts[0].lower() in row_names:
+                raise SQLGuardError(CUSTOMERS_ROW_MESSAGE.format(shown=parts[0]))
+        if not customer_tables:
+            continue
+        if node.get("class") == "STAR":
+            raise SQLGuardError(CUSTOMERS_STAR_MESSAGE)
+        if node.get("class") == "POSITIONAL_REFERENCE":
+            raise SQLGuardError(CUSTOMERS_POSITION_MESSAGE.format(index=node.get("index")))
+    if any(node.get("column_name_alias") for node in customer_tables):
+        raise SQLGuardError(CUSTOMERS_RENAME_MESSAGE)
 
 
 def check_table(node: dict, cte_names: set[str]) -> None:

@@ -592,62 +592,35 @@
     chart: true
 
 - id: q20
-  topic: ambiguous period
+  topic: ambiguous period (relative to DATA_END_DATE)
   question: How did we do last month?
   expected_tools:
   - get_kpis
-  note: Today is 2026-09-30, so "last month" can fairly mean August 2026 (the calendar month before today)
-    or September 2026 (the last complete month in the data). Either is correct if the numbers match that
-    month and the answer states the assumption.
+  note: Relative periods are measured from DATA_END_DATE (2026-09-30) and mean the latest complete period,
+    so "last month" is September 2026 (owner's rule, Week 4 wrap-up). The answer must say which month
+    it used.
   require_assumption: true
-  alternatives:
-  - label: August 2026
-    gold_sql: |
-      SELECT round(sum(oi.quantity * oi.unit_price * (1 - oi.discount_pct)), 2) AS net_revenue,
-             count(DISTINCT o.order_id) AS orders
-      FROM orders o JOIN order_items oi USING (order_id)
-      WHERE o.status = 'completed'
-        AND o.order_date BETWEEN DATE '2026-08-01' AND DATE '2026-08-31'
-    grade:
-      numbers:
-      - column: net_revenue
-        decimals: 2
-      - column: orders
-        decimals: 0
-      names:
-      - literal: August
-    gold:
-      numbers:
-      - label: net_revenue
-        value: 462431.56
-        decimals: 2
-      - label: orders
-        value: 2747
-        decimals: 0
-      names:
-      - August
-  - label: September 2026
-    gold_sql: |
-      SELECT round(sum(oi.quantity * oi.unit_price * (1 - oi.discount_pct)), 2) AS net_revenue,
-             count(DISTINCT o.order_id) AS orders
-      FROM orders o JOIN order_items oi USING (order_id)
-      WHERE o.status = 'completed'
-        AND o.order_date BETWEEN DATE '2026-09-01' AND DATE '2026-09-30'
-    grade:
-      numbers:
-      - column: net_revenue
-        decimals: 2
-      - column: orders
-        decimals: 0
-      names:
-      - literal: September
-    gold:
-      numbers:
-      - label: net_revenue
-        value: 456519.46
-        decimals: 2
-      - label: orders
-        value: 2671
-        decimals: 0
-      names:
-      - September
+  gold_sql: |
+    SELECT round(sum(oi.quantity * oi.unit_price * (1 - oi.discount_pct)), 2) AS net_revenue,
+           count(DISTINCT o.order_id) AS orders
+    FROM orders o JOIN order_items oi USING (order_id)
+    WHERE o.status = 'completed'
+      AND o.order_date BETWEEN DATE '2026-09-01' AND DATE '2026-09-30'
+  grade:
+    numbers:
+    - column: net_revenue
+      decimals: 2
+    - column: orders
+      decimals: 0
+    names:
+    - literal: September
+  gold:
+    numbers:
+    - label: net_revenue
+      value: 456519.46
+      decimals: 2
+    - label: orders
+      value: 2671
+      decimals: 0
+    names:
+    - September

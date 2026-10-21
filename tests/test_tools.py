@@ -96,6 +96,28 @@ def test_run_sql_guard_error_goes_back_to_the_model(session: tools.ToolSession) 
     assert "Only SELECT" in outcome.result["error"]
 
 
+def test_run_sql_email_block_goes_back_to_the_model(session: tools.ToolSession) -> None:
+    for query in ("SELECT * FROM customers", "SELECT email FROM customers"):
+        outcome = run(session, "run_sql", query=query)
+        assert not outcome.success
+        assert "personal contact data" in outcome.result["error"] or (
+            "List the columns you need" in outcome.result["error"]
+        )
+
+
+def test_make_chart_cannot_read_email(session: tools.ToolSession) -> None:
+    outcome = run(
+        session,
+        "make_chart",
+        query="SELECT email, customer_id FROM customers LIMIT 3",
+        chart_type="bar",
+        x="email",
+        y="customer_id",
+        title="Emails",
+    )
+    assert not outcome.success and "personal contact data" in outcome.result["error"]
+
+
 def test_get_forecast_classic_denim_jacket(session: tools.ToolSession, built: dict) -> None:
     outcome = run(session, "get_forecast", sku_or_name="AP-1150", weeks=8)
     assert outcome.success

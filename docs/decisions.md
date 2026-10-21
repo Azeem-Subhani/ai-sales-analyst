@@ -145,6 +145,8 @@ text are marked **(clarified)**.
   branch on 2026-10-21. `week-3-delivery` was confirmed merged into `origin/main`.
 - **How to update:** if a `dev` branch is created later, rebase or merge
   `week-4-agent` onto it and update this entry.
+- **Update (2026-10-21):** `week-4-agent` was merged into `main` (PR #4), and
+  `week-4-wrapup` was branched from `main`. There is still no `dev` branch.
 
 ### Fast provider routing: sort by throughput, not `:nitro`
 - **Decision:** every OpenRouter call sends
@@ -237,6 +239,8 @@ text are marked **(clarified)**.
 - **Email addresses:** `customers.email` is in the schema. The prompt tells the
   model never to show email addresses. Blocking the column in the SQL guard is
   an open item before real data arrives.
+  - **Closed (2026-10-21):** see "SQL guard blocks personal contact data" in the
+    Week 4 wrap-up section.
 
 ### Evaluation set and grading rules
 - **Decision:** `tests/eval/questions.yaml` holds 20 questions. Each one has
@@ -259,6 +263,8 @@ text are marked **(clarified)**.
 - **Why one unit of tolerance:** the builder rounds changes to 2 decimals and
   then displays 1, so a true 8.6495% shows as 8.7%. This also affects the Week 2
   reports and is listed as an open item.
+  - **Closed (2026-10-21):** see "Percentages are rounded once, at display" in the
+    Week 4 wrap-up section. The tolerance stays, for models that round twice.
 
 ### Model check: main and fallback chosen by the project owner
 - **Decision:** the project owner chose the models. The main model is
@@ -301,6 +307,132 @@ text are marked **(clarified)**.
   the switch. The 19/20 figure comes from the model check run with fallback
   off. Step 7's final eval with the `.env` main model is therefore not run;
   this is an open item.
+  - **Closed (2026-10-21):** the final eval with the `.env` main model and
+    fallback on scored 19/20 (20/20 after hand review) for $0.0077; see
+    `docs/eval_results_week4.md`.
 - **Trade-off:** 3 providers instead of DeepSeek's 15. A provider-wide outage
   at OpenAI is covered only partly, because the fallback is also an OpenAI model
   (served by OpenAI, Azure and Amazon Bedrock).
+
+## Week 4 wrap-up
+
+### Main model is openai/gpt-5.6-luna
+- **Decision (project owner, 2026-10-21):** the main model is
+  `openai/gpt-5.6-luna`, replacing `deepseek/deepseek-v4-flash`.
+- **Why:** in the Week 4 model check `gpt-5.6-luna` scored 19/20 and
+  `deepseek-v4-flash` 13/20. Most of DeepSeek's misses were numbers it
+  calculated itself (sums, medians, month-on-month changes, made-up
+  thresholds), which breaks the core rule.
+- Details: "Main model switched to openai/gpt-5.6-luna" above and
+  `docs/model_comparison_week4.md`.
+
+### Fallback stays openai/gpt-6-luna
+- **Decision (project owner, 2026-10-21):** the fallback stays
+  `openai/gpt-6-luna`. It scored 18/20, above the 17/20 bar.
+- **Accepted risk:** the main and fallback models are both OpenAI models, so an
+  OpenAI-wide outage is not covered (both are served by OpenAI, Azure and Amazon
+  Bedrock, which helps only with single-provider outages). This is accepted for
+  the proof of concept and will be revisited before Phase 2.
+
+### LLM spend is measured from the key balance
+- **Decision (2026-10-21):** spend is measured from the OpenRouter API key's
+  credit balance, read before and after each eval or model-check run.
+- **Why:** OpenRouter reported `usage.cost = 0` on every response, so the
+  per-call cost cannot be trusted. Per-call `cost_usd` in `agent_log` and the
+  eval output may therefore read 0 or be missing; the balance difference is
+  the number to use.
+
+### SQL guard blocks personal contact data
+- **Decision (2026-10-21):** `src/agent/sql_guard.py` refuses any query that
+  can return personal contact data, for `run_sql` and `make_chart`.
+- **Blocked columns:** `customers.email`, which is the only contact column in the
+  schema (the six tables have no phone or address columns).
+- **Also refused when the query reads `customers`**, because each can return
+  email without naming it: `SELECT *`, `c.*`, `COLUMNS(...)`, positional
+  references (`#3`), the whole row as a value (`SELECT c FROM customers c`,
+  `to_json(c)`) and renamed columns (`customers t(a, b, c)`). A CTE named
+  `customers` counts as the table.
+- **Not blocked:** `customers.name`. For wholesale customers it is a company
+  name, and reports and "top customers" answers need it. Retail customer names
+  are personal names; revisit this before real customer data arrives (Phase 2).
+- The prompt's schema section no longer lists `email`. Error messages tell the
+  model to list the columns it needs, so it can recover.
+
+### Answer number guard on the chat agent
+- **Decision (2026-10-21):** the chat agent's final answer gets the same number
+  rule as report summaries. Every number must be one of these:
+  - a number in a tool result for that question, exactly or rounded to fewer
+    decimals, with the sign ignored;
+  - a number the user wrote in the question (approved by the project owner);
+  - part of a date (ISO date, "21 Sep 2026", "21-27 Sep", "September 2026",
+    "Week 39", "in 2026");
+  - a whole number from 1 to 10.
+- **On failure:** the model gets one retry with the failing numbers named. If
+  that fails too, the written answer is withheld. The user sees a note and the
+  tool results as plain tables.
+- **Logging:** `agent_log.answer_guard` (`ok`, `retried_ok`, `withheld` or
+  `not_run`) and `agent_log.answer_guard_failed`. The columns are added to an
+  existing `audit.duckdb` on first use. The eval output records the same.
+- **Code:** `src/agent/answer_guard.py`. SQL in fenced code blocks is not
+  checked, because the agent shows the query it ran.
+- **Known limit:** like the summary guard, it checks values, not direction or
+  meaning. A copied number attached to the wrong KPI passes.
+
+### Relative periods mean the latest complete period
+- **Decision (project owner, 2026-10-21):** "last month", "this week", "yesterday"
+  and similar phrases are measured from `DATA_END_DATE` and mean the latest
+  complete period. With 2026-09-30, last month and this month are September
+  2026, and last week and this week are 21 to 27 Sep 2026.
+- The system prompt states these periods as dates, worked out in Python from
+  the data clock, so the model does no date arithmetic. Eval q20 ("How did we do
+  last month?") now accepts September 2026 only, and the answer must say which
+  month it used.
+
+### Percentages are rounded once, at display
+- **Decision (2026-10-21):** rates, shares, margins and percentage changes are
+  calculated from unrounded values (as before, in `src/analytics/kpis.py`). They
+  are now also stored unrounded in `Report.numbers`, and rounded once, when
+  shown. This applies to HTML, plain-text email, Excel number formats, chart
+  labels, summary lines and `get_kpis`' shown values. Money is still stored at
+  2 decimals.
+- **Why:** `builder.rounded()` stored changes at 2 decimals and rates at 4, and
+  display rounded again. So August 2026 net revenue vs August 2025 (+8.6495%)
+  showed +8.7%.
+- **Effect:** 12 displayed figures in the weekly review (2026-09-27) and 7 in
+  the monthly review (2026-08-31) move by 0.1. Apparel vs the previous week is
+  now -25.3% (was -25.4%). The daily snapshot is unchanged. The hand-checked
+  figures (114,286.82, 661, 172.90, 43.1%, Electronics 31,481.36, Stokes,
+  Robinson and Gough 2,767.45) are unchanged.
+- **Known limit (money, not changed):** money is rounded by Python, which works on
+  the binary value. August 2026 net revenue is 462,431.555 before rounding. The
+  report shows 462,431.55, while SQL `ROUND` in the eval gold gives 462,431.56.
+  The eval grader's one-unit tolerance covers it. Switching to decimal half-up
+  rounding is a possible later change.
+
+### Week 5: forecast accuracy uses the get_forecast demand definition
+- **Note for Week 5 (2026-10-21):** forecast accuracy (WAPE and bias) must use
+  the same demand definition as `get_forecast`: units on all non-cancelled
+  orders (completed or returned), per Monday-to-Sunday week. It must not use
+  the "Units sold" KPI, which counts completed orders only.
+
+### Cut-off report summaries are retried, then dropped
+- **Problem (2026-10-21):** the August 2026 monthly summary was cut off
+  mid-sentence ("Returns rose 42.7% vs"), but was still marked `ok`. All its
+  numbers were real, so the number guard passed it, and the code did not check
+  why the model stopped.
+- **Cause:** `openai/gpt-5.6-luna` is a reasoning model, and its hidden reasoning
+  counts against `max_tokens`. On the rebuild the summary used 602 output tokens,
+  434 of them reasoning, so the old cap of 400 could not fit a complete summary.
+- **Decision:**
+  - `src/agent/llm.py` records `finish_reason` and reasoning tokens on every
+    result.
+  - A summary with `finish_reason` `length` counts as a failed attempt even if
+    its numbers pass. The model gets one retry, asking for a complete, shorter
+    summary.
+  - A second cut-off drops the summary with the new `summary_status` value
+    `truncated`, and the report sends with the placeholder.
+  - `MAX_SUMMARY_TOKENS` rises from 400 to 2000.
+- **Check:** the monthly report rebuilt once with summaries on finished with
+  `stop` at 602 tokens, and the summary is `ok` and complete.
+- **Not changed:** the chat agent sets no `max_tokens`, so its answers are not
+  cut by our own cap. Its `finish_reason` is recorded but not acted on.

@@ -6,7 +6,12 @@ models). It is not part of pytest; pytest only tests the grader.
     python scripts/run_eval.py                          # model from LLM_MODEL, fallback on
     python scripts/run_eval.py --model openai/gpt-6-luna --no-fallback
     python scripts/run_eval.py --ids q01,q17            # a subset
-    python scripts/run_eval.py --max-spend 1.00         # stop once the run passes $1
+    python scripts/run_eval.py --max-spend 0.40         # stop before the run could pass $0.40
+
+Spend is measured from the API key's credit balance (OpenRouter has reported
+usage.cost = 0), read before the run and before each question. With --max-spend, a
+question is only asked if the balance drop so far plus --reserve (an upper bound for
+one question) stays under the cap.
 
 Per-question results go to outputs/eval/<timestamp>_<model>/q01.json ...; summary.json
 holds the score. Answers the grader cannot decide are listed for a human to review.
@@ -39,6 +44,10 @@ OUTPUT_ROOT = PROJECT_ROOT / "outputs" / "eval"
 EVAL_DATA_END = date(2026, 9, 30)  # the questions are written for this "today"
 P90 = 0.9
 TARGET_CORRECT = 19
+# Upper bound for one question, used by --max-spend: about 25 times the measured
+# $0.00072 per question for openai/gpt-5.6-luna, so a guard retry or a long answer
+# cannot carry the run past the cap before the balance shows it.
+DEFAULT_RESERVE_USD = 0.02
 
 
 class SpendLimitReached(RuntimeError):
@@ -69,6 +78,8 @@ class QuestionResult:
     stopped_early: str | None
     error: str | None
     rate_limited: int = 0  # times this question hit HTTP 429 and was asked again
+    answer_guard: str | None = None  # ok | retried_ok | withheld | not_run
+    answer_guard_failed: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -110,6 +121,8 @@ class EvalRun:
             "undecided": [r.id for r in self.undecided],
             "fallback_used": [r.id for r in self.results if r.fallback_used],
             "rate_limited_429": sum(r.rate_limited for r in self.results),
+            "answer_guard_retried": [r.id for r in self.results if r.answer_guard == "retried_ok"],
+            "answer_guard_withheld": [r.id for r in self.results if r.answer_guard == "withheld"],
             "median_latency_seconds": round(statistics.median(latencies), 2) if latencies else None,
             "p90_latency_seconds": round(percentile(latencies, P90), 2) if latencies else None,
             "total_cost_usd": round(self.spend, 6),
@@ -176,6 +189,8 @@ def grade_answer(question: dict, answer: agent.AgentAnswer) -> QuestionResult:
         latency_seconds=answer.latency_seconds,
         stopped_early=answer.stopped_early,
         error=answer.error,
+        answer_guard=answer.answer_guard,
+        answer_guard_failed=answer.answer_guard_failed,
     )
 
 
@@ -294,6 +309,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--max-spend", type=float, help="stop before the run could pass this many USD"
     )
+    parser.add_argument(
+        "--reserve",
+        type=float,
+        default=DEFAULT_RESERVE_USD,
+        help=f"upper-bound USD for one question (default {DEFAULT_RESERVE_USD})",
+    )
     args = parser.parse_args(argv)
 
     load_dotenv()
@@ -308,17 +329,53 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"Running {len(questions)} questions on {model} (fallback {'off' if args.no_fallback else 'on'})"
     )
+    balance = KeyBalance(settings)
     run = run_eval(
         questions,
         model,
         fallback=not args.no_fallback,
         max_spend=args.max_spend,
+        reserve=args.reserve,
+        spent_probe=balance.spent,
         out_dir=out_dir,
         settings=settings,
         progress=print_progress,
     )
+    spend = balance.spent()
     print_summary(run, out_dir)
+    print(f"Spend by the key's credit balance: ${spend:.4f}")
+    summary_path = out_dir / "summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["spend_by_key_balance_usd"] = round(spend, 6)
+    summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
     return 0
+
+
+class KeyBalance:
+    """Spend since the run started, from the key's credit balance (free to read).
+
+    A failed read keeps the last good figure, so a dropped connection never stops
+    the run; the reserve still bounds the next question.
+    """
+
+    def __init__(self, settings: llm.LLMSettings) -> None:
+        self.settings = settings
+        self.start = self._read()
+        self.last = 0.0
+
+    def _read(self) -> float | None:
+        try:
+            return llm.key_limit_remaining(self.settings)
+        except (llm.LLMUnavailableError, llm.LLMRequestError) as error:
+            print(f"(balance check failed: {error})")
+            return None
+
+    def spent(self) -> float:
+        """USD spent since the start, by the balance."""
+        now = self._read()
+        if self.start is not None and now is not None:
+            self.last = max(0.0, self.start - now)
+        return self.last
 
 
 if __name__ == "__main__":

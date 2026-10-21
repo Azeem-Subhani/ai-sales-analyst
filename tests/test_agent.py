@@ -204,6 +204,7 @@ def test_agent_log_rows_written(config: agent.AgentConfig) -> None:
     assert (row["tool_call_count"], row["total_tokens"]) == (2, 155)
     assert row["cost_usd"] == pytest.approx(0.003)
     assert row["final_answer"] == "Net revenue was 114,286.82."
+    assert row["answer_guard"] == "ok" and row["answer_guard_failed"] is None
     calls_logged = agent_log.read_tool_calls(config.audit_path)
     assert list(calls_logged["tool_name"]) == ["get_kpis", "run_sql"]
     assert list(calls_logged["success"]) == [True, False]
@@ -220,6 +221,69 @@ def test_agent_db_connection_cannot_see_audit_tables(config: agent.AgentConfig) 
     assert not outcome.success and "not allowed" in outcome.result["error"]
 
 
+# ---------------------------------------------------------------- answer number guard
+
+
+def test_answer_guard_passes_numbers_from_tools(config: agent.AgentConfig) -> None:
+    fake = ScriptedChat(
+        calls(tool_call("get_kpis", WEEK_ARGS)),
+        text("Week 39 (21-27 Sep 2026): net revenue 114,287 from 661 orders, top 3 KPIs."),
+    )
+    answer = ask("How did we do last week?", config, fake)
+    assert answer.answer_guard == "ok" and answer.answer_guard_failed == []
+    assert len(fake.requests) == 2  # no retry
+
+
+def test_answer_guard_retry_succeeds(config: agent.AgentConfig) -> None:
+    fake = ScriptedChat(
+        calls(tool_call("get_kpis", WEEK_ARGS)),
+        text("Net revenue was about 115,000, roughly 172.9 per order."),
+        text("Net revenue was 114,286.82 from 661 orders."),
+    )
+    answer = ask("Net revenue last week?", config, fake)
+    assert answer.answer == "Net revenue was 114,286.82 from 661 orders."
+    assert answer.answer_guard == "retried_ok"
+    assert answer.answer_guard_failed == ["115,000"]
+    retry = fake.requests[-1]
+    assert retry["tool_choice"] == "none"
+    assert "115,000" in retry["messages"][-1]["content"]
+    assert retry["messages"][-2]["role"] == "assistant"
+    assert answer.cost_usd == pytest.approx(0.005)  # the retry is counted
+
+
+def test_answer_guard_withholds_after_second_failure(config: agent.AgentConfig) -> None:
+    fake = ScriptedChat(
+        calls(tool_call("get_kpis", WEEK_ARGS)),
+        text("Net revenue was 115,000."),
+        text("Net revenue was 120,000."),
+    )
+    answer = ask("Net revenue last week?", config, fake)
+    assert answer.answer_guard == "withheld"
+    assert answer.answer_guard_failed == ["120,000"]
+    assert answer.answer.startswith("(The written answer was withheld")
+    assert "120,000" in answer.answer.splitlines()[0]
+    assert "- Net revenue: 114,286.82 (" in answer.answer  # the tool result instead
+    row = agent_log.read_questions(config.audit_path).iloc[0]
+    assert (row["answer_guard"], row["answer_guard_failed"]) == ("withheld", "120,000")
+
+
+def test_answer_guard_not_run_without_model_text(config: agent.AgentConfig) -> None:
+    answer = ask("?", config, ScriptedChat(llm.LLMUnavailableError("down")))
+    assert answer.answer_guard == "not_run"
+
+
+def test_agent_log_gets_guard_columns_on_an_old_file(config: agent.AgentConfig) -> None:
+    # An audit.duckdb created before the guard has no answer_guard columns.
+    import duckdb
+
+    old_create = agent_log.CREATE_AGENT_LOG.split("    answer_guard ")[0].rstrip().rstrip(",")
+    with duckdb.connect(str(config.audit_path)) as con:
+        con.execute(old_create + "\n)")
+    ask("?", config, ScriptedChat(text("ok")))
+    row = agent_log.read_questions(config.audit_path).iloc[0]
+    assert row["answer_guard"] == "ok"
+
+
 # ---------------------------------------------------------------- prompt
 
 
@@ -229,12 +293,26 @@ def test_system_prompt_contents(built: dict) -> None:
     for table in sql_guard.STANDARD_TABLES:
         assert f"- {table}(" in prompt
     assert "order_date DATE" in prompt  # generated from the database
+    assert "email VARCHAR" not in prompt  # blocked column is not advertised
     assert "| Net revenue | Sum of line values for orders with status `completed`" in prompt
     assert "Return rate | Returned orders / (completed + returned orders)" in prompt
     assert "orders.status: cancelled, completed, returned" in prompt
     assert "not_available_yet" in prompt
     assert prompt.count("```sql") == 5
     assert "{" not in prompt.split("## KPI definitions")[0]  # template fully filled
+
+
+def test_prompt_last_month_and_last_week_at_data_end(built: dict) -> None:
+    # Eval-style: DATA_END_DATE 2026-09-30 -> last month September, last week 21-27 Sep.
+    prompt = prompts.build_system_prompt(built["db_path"], DATA_END)
+    assert '"last month", "latest month": September 2026 (2026-09-01 to 2026-09-30)' in prompt
+    assert '"last week", "latest week": 21 Sep to 27 Sep 2026 (2026-09-21 to 2026-09-27)' in prompt
+
+
+def test_relative_periods_mid_month_use_previous_complete_month() -> None:
+    lines = prompts.relative_periods(date(2026, 9, 15))  # a Tuesday
+    assert "August 2026 (2026-08-01 to 2026-08-31)" in lines
+    assert "07 Sep to 13 Sep 2026" in lines
 
 
 def test_today_is_the_real_date_without_data_end(monkeypatch: pytest.MonkeyPatch) -> None:

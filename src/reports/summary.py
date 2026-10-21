@@ -9,8 +9,9 @@ and is asked for 3 to 5 sentences. A number guard then pulls every number out of
 summary and checks it against the numbers that were sent (allowing commas, % signs and
 rounding to fewer decimals). Whole numbers 1 to 10 are allowed as counts or ranks; the
 period's dates and week number are part of the input, so they are allowed too. If any
-number fails, the model gets one retry with the failing numbers pointed out; if that
-fails too, the summary is dropped. A missing summary never stops a report.
+number fails, or the model is cut off at the token cap (finish_reason "length"), the
+model gets one retry; if that fails too, the summary is dropped. A missing summary
+never stops a report.
 """
 
 import logging
@@ -29,9 +30,13 @@ STATUS_OK = "ok"
 STATUS_GUARD_FAILED = "guard_failed"
 STATUS_LLM_UNAVAILABLE = "llm_unavailable"
 STATUS_SKIPPED = "skipped"
+STATUS_TRUNCATED = "truncated"  # cut off at MAX_SUMMARY_TOKENS on both attempts
 
-MAX_ATTEMPTS = 2  # the first try plus one retry after a guard failure
-MAX_SUMMARY_TOKENS = 400
+MAX_ATTEMPTS = 2  # the first try plus one retry after a guard failure or a cut-off
+# Output token cap per summary call. Reasoning models count their hidden thinking
+# against this cap, so it must leave room for that as well as the 3 to 5 sentences
+# (about 150 tokens). 400 cut off a monthly summary mid-sentence (Week 4 wrap-up).
+MAX_SUMMARY_TOKENS = 2000
 SMALL_COUNTS = {Decimal(n) for n in range(1, 11)}  # "three regions", "top 5", "2nd"
 TOP_ROWS = 3  # products and customers listed in the input
 
@@ -51,6 +56,10 @@ Rules:
 RETRY_PROMPT = (
     "These numbers in your summary are not in the data: {numbers}. Rewrite the summary "
     "using only numbers that appear in the data, copied exactly. Follow all the rules."
+)
+TRUNCATED_PROMPT = (
+    "Your summary was cut off before it finished. Write it again, complete, in at most "
+    "5 short sentences. Follow all the rules."
 )
 
 
@@ -212,11 +221,26 @@ def write_summary(
         if result.cost_usd is not None:
             outcome.cost_usd = (outcome.cost_usd or 0.0) + result.cost_usd
         text = " ".join((result.text or "").split())  # one paragraph, no stray newlines
+        if result.truncated:
+            # A cut-off summary must never be sent, even if its numbers pass.
+            logger.warning(
+                "Summary for %s attempt %d was cut off at %d output tokens (%d reasoning)",
+                numbers["report"],
+                attempt,
+                result.output_tokens,
+                result.reasoning_tokens,
+            )
+            outcome.status, outcome.failed_numbers = STATUS_TRUNCATED, []
+            messages += [
+                {"role": "assistant", "content": text},
+                {"role": "user", "content": TRUNCATED_PROMPT},
+            ]
+            continue
         failed = check_numbers(text, allowed)
         if not failed:
             outcome.text, outcome.status, outcome.failed_numbers = text, STATUS_OK, []
             return outcome
-        outcome.failed_numbers = failed
+        outcome.status, outcome.failed_numbers = STATUS_GUARD_FAILED, failed
         logger.warning(
             "Summary for %s attempt %d used numbers not in the data: %s",
             numbers["report"],
@@ -228,7 +252,7 @@ def write_summary(
             {"role": "user", "content": RETRY_PROMPT.format(numbers=", ".join(failed))},
         ]
     outcome.text = None
-    return outcome  # guard_failed: dropped after the retry
+    return outcome  # guard_failed or truncated (the last attempt's problem): dropped
 
 
 def skipped() -> SummaryOutcome:

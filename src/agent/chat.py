@@ -31,12 +31,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def footer(answer: agent.AgentAnswer) -> str:
-    """One line with model, fallback, tool calls, cost and time."""
+    """One line with model, fallback, tool calls, number guard, cost and time."""
     cost = "n/a" if answer.cost_usd is None else f"${answer.cost_usd:.4f}"
     parts = [
         f"model {answer.model or 'none'}",
         "fallback used" if answer.fallback_used else "no fallback",
         f"{len(answer.tool_calls)} tool call(s)",
+        f"number guard {answer.answer_guard}",
         f"cost {cost}",
         f"{answer.latency_seconds:.1f} s",
     ]

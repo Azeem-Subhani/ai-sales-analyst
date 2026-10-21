@@ -61,8 +61,10 @@ TREND_MONTHS = 12
 
 # Rounding applied once, when numbers enter the Report (display and Excel use these).
 MONEY_DECIMALS = 2
-RATE_DECIMALS = 4  # rates are fractions, so 4 decimals = 0.01 percentage points
-CHANGE_DECIMALS = 2
+# Rates and changes are not rounded when stored: they are rounded once, when shown
+# (fmt_pct, fmt_change, Excel number formats). Rounding them on the way in as well
+# turned a true +8.6495% into "+8.7%" (Week 4 wrap-up, docs/decisions.md).
+UNROUNDED_KINDS = {"rate", "change"}
 
 # KPIs shown in the daily snapshot (plan section 7: revenue, orders, AOV, cancellations).
 DAILY_KPIS = ["net_revenue", "orders", "aov", "units", "cancelled_orders", "cancellation_rate"]
@@ -141,7 +143,7 @@ class Report:
     excel_path: Path | None
     numbers: dict
     output_dir: Path
-    summary_status: str | None = None  # ok | guard_failed | llm_unavailable | skipped
+    summary_status: str | None = None  # ok | guard_failed | truncated | llm_unavailable | skipped
 
 
 # ---------------------------------------------------------------- config
@@ -186,14 +188,20 @@ def validate_report_config(name: str, block: dict) -> None:
 
 
 def rounded(value: float | None, kind: str) -> float | int | None:
-    """Round a value for the Report by its kind (money, count, rate or change)."""
+    """A value as stored in the Report, by kind: money to cents, counts whole.
+
+    Rates and changes are returned unrounded, so the only rounding is at display.
+    """
     value = kpis.none_if_nan(value)
     if value is None:
         return None
     if kind == "count":
         return round(value)
-    decimals = {"money": MONEY_DECIMALS, "rate": RATE_DECIMALS, "change": CHANGE_DECIMALS}[kind]
-    return round(value, decimals)
+    if kind in UNROUNDED_KINDS:
+        return value
+    if kind == "money":
+        return round(value, MONEY_DECIMALS)
+    raise ValueError(f"Unknown value kind {kind!r}.")
 
 
 def fmt_money(value: float | None) -> str:

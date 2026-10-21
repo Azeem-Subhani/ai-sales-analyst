@@ -82,7 +82,7 @@ def test_known_gold_values() -> None:
         (661, 0, "661 orders", True),
         (661, 0, "662 orders", False),  # counts must be exact
         (-28.5, 1, "fell 28.5%", True),  # sign ignored
-        (8.6, 1, "up 8.7% on last year", True),  # the reports' double rounding
+        (8.6, 1, "up 8.7% on last year", True),  # one unit off: a model rounding twice
         (43.2, 1, "43%", False),  # rates keep their display decimal
         (500.1, 1, "500.1 units", True),
         (500.1, 1, "500 units", False),
@@ -141,14 +141,26 @@ def test_chart_needs_make_chart() -> None:
     assert grade("q19", "Here is the chart.", ["run_sql"]).correct is False
 
 
-def test_ambiguous_question_needs_numbers_and_assumption() -> None:
-    august = {n["label"]: n["value"] for n in BY_ID["q20"]["alternatives"][0]["gold"]["numbers"]}
-    revenue, orders = f"{august['net_revenue']:,.2f}", f"{august['orders']:,}"
-    stated = f"Assuming you mean August 2026: net revenue {revenue} from {orders} orders."
-    result = grade("q20", stated)
-    assert result.correct is True and result.alternative == "August 2026"
-    silent = f"August 2026: net revenue {revenue} from {orders} orders."
-    assert grade("q20", silent).correct is None  # right numbers, no stated assumption
+def q20_numbers() -> tuple[str, str]:
+    """September 2026 net revenue and orders from q20's gold, formatted for an answer."""
+    gold = {n["label"]: n["value"] for n in BY_ID["q20"]["gold"]["numbers"]}
+    return f"{gold['net_revenue']:,.2f}", f"{gold['orders']:,}"
+
+
+def test_last_month_means_september_and_must_be_stated() -> None:
+    # Eval-style: with DATA_END_DATE 2026-09-30, "last month" is September 2026.
+    revenue, orders = q20_numbers()
+    stated = f"Taking last month as September 2026: net revenue {revenue} from {orders} orders."
+    assert grade("q20", stated).correct is True
+    silent = f"September 2026: net revenue {revenue} from {orders} orders."
+    assert grade("q20", silent).correct is None  # right numbers, period not explained
+
+
+def test_last_month_as_august_is_not_correct() -> None:
+    # Eval-style: the old calendar reading (August 2026) no longer passes.
+    august = "Taking last month as August 2026: net revenue 462,431.56 from 2,747 orders."
+    assert grade("q20", august).correct is False
+    assert "alternatives" not in BY_ID["q20"]
 
 
 def test_agent_error_is_wrong() -> None:
@@ -191,8 +203,10 @@ def test_run_eval_offline_writes_results(built: dict, tmp_path: Path) -> None:
     assert run.correct == 1
     saved = json.loads((tmp_path / "q02.json").read_text())
     assert saved["correct"] is True and saved["tools_used"] == ["get_kpis"]
+    assert saved["answer_guard"] == "ok"
     summary = json.loads((tmp_path / "summary.json").read_text())
     assert summary["correct"] == 1 and summary["total_cost_usd"] == pytest.approx(0.003)
+    assert summary["answer_guard_retried"] == [] and summary["answer_guard_withheld"] == []
 
 
 def test_run_eval_stops_at_spend_limit(built: dict, tmp_path: Path) -> None:
@@ -339,3 +353,22 @@ def test_real_spend_probe_stops_the_run(built: dict, tmp_path: Path) -> None:
         chat=AnswerFromGold(BY_ID["q02"]),
     )
     assert run.results == [] and "spent $0.4950" in run.stopped
+
+
+def test_key_balance_measures_spend_and_survives_a_failed_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    readings: list[float | Exception] = [10.0, 9.99, llm.LLMUnavailableError("down"), 9.97]
+
+    def fake_remaining(settings: llm.LLMSettings) -> float:
+        reading = readings.pop(0)
+        if isinstance(reading, Exception):
+            raise reading
+        return reading
+
+    monkeypatch.setattr(llm, "key_limit_remaining", fake_remaining)
+    settings = llm.LLMSettings("test-key", "https://openrouter.ai/api/v1", "fake/m", "fb/m", 60.0)
+    balance = run_eval.KeyBalance(settings)
+    assert balance.spent() == pytest.approx(0.01)
+    assert balance.spent() == pytest.approx(0.01)  # failed read keeps the last figure
+    assert balance.spent() == pytest.approx(0.03)

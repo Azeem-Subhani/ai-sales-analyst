@@ -4,7 +4,8 @@ Checks for one question:
 - numbers: each gold number must appear in the answer within display rounding. The
   answer may round to fewer decimals (114,287 for 114,286.82; money of 1,000 or more
   may drop all decimals; other numbers must keep their display decimals), and may be
-  off by one unit in its last digit (the reports round twice, e.g. 8.65 -> "8.7").
+  off by one unit in its last digit (a model may round a rounded value again, e.g.
+  8.65 -> "8.7"; the reports round once since the Week 4 wrap-up).
   Signs are ignored ("fell 28.5%" matches -28.5).
 - names: each gold name must appear (case and punctuation ignored, "&" = "and").
 - chart: make_chart must have succeeded.
@@ -16,8 +17,8 @@ Checks for one question:
 
 Result: correct (True) when every check passes; wrong (False) when fewer than half
 pass, or the agent errored; undecided (None) otherwise, for a human to review.
-Questions with alternatives (e.g. "last month") are graded against each alternative
-and the best one counts.
+Questions with alternatives (none in the current set) are graded against each
+alternative and the best one counts.
 """
 
 import re
@@ -59,7 +60,7 @@ def number_present(gold: float, decimals: int, answer: str) -> bool:
 
     Counts (0 decimals) must match exactly. A number written with fewer decimals
     than displayed must be the gold value rounded (within half a unit). A number
-    written at display precision may be one unit off, for the reports' double rounding.
+    written at display precision may be one unit off, in case a value was rounded twice.
     """
     target = abs(Decimal(str(gold)))
     min_decimals = 0 if target >= MONEY_DROP_DECIMALS_FROM else decimals
@@ -107,7 +108,7 @@ def supported(token: str, allowed: set[Decimal]) -> bool:
     """True if a number in the answer matches an evidence number within rounding.
 
     Whole numbers may be rounded (half a unit); numbers with decimals may also be
-    one unit off, for the reports' double rounding.
+    one unit off, in case a value was rounded twice.
     """
     value = to_decimal(token)
     decimals = len(token.split(".")[1]) if "." in token else 0
