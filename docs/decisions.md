@@ -135,3 +135,172 @@ text are marked **(clarified)**.
     the error is only logged and written to `report_runs`.
 - Every attempt is one row in `report_runs` in `data/audit.duckdb` (see Week 1
   follow-ups).
+
+## Week 4: LLM client, summaries and agent
+
+### Base branch is `main` (no `dev` yet)
+- **Decision:** `week-4-agent` was created from `main` (992d404, the merge of
+  `week-3-delivery`). Week 4 is merged back into `main` through a PR.
+- **Why:** the Week 4 brief says to branch from `dev`, but `origin` had no `dev`
+  branch on 2026-10-21. `week-3-delivery` was confirmed merged into `origin/main`.
+- **How to update:** if a `dev` branch is created later, rebase or merge
+  `week-4-agent` onto it and update this entry.
+
+### Fast provider routing: sort by throughput, not `:nitro`
+- **Decision:** every OpenRouter call sends
+  `extra_body={"provider": {"sort": "throughput"}}`. `.env` holds plain model IDs
+  with no `:nitro` suffix.
+- **Why:** this keeps model IDs clean and switching models a `.env` change.
+- **Difference from `:nitro` (OpenRouter provider-routing docs, checked
+  2026-10-21):** `:nitro` is a superset of `sort: "throughput"`. It also makes
+  priority-service-tier endpoints eligible, which `sort` alone does not. Setting
+  `sort` also turns off OpenRouter's default price-weighted load balancing, so
+  providers are tried fastest first. Chosen by the project owner.
+
+### Report summaries: pre-formatted numbers and a number guard
+- **Decision:** `src/reports/summary.py` sends the model the report's numbers as
+  text lines, formatted exactly as the email shows them. The model writes 3 to 5
+  sentences. A guard extracts every number from the summary and accepts it only
+  if it matches a number that was sent, the same number rounded to fewer
+  decimals, or a whole number from 1 to 10. If any number fails, the model gets
+  one retry with the failing numbers named. After a second failure the summary
+  is dropped.
+- **Never blocks a report:** if the LLM is unavailable or the summary is
+  dropped, the report still builds and sends with "Summary unavailable for this
+  run". `report_runs.summary_status` records `ok`, `guard_failed`,
+  `llm_unavailable` or `skipped` (`--no-summary`). The column is added to an
+  existing `audit.duckdb` on first use.
+- **Known limit:** the guard checks values, not direction. Signs are ignored, so
+  "fell 2.5%" for a +2.5% change passes the guard. The prompt asks the model to
+  copy the data; reviewers should check direction in the Week 6 dry-run review.
+- **Scheduler start-up:** a missing `OPENROUTER_API_KEY` is logged as a one-line
+  warning, not an error, because reports must still send without a summary.
+
+### pydantic is pinned (15th pin)
+- **Decision:** `pydantic==2.14.1` is added to `requirements.txt` as the 15th
+  top-level pin. It was already installed as a dependency of `openai`, so
+  `requirements-lock.txt` was regenerated with no change.
+- **Why:** the agent tools import pydantic directly, for argument models and
+  for generating the tool JSON schemas. A direct import should be a direct pin,
+  so an `openai` upgrade cannot silently change it.
+
+### SQL guard reads DuckDB's parse tree
+- **Decision:** `src/agent/sql_guard.py` accepts a query only if all of these
+  hold:
+  1. `duckdb.extract_statements` finds exactly one statement, and it is a SELECT.
+  2. The text starts with SELECT or WITH.
+  3. No blocked keyword appears outside strings and comments.
+  4. Every table, CTE and function in `json_serialize_sql`'s parse tree passes.
+     Only the six standard tables and the query's own CTEs may be read. Table
+     functions other than `range`, `generate_series` and `unnest` are refused,
+     and so are file and system functions.
+- **Replaces:** the plan's idea of reading table names from `EXPLAIN`. The
+  parse tree also catches `read_csv(...)` and `'file.csv'` scans, and it
+  needs no database.
+- **Why the start-keyword check:** DuckDB reports `PRAGMA`, `DESCRIBE`, `SHOW`
+  and `SUMMARIZE` as SELECT statements.
+- **Second layer:** the agent's connection is read-only with
+  `SET enable_external_access = false`. This is done with SET, not a
+  connect-time config, because DuckDB refuses two in-process connections to one
+  file with different configs. The setting applies to the whole in-process
+  database until it closes; nothing in the project reads files through DuckDB.
+  `audit.duckdb` is never attached.
+- Limits: 500 rows (501 are fetched to detect truncation), 10 seconds via
+  `interrupt()`.
+
+### get_forecast compares with demand, not "units sold"
+- **Decision:** `get_forecast` puts actual units next to each forecast week.
+  Actual units are units on non-cancelled orders (completed or returned), per
+  Monday-to-Sunday week.
+- **Why:** the generator seeded the forecasts from that demand series. The
+  "Units sold" KPI counts completed orders only, so comparing against it would
+  overstate forecast error by the return rate.
+- **Week 5:** forecast accuracy (WAPE and bias) should use the same demand
+  definition. Confirm with the project owner.
+
+### Agent loop, prompt and agent_log
+- **Loop:** `src/agent/agent.py` is a plain loop with no framework.
+  - Limits per question: 10 tool calls and 120 seconds.
+  - At the tool limit, the model is asked once more with `tool_choice="none"`.
+    The answer then starts with "(Stopped early: ...)".
+  - Each model request's timeout is capped by the time left for the question.
+- **Prompt:** `src/agent/prompts/` replaces the `prompts.py` stub. It holds
+  `system_prompt.md` (the template) and `examples.yaml` (5 question/SQL pairs).
+  - Table schemas and column values are read from the database.
+  - KPI definitions are copied from this file's Week 2 section.
+  - "Today" is `DATA_END_DATE`, or the real date when it is unset.
+  - A test runs every example query through the SQL guard and checks its value.
+- **Logging:** `agent_log` (one row per question) and `agent_tool_calls` (one row
+  per tool call) are in `data/audit.duckdb`, linked by `question_id`.
+- **Chat CLI:** each question is answered on its own, with no conversation
+  history. The Week 6 Streamlit app keeps history.
+- **Email addresses:** `customers.email` is in the schema. The prompt tells the
+  model never to show email addresses. Blocking the column in the SQL guard is
+  an open item before real data arrives.
+
+### Evaluation set and grading rules
+- **Decision:** `tests/eval/questions.yaml` holds 20 questions. Each one has
+  hand-written gold SQL. `scripts/fill_gold.py` runs that SQL through the SQL
+  guard and writes the gold values into the file; nobody types them.
+  `pytest` checks that the stored values still match the SQL.
+- **Grading (`src/agent/eval_grader.py`):**
+  - Numbers must match within display rounding:
+    - Money of 1,000 or more may drop its decimals.
+    - Other values keep their display decimals.
+    - Counts must match exactly.
+    - At display precision, one unit off in the last digit is allowed.
+    - Signs are ignored.
+  - Names must be present (case and punctuation ignored).
+  - A chart answer needs a successful `make_chart` call.
+  - The ambiguous question ("How did we do last month?") accepts August or
+    September 2026, as long as the answer states its assumption.
+- **Verdicts:** all checks pass → correct. Fewer than half pass → wrong.
+  Anything in between is marked for human review.
+- **Why one unit of tolerance:** the builder rounds changes to 2 decimals and
+  then displays 1, so a true 8.6495% shows as 8.7%. This also affects the Week 2
+  reports and is listed as an open item.
+
+### Model check: main and fallback chosen by the project owner
+- **Decision:** the project owner chose the models. The main model is
+  `deepseek/deepseek-v4-flash` and the fallback is `openai/gpt-6-luna`.
+  `openai/gpt-5.6-luna` was run as a reference only. `.env` was not changed by
+  the check.
+- **Results (2026-10-21):** see `docs/model_comparison_week4.md`. All runs used
+  fallback off, temperature 0 and throughput routing.
+
+  | Model | Correct | Median / p90 latency | Cost per question | Providers |
+  | --- | --- | --- | --- | --- |
+  | main | 13/20 | 7.2 / 12.7 s | $0.00083 | 15 |
+  | fallback | 18/20 | 7.6 / 16.6 s | $0.00042 | 3 |
+  | reference | 19/20 | 8.8 / 10.1 s | $0.00072 | 3 |
+
+- **Owner's rules:** a recommendation is made only if the main model scores
+  below 19/20 while another model reaches 19, or the fallback scores below
+  17/20. The first rule is met: the main model scored 13 and the reference 19.
+  So a change of main model is recommended for the owner to decide; nothing was
+  switched. The fallback passed its rule with 18.
+- **Main model's misses:** most are numbers it calculated itself (sums, medians,
+  month-on-month changes, made-up thresholds), against the prompt rule.
+- **Cost reporting:** OpenRouter reported `usage.cost = 0` on every response.
+  Spend is therefore measured from the API key's credit balance. Week 4 spend
+  is about $0.089 against the owner's $0.50 cap. That covers three model-check
+  runs: the first invalid, the second cut short, the third reported here.
+- **Grader limit:** a date range written as "July 1-31" can be flagged as an
+  unsupported number. Such flags go to review, not to wrong.
+
+### Main model switched to openai/gpt-5.6-luna
+- **Decision (project owner, 2026-10-21):** after the model check, the main
+  model is switched from `deepseek/deepseek-v4-flash` to `openai/gpt-5.6-luna`.
+  The fallback stays `openai/gpt-6-luna`.
+- **Why:** `gpt-5.6-luna` was the only model at 19/20, with the lowest p90
+  latency (10.1 s), at $0.00072 per question. DeepSeek scored 13/20, mostly by
+  adding numbers it calculated itself. The fallback passed its rule with 18/20.
+- **How:** the owner changes `LLM_MODEL` in `.env` and `.env.example`; Claude
+  Code cannot edit those files. No code change is needed.
+- **Not re-measured:** at the owner's request, the eval was not run again after
+  the switch. The 19/20 figure comes from the model check run with fallback
+  off. Step 7's final eval with the `.env` main model is therefore not run;
+  this is an open item.
+- **Trade-off:** 3 providers instead of DeepSeek's 15. A provider-wide outage
+  at OpenAI is covered only partly, because the fallback is also an OpenAI model
+  (served by OpenAI, Azure and Amazon Bedrock).

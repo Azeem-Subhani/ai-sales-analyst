@@ -140,6 +140,27 @@ timestamps. Logs go to `outputs/logs/scheduler.log`. To read the runs:
 python -c "from src.reports import audit; print(audit.read_runs().tail(10).to_string())"
 ```
 
+## LLM setup
+
+The report summaries and the chat agent call models on OpenRouter. All calls
+go through `src/agent/llm.py`. Put these in `.env` (see `.env.example`); never
+put the key in code or chat:
+
+| Key | Example | Meaning |
+| --- | --- | --- |
+| `OPENROUTER_API_KEY` | from Tech Ops | Required. The key has a $10 credit limit |
+| `LLM_BASE_URL` | `https://openrouter.ai/api/v1` | OpenRouter's OpenAI-compatible API |
+| `LLM_MODEL` | `openai/gpt-5.6-luna` | Main model |
+| `LLM_FALLBACK_MODEL` | `openai/gpt-6-luna` | Tried once if the main model times out, is rate limited, errors (5xx) or returns nothing |
+| `LLM_TIMEOUT_SECONDS` | `60` | Per request |
+
+Model IDs stay plain (no `:nitro`). The client asks OpenRouter for the fastest
+provider instead (see `docs/decisions.md`, Week 4). If the key is rejected
+(401/403), there is no fallback: check the key and its credit.
+
+Tests never reach OpenRouter. An autouse fixture in `tests/conftest.py` blocks
+the host.
+
 ## Working with Claude Code and Cursor
 
 The repo is set up so both tools follow the same rules without copying them.

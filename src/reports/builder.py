@@ -6,9 +6,14 @@ returns a Report. Every number shown in the HTML or Excel comes from `Report.num
 so Week 4 can pass exactly those numbers to the LLM summary and Week 3 can email the
 HTML with the chart images attached inline (cid: references).
 
+Each report starts with a short LLM-written summary of these numbers
+(src/reports/summary.py); if the model is unavailable or the summary fails the number
+guard, the report is built anyway with "Summary unavailable for this run".
+
 Dry run from the command line (writes to outputs/reports/<report>_<as_of>/):
     python -m src.reports.builder --report weekly_sales_review --as-of 2026-09-27
     python -m src.reports.builder --all --as-of 2026-09-30
+    python -m src.reports.builder --all --as-of 2026-09-30 --no-summary   # no LLM call
 """
 
 import argparse
@@ -27,6 +32,7 @@ import duckdb
 import matplotlib.pyplot as plt
 import pandas as pd
 import yaml
+from dotenv import load_dotenv
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
 from matplotlib.ticker import FuncFormatter, PercentFormatter
 from openpyxl.utils import get_column_letter
@@ -44,7 +50,7 @@ HTML_FILENAME = "report.html"
 # Top-level keys in reports.yaml that are settings, not reports.
 RESERVED_CONFIG_KEYS = {"delivery"}
 
-SUMMARY_PLACEHOLDER = "Summary added in Week 4"
+SUMMARY_PLACEHOLDER = "Summary unavailable for this run"
 DEMAND_ALERTS_PLACEHOLDER = "Added in Week 5"
 FORECAST_ACCURACY_PLACEHOLDER = "Added in Week 5"
 
@@ -135,6 +141,7 @@ class Report:
     excel_path: Path | None
     numbers: dict
     output_dir: Path
+    summary_status: str | None = None  # ok | guard_failed | llm_unavailable | skipped
 
 
 # ---------------------------------------------------------------- config
@@ -839,13 +846,19 @@ def build_report(
     output_root: Path = OUTPUT_ROOT,
     config_path: Path = CONFIG_PATH,
     data_end: date | None = None,
+    summary: bool = True,
 ) -> Report:
     """Build one report for the period ending on as_of and save the dry-run files.
 
     data_end (DATA_END_DATE, set by the scheduler) is only shown in the email, so the
-    reader knows the data stops there. Raises ValueError for an unknown report, a
-    partial period (see kpis.period_for) or an as_of after the last order in the database.
+    reader knows the data stops there. summary=False skips the LLM summary (status
+    "skipped"). Raises ValueError for an unknown report, a partial period (see
+    kpis.period_for) or an as_of after the last order in the database; LLM problems
+    never raise.
     """
+    # Imported here because summary.py uses this module's formatters.
+    from src.reports import summary as report_summary
+
     config = load_config(config_path)
     if report_name not in config:
         raise ValueError(f"Unknown report {report_name!r}; expected one of {sorted(config)}.")
@@ -879,10 +892,13 @@ def build_report(
             name: {**period_info(p), "name": COMPARISON_LABELS[name]}
             for name, p in comparisons.items()
         },
-        "summary": None,  # filled by the LLM in Week 4
+        "summary": None,  # filled below by the LLM, from the numbers above only
+        "summary_status": None,
         "sections": sections,
         "charts": charts,
     }
+    outcome = report_summary.write_summary(numbers) if summary else report_summary.skipped()
+    numbers["summary"], numbers["summary_status"] = outcome.text, outcome.status
     html = render_html(numbers)
 
     output_dir = output_root / f"{report_name}_{as_of.isoformat()}"
@@ -893,7 +909,18 @@ def build_report(
     else:
         excel_path = None
     logger.info("Built %s for %s in %s", report_name, as_of, output_dir)
-    return Report(report_name, title, as_of, subject, html, images, excel_path, numbers, output_dir)
+    return Report(
+        report_name,
+        title,
+        as_of,
+        subject,
+        html,
+        images,
+        excel_path,
+        numbers,
+        output_dir,
+        summary_status=outcome.status,
+    )
 
 
 def save_dry_run(html: str, images: dict[str, bytes], output_dir: Path) -> None:
@@ -919,6 +946,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--as-of", required=True, type=date.fromisoformat, help="last day of the period, YYYY-MM-DD"
     )
     parser.add_argument("--db", type=Path, default=kpis.DB_PATH, help="DuckDB file to read")
+    parser.add_argument(
+        "--no-summary", action="store_true", help="skip the LLM summary (no API call)"
+    )
     return parser.parse_args(argv)
 
 
@@ -926,16 +956,17 @@ def main(argv: list[str] | None = None) -> None:
     """Build the requested reports and print where the files went."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     args = parse_args(argv)
+    load_dotenv()  # OPENROUTER_API_KEY and LLM_* for the summary
     names = list(load_config()) if args.all else [args.report]
     for name in names:
         try:
-            report = build_report(name, args.as_of, db_path=args.db)
+            report = build_report(name, args.as_of, db_path=args.db, summary=not args.no_summary)
         except ValueError as error:
             if not args.all:
                 raise
             print(f"skipped {name}: {error}")
             continue
-        print(f"{name}: {report.output_dir / HTML_FILENAME}")
+        print(f"{name}: {report.output_dir / HTML_FILENAME} (summary: {report.summary_status})")
         if report.excel_path:
             print(f"{' ' * len(name)}  {report.excel_path}")
 
