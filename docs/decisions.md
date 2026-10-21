@@ -156,3 +156,22 @@ text are marked **(clarified)**.
   priority-service-tier endpoints eligible, which `sort` alone does not. Setting
   `sort` also turns off OpenRouter's default price-weighted load balancing, so
   providers are tried fastest first. Chosen by the project owner.
+
+### Report summaries: pre-formatted numbers and a number guard
+- **Decision:** `src/reports/summary.py` sends the model the report's numbers as
+  text lines, formatted exactly as the email shows them. The model writes 3 to 5
+  sentences. A guard extracts every number from the summary and accepts it only
+  if it matches a number that was sent, the same number rounded to fewer
+  decimals, or a whole number from 1 to 10. If any number fails, the model gets
+  one retry with the failing numbers named. After a second failure the summary
+  is dropped.
+- **Never blocks a report:** if the LLM is unavailable or the summary is
+  dropped, the report still builds and sends with "Summary unavailable for this
+  run". `report_runs.summary_status` records `ok`, `guard_failed`,
+  `llm_unavailable` or `skipped` (`--no-summary`). The column is added to an
+  existing `audit.duckdb` on first use.
+- **Known limit:** the guard checks values, not direction. Signs are ignored, so
+  "fell 2.5%" for a +2.5% change passes the guard. The prompt asks the model to
+  copy the data; reviewers should check direction in the Week 6 dry-run review.
+- **Scheduler start-up:** a missing `OPENROUTER_API_KEY` is logged as a one-line
+  warning, not an error, because reports must still send without a summary.

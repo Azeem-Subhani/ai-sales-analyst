@@ -139,7 +139,7 @@ def build_message(report: Report, sender: str, to: list[str]) -> EmailMessage:
 
 
 def plain_text(report: Report) -> str:
-    """Text fallback: the period and headline KPIs, formatted exactly as in the HTML."""
+    """Text fallback: the period, the summary and headline KPIs, formatted as in the HTML."""
     numbers = report.numbers
     if "text" in numbers:  # failure notices carry their own text
         return numbers["text"]
@@ -147,7 +147,7 @@ def plain_text(report: Report) -> str:
     lines = [numbers["title"], period["label"], f"Covers {period['start']} to {period['end']}"]
     if numbers.get("data_end"):
         lines[-1] += f" (data available through {numbers['data_end']})"
-    lines.append("")
+    lines += ["", numbers.get("summary") or builder.SUMMARY_PLACEHOLDER, ""]
     headline = next((s for s in numbers["sections"].values() if s["type"] == "kpis"), None)
     if headline:
         comparisons = numbers["comparisons"]

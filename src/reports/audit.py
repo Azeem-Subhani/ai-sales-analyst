@@ -3,6 +3,9 @@
 One row per attempt: a run that fails and is retried writes two rows with the same
 run_id. The audit database is separate from data/sales.duckdb, which stays read-only.
 Timestamps are UTC.
+
+Columns added after Week 3 are listed in MIGRATIONS and added to an existing table on
+first use, so an older data/audit.duckdb keeps working. Inserts name their columns.
 """
 
 import threading
@@ -31,13 +34,22 @@ CREATE TABLE IF NOT EXISTS report_runs (
     error             VARCHAR,
     duration_seconds  DOUBLE NOT NULL,
     started_at_utc    TIMESTAMP NOT NULL,
-    finished_at_utc   TIMESTAMP NOT NULL
+    finished_at_utc   TIMESTAMP NOT NULL,
+    summary_status    VARCHAR             -- ok | guard_failed | llm_unavailable | skipped (Week 4)
 )
 """
+# Week 4: summary_status. NULL for Week 3 rows and for attempts that failed before
+# the summary step.
+MIGRATIONS = ["ALTER TABLE report_runs ADD COLUMN IF NOT EXISTS summary_status VARCHAR"]
 INSERT_REPORT_RUN = """
-INSERT INTO report_runs VALUES (
+INSERT INTO report_runs (
+    run_id, report, attempt, triggered_by, mode, as_of, period_start, period_end,
+    recipients, status, error, duration_seconds, started_at_utc, finished_at_utc,
+    summary_status
+) VALUES (
     $run_id, $report, $attempt, $triggered_by, $mode, $as_of, $period_start, $period_end,
-    $recipients, $status, $error, $duration_seconds, $started_at_utc, $finished_at_utc
+    $recipients, $status, $error, $duration_seconds, $started_at_utc, $finished_at_utc,
+    $summary_status
 )
 """
 SELECT_REPORT_RUNS = "SELECT * FROM report_runs ORDER BY started_at_utc, attempt"
@@ -64,6 +76,7 @@ class RunRecord:
     duration_seconds: float
     started_at_utc: datetime
     finished_at_utc: datetime
+    summary_status: str | None = None
 
 
 def record_run(record: RunRecord, db_path: Path = AUDIT_DB_PATH) -> None:
@@ -71,6 +84,8 @@ def record_run(record: RunRecord, db_path: Path = AUDIT_DB_PATH) -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     with _write_lock, duckdb.connect(str(db_path)) as con:
         con.execute(CREATE_REPORT_RUNS)
+        for migration in MIGRATIONS:
+            con.execute(migration)
         con.execute(INSERT_REPORT_RUN, asdict(record))
 
 

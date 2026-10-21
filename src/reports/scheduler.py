@@ -31,6 +31,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from dotenv import load_dotenv
 
+from src.agent import llm
 from src.analytics import kpis
 from src.reports import audit, builder, data_clock, emailer
 from src.reports.delivery_config import ConfigError, delivery_settings, report_recipients
@@ -61,6 +62,7 @@ class Settings:
     db_path: Path = kpis.DB_PATH
     output_root: Path = builder.OUTPUT_ROOT
     audit_path: Path = audit.AUDIT_DB_PATH
+    summary: bool = True  # False with --no-summary: no LLM call
     sleep: Callable[[float], None] = field(default=time.sleep, repr=False)
 
 
@@ -113,10 +115,13 @@ def run_report(name: str, settings: Settings, triggered_by: str, today: date | N
     for attempt in range(1, MAX_ATTEMPTS + 1):
         started, clock = datetime.now(UTC), time.perf_counter()
         recipients = list(block.get("recipients") or [])  # unexpanded until send mode needs them
+        summary_status: str | None = None
         try:
             if settings.mode == "send":
                 recipients = report_recipients(block)
-            deliver_once(name, as_of, recipients, settings)
+            report = build_once(name, as_of, settings)
+            summary_status = report.summary_status  # kept even if the send below fails
+            deliver_once(report, recipients, settings)
             error = None
         except Exception as exc:  # noqa: BLE001 - every failure is audited and reported
             error = exc
@@ -136,6 +141,7 @@ def run_report(name: str, settings: Settings, triggered_by: str, today: date | N
                 duration_seconds=round(time.perf_counter() - clock, 3),
                 started_at_utc=started.replace(tzinfo=None),
                 finished_at_utc=datetime.now(UTC).replace(tzinfo=None),
+                summary_status=summary_status,
             ),
             settings.audit_path,
         )
@@ -152,17 +158,22 @@ def run_report(name: str, settings: Settings, triggered_by: str, today: date | N
     return False
 
 
-def deliver_once(name: str, as_of: date, recipients: list[str], settings: Settings) -> None:
-    """One attempt: build (always saving dry-run files), then email in send mode."""
+def build_once(name: str, as_of: date, settings: Settings) -> builder.Report:
+    """Build the report (always saving the dry-run files), one build at a time."""
     with _build_lock:
-        report = builder.build_report(
+        return builder.build_report(
             name,
             as_of,
             db_path=settings.db_path,
             output_root=settings.output_root,
             config_path=settings.config_path,
             data_end=settings.data_end,
+            summary=settings.summary,
         )
+
+
+def deliver_once(report: builder.Report, recipients: list[str], settings: Settings) -> None:
+    """Email the built report in send mode; in dry_run the saved files are the output."""
     if settings.mode == "send":
         emailer.send_report(report, recipients, config_path=settings.config_path)
     else:
@@ -265,6 +276,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         metavar="MINUTES",
         help="testing only: run every report every N minutes",
     )
+    parser.add_argument(
+        "--no-summary",
+        action="store_true",
+        help="skip the LLM summary (no API call); use with --run-now",
+    )
     return parser.parse_args(argv)
 
 
@@ -288,6 +304,16 @@ def check_send_ready(settings: Settings) -> None:
         report_recipients(block)
 
 
+def check_summary_ready(settings: Settings) -> None:
+    """Warn once at start-up if summaries cannot work; reports still build and send."""
+    if not settings.summary:
+        return
+    try:
+        llm.llm_settings()
+    except llm.LLMConfigError as error:
+        logger.warning("Report summaries will be unavailable: %s", error)
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the command; expected problems print one clear line and return 1."""
     args = parse_args(argv)
@@ -295,6 +321,7 @@ def main(argv: list[str] | None = None) -> int:
     setup_logging()
     try:
         settings = settings_from_env()
+        settings.summary = not args.no_summary
         if args.list:
             specs = job_specs(settings)
             print(
@@ -303,6 +330,7 @@ def main(argv: list[str] | None = None) -> int:
             print("\n".join(describe_jobs(specs, datetime.now(ZoneInfo(settings.timezone)))))
             return 0
         check_send_ready(settings)
+        check_summary_ready(settings)
         if args.run_now:
             return 0 if run_report(args.run_now, settings, "run_now") else 1
         if args.test_every is not None and args.test_every < 1:
