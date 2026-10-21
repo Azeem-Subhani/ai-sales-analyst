@@ -15,12 +15,18 @@ X-Title header. If the main model times out, is rate limited, returns a 5xx, can
 reached or returns an empty or invalid response, the same request is retried once on
 the fallback model. Auth errors (401/403) never fall back: a bad key fails the same way
 on every model.
+
+list_models() and model_endpoints() read OpenRouter's model catalog (free GET
+requests, no tokens spent) for the Week 4 model check.
 """
 
 import json
 import logging
 import os
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -313,12 +319,16 @@ def _parse_tool_call(call: Any) -> ToolCall:
 
 
 def _cost(usage: Any, model: str, input_tokens: int, output_tokens: int) -> float | None:
-    """USD cost: OpenRouter's usage.cost (credits, 1 credit = 1 USD), else the price table."""
+    """USD cost: OpenRouter's usage.cost (credits, 1 credit = 1 USD), else the price table.
+
+    OpenRouter has been seen to report cost 0 for calls that used tokens (Week 4
+    model check), so a zero cost with tokens counts as "not reported".
+    """
     reported = getattr(usage, "cost", None)
     if reported is None:
         extra = getattr(usage, "model_extra", None) or {}
         reported = extra.get("cost")
-    if reported is not None:
+    if reported is not None and (float(reported) > 0 or input_tokens + output_tokens == 0):
         return float(reported)
     prices = PRICE_TABLE.get(model)
     if prices is None:
@@ -355,3 +365,60 @@ def _describe(error: Exception) -> str:
     status = getattr(error, "status_code", None)
     name = type(error).__name__
     return f"{name} {status}" if status else f"{name}: {error}"
+
+
+# ---------------------------------------------------------------- model catalog (free)
+
+CATALOG_TIMEOUT_SECONDS = 30
+HTTP_FORBIDDEN = 403
+HTTP_UNAUTHORIZED = 401
+HTTP_NOT_FOUND = 404
+
+
+def _get_json(path: str, settings: LLMSettings) -> dict[str, Any]:
+    """GET a catalog path under LLM_BASE_URL; no tokens are spent."""
+    request = urllib.request.Request(
+        settings.base_url.rstrip("/") + path,
+        headers={"Authorization": f"Bearer {settings.api_key}", "X-Title": APP_TITLE},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=CATALOG_TIMEOUT_SECONDS) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        if error.code in (HTTP_UNAUTHORIZED, HTTP_FORBIDDEN):
+            raise LLMAuthError(
+                f"OpenRouter rejected the API key ({error.code}). Check {KEY_ENV} in .env. "
+                f"{SETUP_HINT}"
+            ) from error
+        raise LLMRequestError(f"GET {path} failed with HTTP {error.code}") from error
+    except (urllib.error.URLError, TimeoutError) as error:
+        raise LLMUnavailableError(f"GET {path} failed: {error}") from error
+
+
+def key_limit_remaining(settings: LLMSettings | None = None) -> float | None:
+    """USD left on the API key's credit limit (OpenRouter's own figure, free to read)."""
+    settings = settings or llm_settings()
+    remaining = _get_json("/key", settings).get("data", {}).get("limit_remaining")
+    return None if remaining is None else float(remaining)
+
+
+def list_models(settings: LLMSettings | None = None) -> dict[str, dict[str, Any]]:
+    """Every model OpenRouter lists, keyed by model ID (id, pricing, supported_parameters)."""
+    settings = settings or llm_settings()
+    data = _get_json("/models", settings).get("data", [])
+    return {model["id"]: model for model in data}
+
+
+def model_endpoints(model_id: str, settings: LLMSettings | None = None) -> list[dict[str, Any]]:
+    """The provider endpoints serving one model ([] if OpenRouter does not know it)."""
+    settings = settings or llm_settings()
+    path = f"/models/{urllib.parse.quote(model_id, safe='/')}/endpoints"
+    try:
+        data = _get_json(path, settings).get("data", {})
+    except LLMRequestError as error:
+        if isinstance(error.__cause__, urllib.error.HTTPError) and (
+            error.__cause__.code == HTTP_NOT_FOUND
+        ):
+            return []
+        raise
+    return list(data.get("endpoints", []))

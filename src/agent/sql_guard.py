@@ -228,6 +228,8 @@ def run_query(
                 f"The query took longer than {timeout_seconds:g} seconds and was stopped. "
                 "Aggregate more or add filters."
             ) from error
+        except duckdb.Error as error:  # a SQL mistake, e.g. an unknown column
+            raise SQLGuardError(f"The query failed: {error}") from error
         finally:
             timer.cancel()
     truncated = len(rows) > max_rows

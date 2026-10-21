@@ -220,3 +220,10 @@ def test_real_client_cannot_reach_openrouter() -> None:
     """Even the real SDK client fails fast inside tests, so no credit is ever spent."""
     with pytest.raises(llm.LLMUnavailableError):
         llm.complete(MESSAGES, settings=SETTINGS)
+
+
+def test_zero_reported_cost_with_tokens_uses_price_table(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression: OpenRouter reported cost 0 for real calls in the Week 4 model check."""
+    monkeypatch.setitem(llm.PRICE_TABLE, "main/model", (1.0, 4.0))
+    result = call(FakeClient(response(cost=0.0)))
+    assert result.cost_usd == pytest.approx((100 * 1.0 + 20 * 4.0) / 1_000_000)

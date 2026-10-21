@@ -47,22 +47,23 @@
 - question: What was the return rate by channel in July to September 2026?
   sql: |
     SELECT channel,
-           round(count(*) FILTER (WHERE status = 'returned')
-                 / count(*) FILTER (WHERE status IN ('completed', 'returned')), 4) AS return_rate
+           round(100 * count(*) FILTER (WHERE status = 'returned')
+                 / count(*) FILTER (WHERE status IN ('completed', 'returned')), 1)
+           AS return_rate_pct
     FROM orders
     WHERE order_date BETWEEN DATE '2026-07-01' AND DATE '2026-09-30'
     GROUP BY channel
-    ORDER BY return_rate DESC
-  check: {row: 0, values: {channel: marketplace, return_rate: 0.0575}}
+    ORDER BY return_rate_pct DESC
+  check: {row: 0, values: {channel: marketplace, return_rate_pct: 5.7}}
 
 - question: What was the gross margin in August 2026?
   sql: |
-    SELECT round(1 - sum(oi.quantity * p.unit_cost)
-                     / sum(oi.quantity * oi.unit_price * (1 - oi.discount_pct)), 4)
+    SELECT round(100 * (1 - sum(oi.quantity * p.unit_cost)
+                     / sum(oi.quantity * oi.unit_price * (1 - oi.discount_pct))), 1)
            AS gross_margin_pct
     FROM orders o
     JOIN order_items oi USING (order_id)
     JOIN products p USING (product_id)
     WHERE o.status = 'completed'
       AND o.order_date BETWEEN DATE '2026-08-01' AND DATE '2026-08-31'
-  check: {row: 0, values: {gross_margin_pct: 0.4321}}
+  check: {row: 0, values: {gross_margin_pct: 43.2}}

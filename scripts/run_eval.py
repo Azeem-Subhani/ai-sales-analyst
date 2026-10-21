@@ -17,6 +17,7 @@ import json
 import math
 import statistics
 import sys
+import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
@@ -56,6 +57,7 @@ class QuestionResult:
     checks: dict[str, bool]
     reasons: list[str]
     alternative: str | None
+    unsupported_numbers: list[str]
     tools_used: list[str]
     tool_calls: list[dict]
     model: str | None
@@ -66,6 +68,7 @@ class QuestionResult:
     latency_seconds: float
     stopped_early: str | None
     error: str | None
+    rate_limited: int = 0  # times this question hit HTTP 429 and was asked again
 
 
 @dataclass
@@ -106,6 +109,7 @@ class EvalRun:
             "wrong": sum(r.correct is False for r in self.results),
             "undecided": [r.id for r in self.undecided],
             "fallback_used": [r.id for r in self.results if r.fallback_used],
+            "rate_limited_429": sum(r.rate_limited for r in self.results),
             "median_latency_seconds": round(statistics.median(latencies), 2) if latencies else None,
             "p90_latency_seconds": round(percentile(latencies, P90), 2) if latencies else None,
             "total_cost_usd": round(self.spend, 6),
@@ -136,7 +140,11 @@ def load_questions(path: Path = QUESTIONS_PATH, ids: list[str] | None = None) ->
 def grade_answer(question: dict, answer: agent.AgentAnswer) -> QuestionResult:
     """Grade one agent answer and keep everything needed to review it."""
     tools_used = [o.name for o in answer.tool_calls if o.success]
-    grade = eval_grader.grade(answer.answer, tools_used, question, error=answer.error)
+    evidence = [question["question"]]
+    evidence += [text for o in answer.tool_calls for text in (o.arguments, o.content())]
+    grade = eval_grader.grade(
+        answer.answer, tools_used, question, error=answer.error, evidence=evidence
+    )
     return QuestionResult(
         id=question["id"],
         topic=question["topic"],
@@ -146,6 +154,7 @@ def grade_answer(question: dict, answer: agent.AgentAnswer) -> QuestionResult:
         checks=grade.checks,
         reasons=grade.reasons,
         alternative=grade.alternative,
+        unsupported_numbers=grade.unsupported,
         tools_used=tools_used,
         tool_calls=[
             {
@@ -155,6 +164,7 @@ def grade_answer(question: dict, answer: agent.AgentAnswer) -> QuestionResult:
                 "row_count": o.row_count,
                 "error": o.error,
                 "duration_seconds": o.duration_seconds,
+                "result": o.result,  # what the model saw, for review
             }
             for o in answer.tool_calls
         ],
@@ -176,16 +186,25 @@ def run_eval(
     fallback: bool = True,
     max_spend: float | None = None,
     spent_before: float = 0.0,
+    reserve: float = 0.0,
+    spent_probe: Callable[[], float] | None = None,
     out_dir: Path | None = None,
     db_path: Path = kpis.DB_PATH,
     audit_path: Path | None = AUDIT_DB_PATH,
     chat: Callable[..., llm.LLMResult] | None = None,
     settings: llm.LLMSettings | None = None,
     progress: Callable[[QuestionResult], None] | None = None,
+    rate_limit_retries: int = 0,
+    rate_limit_wait_seconds: float = 0.0,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> EvalRun:
     """Ask every question, grade it, and save the results; stop at max_spend.
 
-    spent_before lets the model check apply one spend limit across several runs.
+    The run stops before a question whenever the spend so far plus the costliest
+    question seen (or reserve, before any question has run) would reach max_spend, so
+    the cap is not crossed. spent_before and reserve let the model check apply one
+    cap across several runs; spent_probe, if given, returns real spend so far, and
+    the larger of it and the estimate counts.
     """
     run = EvalRun(model=model, fallback=fallback, started_at=datetime.now().isoformat())
     out_dir = out_dir or OUTPUT_ROOT / f"{datetime.now():%Y%m%d_%H%M%S}_{model.replace('/', '_')}"
@@ -199,11 +218,25 @@ def run_eval(
         fallback=fallback,
     )
     for question in questions:
-        if max_spend is not None and spent_before + run.spend > max_spend:
-            run.stopped = f"spend passed ${max_spend:.2f} before {question['id']}"
+        costliest = max([reserve] + [r.cost_usd or 0.0 for r in run.results])
+        spent = spent_before + run.spend
+        if spent_probe is not None:  # real spend, e.g. from the key's credit balance
+            spent = max(spent, spent_probe())
+        if max_spend is not None and spent + costliest >= max_spend:
+            run.stopped = (
+                f"next question could pass the ${max_spend:.2f} cap "
+                f"(spent ${spent:.4f}) before {question['id']}"
+            )
             break
         answer = agent.ask(question["question"], config, chat=chat, settings=settings)
+        limited = 0
+        # Measurement only: a 429 says nothing about answer quality, so ask again.
+        while is_rate_limited(answer) and limited < rate_limit_retries:
+            limited += 1
+            sleep(rate_limit_wait_seconds)
+            answer = agent.ask(question["question"], config, chat=chat, settings=settings)
         result = grade_answer(question, answer)
+        result.rate_limited = limited + int(is_rate_limited(answer))
         run.results.append(result)
         (out_dir / f"{result.id}.json").write_text(
             json.dumps(asdict(result), indent=2), encoding="utf-8"
@@ -212,6 +245,11 @@ def run_eval(
             progress(result)
     (out_dir / "summary.json").write_text(json.dumps(run.summary(), indent=2), encoding="utf-8")
     return run
+
+
+def is_rate_limited(answer: agent.AgentAnswer) -> bool:
+    """True if the answer failed because the model returned HTTP 429."""
+    return bool(answer.error) and "429" in answer.error
 
 
 def verdict_label(correct: bool | None) -> str:
@@ -253,7 +291,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--model", help="model ID (default: LLM_MODEL from .env)")
     parser.add_argument("--no-fallback", action="store_true", help="measure the model alone")
     parser.add_argument("--ids", help="comma-separated question ids, e.g. q01,q17")
-    parser.add_argument("--max-spend", type=float, help="stop once the run passes this many USD")
+    parser.add_argument(
+        "--max-spend", type=float, help="stop before the run could pass this many USD"
+    )
     args = parser.parse_args(argv)
 
     load_dotenv()

@@ -86,6 +86,9 @@ def test_known_gold_values() -> None:
         (43.2, 1, "43%", False),  # rates keep their display decimal
         (500.1, 1, "500.1 units", True),
         (500.1, 1, "500 units", False),
+        (-28.5, 1, "fell 28.48%", True),  # more precise than displayed, rounds to 28.5
+        (28.5, 1, "28.52%", True),
+        (37.7, 1, "a 0.3768 share", False),  # a fraction is not the percentage
     ],
 )
 def test_number_present(gold: float, decimals: int, answer: str, expected: bool) -> None:
@@ -206,9 +209,133 @@ def test_run_eval_stops_at_spend_limit(built: dict, tmp_path: Path) -> None:
         settings=settings,
     )
     assert len(run.results) == 1
-    assert "spend passed" in run.stopped
+    assert "cap" in run.stopped
+
+
+def test_run_eval_stops_before_crossing_the_cap(built: dict, tmp_path: Path) -> None:
+    """Each fake question costs $0.003; with a $0.005 cap only one may run."""
+    settings = llm.LLMSettings("test-key", "https://openrouter.ai/api/v1", "fake/m", "fb/m", 60.0)
+    run = run_eval.run_eval(
+        [BY_ID["q02"], BY_ID["q02"], BY_ID["q02"]],
+        "fake/m",
+        max_spend=0.005,
+        out_dir=tmp_path,
+        db_path=built["db_path"],
+        audit_path=None,
+        chat=AnswerFromGold(BY_ID["q02"]),
+        settings=settings,
+    )
+    assert len(run.results) == 1
+    assert run.spend < 0.005
+
+
+def test_reserve_stops_before_the_first_question(built: dict, tmp_path: Path) -> None:
+    run = run_eval.run_eval(
+        [BY_ID["q02"]],
+        "fake/m",
+        max_spend=0.50,
+        spent_before=0.45,
+        reserve=0.06,
+        out_dir=tmp_path,
+        db_path=built["db_path"],
+        audit_path=None,
+        chat=AnswerFromGold(BY_ID["q02"]),
+    )
+    assert run.results == [] and "cap" in run.stopped
 
 
 def test_percentile() -> None:
     values = [float(v) for v in range(1, 21)]
     assert run_eval.percentile(values, 0.9) == 18.0
+
+
+class RateLimitedThenAnswer(AnswerFromGold):
+    """Fails with a 429 on the first question attempt, then behaves like AnswerFromGold."""
+
+    def __init__(self, question: dict) -> None:
+        super().__init__(question)
+        self.limited = False
+
+    def __call__(self, messages: list[dict], schemas: list[dict], **kwargs: Any) -> llm.LLMResult:
+        if not self.limited:
+            self.limited = True
+            raise llm.LLMUnavailableError("main/m failed: RateLimitError 429")
+        return super().__call__(messages, schemas, **kwargs)
+
+
+def test_rate_limited_question_is_asked_again(built: dict, tmp_path: Path) -> None:
+    settings = llm.LLMSettings("test-key", "https://openrouter.ai/api/v1", "fake/m", "fb/m", 60.0)
+    waits: list[float] = []
+    run = run_eval.run_eval(
+        [BY_ID["q02"]],
+        "fake/m",
+        out_dir=tmp_path,
+        db_path=built["db_path"],
+        audit_path=None,
+        chat=RateLimitedThenAnswer(BY_ID["q02"]),
+        settings=settings,
+        rate_limit_retries=2,
+        rate_limit_wait_seconds=20,
+        sleep=waits.append,
+    )
+    assert run.correct == 1
+    assert run.results[0].rate_limited == 1
+    assert waits == [20]
+    assert run.summary()["rate_limited_429"] == 1
+
+
+# ---------------------------------------------------------------- unsupported numbers
+
+EVIDENCE = [
+    "Which product category had the lowest gross margin in September 2026?",
+    '{"query": "SELECT ..."}',
+    (
+        '{"columns": ["category", "gross_margin_pct"], "rows": [["Electronics", 28.52], '
+        '["Home & Kitchen", 43.72], ["Beauty", 60.91]], "row_count": 3}'
+    ),
+]
+
+
+def test_supported_answer_passes() -> None:
+    answer = (
+        "Electronics had the lowest gross margin in September 2026 (1 to 30 September), "
+        "at 28.5%. Home & Kitchen was next at 43.7%.\n\n```sql\nSELECT round(100 * x, 1)\n```"
+    )
+    assert eval_grader.unsupported_numbers(answer, EVIDENCE + ["2026-09-30"]) == []
+
+
+def test_self_calculated_average_is_flagged() -> None:
+    answer = "Electronics was lowest at 28.52%; the average of all categories was roughly 48.2%."
+    assert eval_grader.unsupported_numbers(answer, EVIDENCE) == ["48.2"]
+
+
+def test_fraction_turned_into_percentage_is_flagged() -> None:
+    evidence = ['{"rows": [[0.3768]]}']
+    assert eval_grader.unsupported_numbers("Wholesale was 37.7% of revenue.", evidence) == ["37.7"]
+
+
+def test_unsupported_number_makes_a_correct_answer_reviewable() -> None:
+    gold_value = BY_ID["q15"]["gold"]["numbers"][0]["value"]
+    answer = f"Electronics had the lowest margin, {gold_value}%; the average was 48.2%."
+    evidence = [BY_ID["q15"]["question"], f'{{"rows": [["Electronics", {gold_value}]]}}']
+    result = eval_grader.grade(answer, ["run_sql"], BY_ID["q15"], evidence=evidence)
+    assert result.correct is None
+    assert result.unsupported == ["48.2"]
+    clean = f"Electronics had the lowest gross margin in September 2026, at {gold_value}%."
+    assert eval_grader.grade(clean, ["run_sql"], BY_ID["q15"], evidence=evidence).correct is True
+
+
+def test_real_spend_probe_stops_the_run(built: dict, tmp_path: Path) -> None:
+    """The key balance counts even when the per-response cost reads as zero."""
+    run = run_eval.run_eval(
+        [BY_ID["q02"]],
+        "fake/m",
+        max_spend=0.50,
+        reserve=0.01,
+        spent_probe=lambda: 0.495,
+        out_dir=tmp_path,
+        db_path=built["db_path"],
+        audit_path=None,
+        chat=AnswerFromGold(BY_ID["q02"]),
+    )
+    assert run.results == [] and "spent $0.4950" in run.stopped

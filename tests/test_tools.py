@@ -203,3 +203,19 @@ def test_unknown_tool_and_extra_argument(session: tools.ToolSession) -> None:
     assert unknown.result["error"] == "invalid_arguments"
     extra = run(session, "run_sql", query="SELECT 1", limit=5)
     assert "limit" in extra.result["details"]
+
+
+def test_make_chart_schema_keeps_its_title_argument() -> None:
+    """Regression: stripping pydantic 'title' metadata once removed the title argument."""
+    parameters = tools.TOOLS["make_chart"].schema()["function"]["parameters"]
+    assert "title" in parameters["properties"]
+    assert set(parameters["required"]) <= set(parameters["properties"])
+    for schema in tools.tool_schemas():
+        params = schema["function"]["parameters"]
+        assert set(params.get("required", [])) <= set(params["properties"])
+
+
+def test_sql_error_is_a_clear_message(session: tools.ToolSession) -> None:
+    outcome = run(session, "run_sql", query="SELECT no_such_column FROM orders")
+    assert not outcome.success
+    assert outcome.result["error"].startswith("The query failed:")

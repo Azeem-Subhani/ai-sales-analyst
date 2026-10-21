@@ -370,12 +370,22 @@ class Tool:
 
 
 def without_titles(schema: Any) -> Any:
-    """Drop pydantic's auto-generated 'title' keys; they cost tokens and add nothing."""
-    if isinstance(schema, dict):
-        return {k: without_titles(v) for k, v in schema.items() if k != "title"}
+    """Drop pydantic's auto-generated 'title' keys; they cost tokens and add nothing.
+
+    Keys inside "properties" are argument names, not metadata, so an argument that
+    is itself called "title" (make_chart) is kept.
+    """
     if isinstance(schema, list):
         return [without_titles(v) for v in schema]
-    return schema
+    if not isinstance(schema, dict):
+        return schema
+    cleaned = {}
+    for key, value in schema.items():
+        if key == "properties" and isinstance(value, dict):
+            cleaned[key] = {name: without_titles(prop) for name, prop in value.items()}
+        elif key != "title":
+            cleaned[key] = without_titles(value)
+    return cleaned
 
 
 TOOLS: dict[str, Tool] = {
