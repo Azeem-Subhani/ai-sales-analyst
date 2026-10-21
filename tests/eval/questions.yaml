@@ -649,7 +649,7 @@
   gold:
     numbers:
     - label: serious_customers[0]
-      value: 482
+      value: 41
       decimals: 0
     names:
     - Harbor & Pine Co.
@@ -705,13 +705,13 @@
   gold:
     numbers:
     - label: overall_wape_pct
-      value: 16.9
+      value: 15.9
       decimals: 1
     - label: category_wape_pct
-      value: 19.4
+      value: 17.9
       decimals: 1
     names:
-    - Toys
+    - Office
 
 - id: q24
   topic: demand planning, pre-build
@@ -735,18 +735,18 @@
   gold:
     numbers:
     - label: recommended_units[0]
-      value: 33
+      value: 327
       decimals: 0
     - label: recommended_units[1]
-      value: 18
+      value: 135
       decimals: 0
     - label: recommended_units[2]
-      value: 55
+      value: 95
       decimals: 0
     names:
-    - Classic Denim Jeans
-    - Deluxe Rain Jacket
-    - Classic Chino Trousers
+    - Smart Bottle Pro
+    - Deluxe Bluetooth Speaker
+    - Essential Cotton T-Shirt
 
 - id: q25
   topic: demand planning, declining customers
