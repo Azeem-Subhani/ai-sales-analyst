@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS report_runs (
 """
 # Week 4: summary_status. NULL for Week 3 rows and for attempts that failed before
 # the summary step.
+# Week 4 wrap-up: summary_status can also be truncated (cut off at the token cap twice).
 MIGRATIONS = ["ALTER TABLE report_runs ADD COLUMN IF NOT EXISTS summary_status VARCHAR"]
 INSERT_REPORT_RUN = """
 INSERT INTO report_runs (

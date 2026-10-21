@@ -30,11 +30,17 @@ def response(
     model: str = "main/model",
     tool_calls: list | None = None,
     cost: float | None = 0.0012,
+    finish_reason: str | None = "stop",
+    reasoning_tokens: int | None = None,
 ) -> SimpleNamespace:
     """A minimal stand-in for the SDK's ChatCompletion object."""
     message = SimpleNamespace(content=text, tool_calls=tool_calls)
-    usage = SimpleNamespace(prompt_tokens=100, completion_tokens=20, cost=cost)
-    return SimpleNamespace(choices=[SimpleNamespace(message=message)], usage=usage, model=model)
+    details = SimpleNamespace(reasoning_tokens=reasoning_tokens)
+    usage = SimpleNamespace(
+        prompt_tokens=100, completion_tokens=20, cost=cost, completion_tokens_details=details
+    )
+    choice = SimpleNamespace(message=message, finish_reason=finish_reason)
+    return SimpleNamespace(choices=[choice], usage=usage, model=model)
 
 
 def status_error(cls: type, status: int) -> Exception:
@@ -227,3 +233,26 @@ def test_zero_reported_cost_with_tokens_uses_price_table(monkeypatch: pytest.Mon
     monkeypatch.setitem(llm.PRICE_TABLE, "main/model", (1.0, 4.0))
     result = call(FakeClient(response(cost=0.0)))
     assert result.cost_usd == pytest.approx((100 * 1.0 + 20 * 4.0) / 1_000_000)
+
+
+def test_finish_reason_and_reasoning_tokens_are_recorded() -> None:
+    client = FakeClient(response("cut", finish_reason="length", reasoning_tokens=15))
+    result = llm.complete(MESSAGES, client=client, settings=SETTINGS, max_tokens=20)
+    assert (result.finish_reason, result.reasoning_tokens) == ("length", 15)
+    assert result.truncated is True
+    assert client.requests[0]["max_tokens"] == 20
+
+
+def test_normal_stop_is_not_truncated() -> None:
+    result = llm.complete(MESSAGES, client=FakeClient(response("done")), settings=SETTINGS)
+    assert (result.finish_reason, result.reasoning_tokens, result.truncated) == ("stop", 0, False)
+
+
+def test_missing_finish_reason_is_not_truncated() -> None:
+    bare = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content="hi", tool_calls=None))],
+        usage=None,
+        model="main/model",
+    )
+    result = llm.complete(MESSAGES, client=FakeClient(bare), settings=SETTINGS)
+    assert (result.finish_reason, result.truncated) == (None, False)

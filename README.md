@@ -182,12 +182,12 @@ and never the database.
 
 - **Number guard:** every number in the summary must be one of the numbers
   sent, possibly rounded to fewer decimals, or a count from 1 to 10.
-- **Retry:** if the guard fails, the model gets one retry. If that fails too,
-  the summary is dropped.
+- **Retry:** if the guard fails, or the summary is cut off at the output token
+  cap, the model gets one retry. If that fails too, the summary is dropped.
 - **Never blocks a report:** a dropped or unavailable summary is replaced by
   "Summary unavailable for this run" and the report still sends.
 - **Status:** each run records `summary_status` in `report_runs`. The values are
-  `ok`, `guard_failed`, `llm_unavailable`, or `skipped`.
+  `ok`, `guard_failed`, `truncated`, `llm_unavailable`, or `skipped`.
 
 `--no-summary` skips the model call (no spend), with status `skipped`:
 

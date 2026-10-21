@@ -143,7 +143,7 @@ class Report:
     excel_path: Path | None
     numbers: dict
     output_dir: Path
-    summary_status: str | None = None  # ok | guard_failed | llm_unavailable | skipped
+    summary_status: str | None = None  # ok | guard_failed | truncated | llm_unavailable | skipped
 
 
 # ---------------------------------------------------------------- config

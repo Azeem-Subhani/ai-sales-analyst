@@ -53,6 +53,7 @@ SDK_MAX_RETRIES = 0
 SERVER_ERROR_STATUS = 500
 SETUP_HINT = "See 'LLM setup' in README.md."
 TOKENS_PER_PRICE_UNIT = 1_000_000
+FINISH_LENGTH = "length"  # finish_reason when the output hit max_tokens
 
 # USD per 1M input and output tokens, used only when OpenRouter's response carries no
 # usage.cost. Filled from OpenRouter's /models prices by the Week 4 model check.
@@ -111,6 +112,13 @@ class LLMResult:
     output_tokens: int = 0
     cost_usd: float | None = None
     latency_seconds: float = 0.0
+    finish_reason: str | None = None  # stop | length | tool_calls | ... (None: not reported)
+    reasoning_tokens: int = 0  # part of output_tokens the model spent thinking, if reported
+
+    @property
+    def truncated(self) -> bool:
+        """True if the model stopped because it hit max_tokens (the text is cut off)."""
+        return self.finish_reason == FINISH_LENGTH
 
     def assistant_message(self) -> dict[str, Any]:
         """The assistant turn to append to the conversation before sending tool results."""
@@ -296,6 +304,7 @@ def _parse_response(response: Any, requested_model: str) -> LLMResult:
     usage = getattr(response, "usage", None)
     input_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
     output_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
+    details = getattr(usage, "completion_tokens_details", None)
     return LLMResult(
         text=text,
         tool_calls=tool_calls,
@@ -303,6 +312,8 @@ def _parse_response(response: Any, requested_model: str) -> LLMResult:
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         cost_usd=_cost(usage, requested_model, input_tokens, output_tokens),
+        finish_reason=getattr(choices[0], "finish_reason", None),
+        reasoning_tokens=int(getattr(details, "reasoning_tokens", 0) or 0),
     )
 
 

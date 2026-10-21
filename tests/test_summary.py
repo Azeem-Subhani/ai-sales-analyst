@@ -30,7 +30,7 @@ INVENTED = "Net revenue reached 114,286.82 in week 39, from 700 orders."
 class FakeLLM:
     """Returns the scripted texts in order (or raises), recording every call."""
 
-    def __init__(self, *outcomes: str | Exception) -> None:
+    def __init__(self, *outcomes: str | llm.LLMResult | Exception) -> None:
         self.outcomes = list(outcomes)
         self.calls: list[list[dict]] = []
 
@@ -39,7 +39,25 @@ class FakeLLM:
         outcome = self.outcomes.pop(0)
         if isinstance(outcome, Exception):
             raise outcome
+        if isinstance(outcome, llm.LLMResult):
+            return outcome
         return llm.LLMResult(text=outcome, model="fake/model", cost_usd=0.001)
+
+
+# The real cut-off seen in the Week 4 wrap-up: numbers fine, sentence unfinished.
+CUT_OFF_TEXT = "Net revenue reached 114,286.82 in week 39, up 2.5% on the previous week, from"
+
+
+def cut_off(text: str = CUT_OFF_TEXT) -> llm.LLMResult:
+    """A reply that stopped at the max_tokens cap."""
+    return llm.LLMResult(
+        text=text,
+        model="fake/model",
+        cost_usd=0.001,
+        output_tokens=summary.MAX_SUMMARY_TOKENS,
+        reasoning_tokens=summary.MAX_SUMMARY_TOKENS - 20,
+        finish_reason=llm.FINISH_LENGTH,
+    )
 
 
 @pytest.fixture(scope="module")
@@ -136,6 +154,48 @@ def test_retry_then_drop(weekly_numbers: dict) -> None:
     assert (outcome.status, outcome.text, outcome.attempts) == ("guard_failed", None, 2)
     assert outcome.failed_numbers == ["700"]
     assert len(fake.calls) == 2
+
+
+def test_cut_off_summary_is_retried_even_when_its_numbers_pass(weekly_numbers: dict) -> None:
+    assert (
+        summary.check_numbers(
+            CUT_OFF_TEXT, summary.allowed_numbers(summary.summary_inputs(weekly_numbers))
+        )
+        == []
+    )  # the guard alone would have let it through
+    fake = FakeLLM(cut_off(), GOOD)
+    outcome = summary.write_summary(weekly_numbers, complete=fake)
+    assert (outcome.status, outcome.text, outcome.attempts) == ("ok", GOOD, 2)
+    retry = fake.calls[1]
+    assert retry[-2] == {"role": "assistant", "content": CUT_OFF_TEXT}
+    assert "cut off" in retry[-1]["content"]
+
+
+def test_cut_off_twice_is_dropped_as_truncated(weekly_numbers: dict) -> None:
+    fake = FakeLLM(cut_off(), cut_off())
+    outcome = summary.write_summary(weekly_numbers, complete=fake)
+    assert (outcome.status, outcome.text, outcome.attempts) == ("truncated", None, 2)
+    assert outcome.failed_numbers == []
+
+
+def test_guard_failure_after_a_cut_off_is_guard_failed(weekly_numbers: dict) -> None:
+    outcome = summary.write_summary(weekly_numbers, complete=FakeLLM(cut_off(), INVENTED))
+    assert (outcome.status, outcome.failed_numbers) == ("guard_failed", ["700"])
+
+
+def test_cut_off_report_still_sends_with_placeholder(
+    built: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(llm, "complete", FakeLLM(cut_off(), cut_off()))
+    report = build(built, tmp_path)
+    assert report.summary_status == "truncated"
+    assert builder.SUMMARY_PLACEHOLDER in report.html
+    assert CUT_OFF_TEXT not in report.html
+
+
+def test_summary_token_cap_leaves_room_for_reasoning() -> None:
+    # 400 cut off a real monthly summary; the cap must cover hidden reasoning too.
+    assert summary.MAX_SUMMARY_TOKENS >= 1000
 
 
 @pytest.mark.parametrize(
