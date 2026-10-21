@@ -353,3 +353,22 @@ def test_real_spend_probe_stops_the_run(built: dict, tmp_path: Path) -> None:
         chat=AnswerFromGold(BY_ID["q02"]),
     )
     assert run.results == [] and "spent $0.4950" in run.stopped
+
+
+def test_key_balance_measures_spend_and_survives_a_failed_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    readings: list[float | Exception] = [10.0, 9.99, llm.LLMUnavailableError("down"), 9.97]
+
+    def fake_remaining(settings: llm.LLMSettings) -> float:
+        reading = readings.pop(0)
+        if isinstance(reading, Exception):
+            raise reading
+        return reading
+
+    monkeypatch.setattr(llm, "key_limit_remaining", fake_remaining)
+    settings = llm.LLMSettings("test-key", "https://openrouter.ai/api/v1", "fake/m", "fb/m", 60.0)
+    balance = run_eval.KeyBalance(settings)
+    assert balance.spent() == pytest.approx(0.01)
+    assert balance.spent() == pytest.approx(0.01)  # failed read keeps the last figure
+    assert balance.spent() == pytest.approx(0.03)
