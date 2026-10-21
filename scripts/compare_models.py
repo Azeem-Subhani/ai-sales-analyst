@@ -320,11 +320,22 @@ def main(argv: list[str] | None = None) -> int:
     key_before = key_start = llm.key_limit_remaining(settings)
     actual: dict[str, float | None] = {}
 
+    last_real = [args.spent_so_far]
+
     def real_spend() -> float:
-        """Spend so far this week: earlier spend plus the key balance drop since start."""
-        now = llm.key_limit_remaining(settings)
-        drop = 0.0 if key_start is None or now is None else key_start - now
-        return args.spent_so_far + drop
+        """Spend so far this week: earlier spend plus the key balance drop since start.
+
+        A failed balance read keeps the last good figure; the cap still has the
+        upper-bound estimate, so a dropped connection never stops the run.
+        """
+        try:
+            now = llm.key_limit_remaining(settings)
+        except (llm.LLMUnavailableError, llm.LLMRequestError) as error:
+            print(f"(balance check failed, using last reading: {error})")
+            return last_real[0]
+        if key_start is not None and now is not None:
+            last_real[0] = args.spent_so_far + key_start - now
+        return last_real[0]
 
     runs: dict[str, run_eval.EvalRun] = {}
     spent, costliest = args.spent_so_far, 0.0
@@ -351,7 +362,10 @@ def main(argv: list[str] | None = None) -> int:
             rate_limit_retries=RATE_LIMIT_RETRIES,
             rate_limit_wait_seconds=RATE_LIMIT_WAIT_SECONDS,
         )
-        key_after = llm.key_limit_remaining(settings)
+        try:
+            key_after = llm.key_limit_remaining(settings)
+        except (llm.LLMUnavailableError, llm.LLMRequestError):
+            key_after = None  # measured spend for this model is then reported as n/a
         actual[c.model] = (
             None if key_before is None or key_after is None else round(key_before - key_after, 6)
         )
