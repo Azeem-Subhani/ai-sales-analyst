@@ -463,3 +463,30 @@ text are marked **(clarified)**.
 - **Decision (2026-10-21):** the grader's "no unsupported numbers" check blanks
   dates with `answer_guard.without_dates_and_code`, so "1–31 May" or "July 1-31" no
   longer sends a q12-style answer to review. This closes the Week 4 "Grader limit".
+
+### Demand data layer and data/planning.duckdb
+- **Decision (2026-10-21):** demand-planning results go in `data/planning.duckdb`,
+  next to the sales database it was computed from (tests write it next to their
+  temporary sales database). The schema is created by `src/demand/store.py`.
+  `sales.duckdb` stays read-only, and `run_sql` still sees only the six tables.
+- **One snapshot per as_of:** every table has an `as_of` column. A rerun replaces
+  all of that as_of's rows in one transaction. A snapshot whose pre-build
+  recommendations were approved or rejected is only replaced with `--force`
+  (project owner, 2026-10-21), and `prebuild_decisions` is never deleted.
+- **Tables beyond the eight in the brief:**
+  - `demand_weekly`: the weekly series with stockout and imputed flags, so reports,
+    tests and the agent read the same numbers the forecasts used.
+  - `customer_rfm`: the RFM scores now and 28 days earlier, needed for segment moves.
+  - `planner_review`: products held back from pre-build because of forecast bias.
+  - `prebuild_decisions`: the append-only approval history.
+- **Demand series:** units on non-cancelled orders per Monday-to-Sunday week (the
+  `get_forecast` definition), complete weeks only (the week's Sunday is on or before
+  as_of). It starts at the later of the product's launch week and the first full data
+  week (2024-10-07; the data starts on Tuesday 2024-10-01).
+- **Stockout week:** the week's Monday inventory snapshot shows `on_hand = 0`
+  (inventory snapshots are taken on Mondays).
+- **Lead time:** `products.lead_time_days` exists, so it is used (weeks = days / 7).
+  The 4-week default in `config/demand.yaml` applies only to a missing value.
+- **Stock position:** on hand and on order come from the latest inventory snapshot
+  on or before as_of. A product with no row in that snapshot (discontinued) has no
+  stock position, so it gets no stock alert and no pre-build recommendation.

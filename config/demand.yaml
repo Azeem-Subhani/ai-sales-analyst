@@ -1,0 +1,57 @@
+# Demand-planning thresholds (Week 5). Every rule in src/analytics/{demand,customers,
+# forecasting,prebuild}.py reads its numbers from here; nothing is hard-coded.
+# A hash of this file is stored with each snapshot in data/planning.duckdb, so a stored
+# result can always be traced to the settings that produced it.
+#
+# Demand = units (quantity) on all non-cancelled orders (completed or returned), per
+# Monday-to-Sunday week. Revenue = net revenue (completed orders), as in the KPIs.
+
+demand:
+  # Used only if a product has no lead_time_days (the products table has the column).
+  default_lead_time_weeks: 4
+
+customer_alerts:
+  window_days: 365              # "last 365 days" for overdue and RFM
+  overdue_min_orders: 4         # orders in the window needed to judge a usual interval
+  overdue_factor: 1.5           # days since last order > 1.5 x usual interval = overdue
+  serious_factor: 2.0           # > 2 x usual interval = serious
+  declining_window_days: 90     # last 90 days vs the 90 days before
+  declining_drop: 0.25          # revenue more than 25% below the prior window
+  declining_min_prior_revenue: 1000
+  new_high_value_window_days: 90
+  new_high_value_top_share: 0.10  # top 10% of all customers' last-90-day revenue
+  rfm_quintiles: 5
+  rfm_compare_days: 28          # segment now vs 28 days earlier
+
+category_alerts:
+  weeks: 8                      # last 8 complete weeks vs the 8 before
+  drop: 0.15                    # flag a drop greater than 15%
+
+stock_alerts:
+  weeks: 4                      # stockout weeks counted in the last 4 complete weeks
+  cover_weeks: 4                # days of cover uses demand of the last 4 complete weeks
+
+forecast_accuracy:
+  model: seeded                 # forecasts table model measured
+  wape_flag: 0.40
+  bias_flag: 0.15
+  min_actual_units: 20          # below this over the weeks measured, no flag
+
+forecasts:
+  horizon_weeks: 12
+  season_length: 52
+  min_history_weeks: 26         # fewer: recent-mean fallback forecast
+  impute_weeks: 4               # stockout week = mean of the previous 4 non-stockout weeks
+  backtest_weeks: 26
+  backtest_step_weeks: 4
+  backtest_horizon_weeks: 4
+  backtest_min_train_weeks: 13  # an origin is skipped for a product with less training data
+  fallback_weeks: 4             # recent-mean fallback: mean of the last 4 non-stockout weeks
+
+prebuild:
+  service_z: 1.65               # about a 95% service level
+  sd_weeks: 26                  # safety stock uses sd of the last 26 non-stockout weeks
+  min_sd_weeks: 2
+
+reports:
+  max_rows_per_type: 10         # HTML rows per alert type; the Excel sheet has all rows

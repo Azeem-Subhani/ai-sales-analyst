@@ -102,3 +102,17 @@ def smtp(monkeypatch: pytest.MonkeyPatch) -> type[FakeSMTP]:
     monkeypatch.setenv("GMAIL_ADDRESS", "sender@example.com")
     monkeypatch.setenv("GMAIL_APP_PASSWORD", "test-app-password")
     return FakeSMTP
+
+
+@pytest.fixture(scope="session")
+def demand_runs(built: dict) -> dict:
+    """Demand snapshots for the acceptance dates, computed once per test run.
+
+    planning.duckdb is written next to the temporary sales database.
+    """
+    from datetime import date
+
+    from src.demand import run
+
+    days = [date(2026, 9, 27), date(2026, 9, 30)]
+    return {day: run.run_demand(day, sales_db=built["db_path"]) for day in days}
