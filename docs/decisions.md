@@ -414,3 +414,25 @@ text are marked **(clarified)**.
   the same demand definition as `get_forecast`: units on all non-cancelled
   orders (completed or returned), per Monday-to-Sunday week. It must not use
   the "Units sold" KPI, which counts completed orders only.
+
+### Cut-off report summaries are retried, then dropped
+- **Problem (2026-10-21):** the August 2026 monthly summary was cut off
+  mid-sentence ("Returns rose 42.7% vs"), but was still marked `ok`. All its
+  numbers were real, so the number guard passed it, and the code did not check
+  why the model stopped.
+- **Cause:** `openai/gpt-5.6-luna` is a reasoning model, and its hidden reasoning
+  counts against `max_tokens`. On the rebuild the summary used 602 output tokens,
+  434 of them reasoning, so the old cap of 400 could not fit a complete summary.
+- **Decision:**
+  - `src/agent/llm.py` records `finish_reason` and reasoning tokens on every
+    result.
+  - A summary with `finish_reason` `length` counts as a failed attempt even if
+    its numbers pass. The model gets one retry, asking for a complete, shorter
+    summary.
+  - A second cut-off drops the summary with the new `summary_status` value
+    `truncated`, and the report sends with the placeholder.
+  - `MAX_SUMMARY_TOKENS` rises from 400 to 2000.
+- **Check:** the monthly report rebuilt once with summaries on finished with
+  `stop` at 602 tokens, and the summary is `ok` and complete.
+- **Not changed:** the chat agent sets no `max_tokens`, so its answers are not
+  cut by our own cap. Its `finish_reason` is recorded but not acted on.
