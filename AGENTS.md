@@ -48,6 +48,23 @@ How the core rule is enforced (keep these in place; see `docs/decisions.md`):
     renamed columns.
   - A new personal contact column (phone, address) must be added to
     `PERSONAL_DATA_COLUMNS` in the same change that adds it to the schema.
+- **Demand has one definition:** units (quantity) on all non-cancelled orders
+  (completed or returned), per Monday-to-Sunday week. Forecasts, forecast
+  accuracy, safety stock and pre-build all use it, and so does `get_forecast`. It is
+  not the "Units sold" KPI, which counts completed orders only.
+- **Demand results live in `data/planning.duckdb`:**
+  - It sits next to `sales.duckdb`; its schema is created by
+    `src/demand/store.py`.
+  - `sales.duckdb` stays read-only.
+  - `run_sql` and `make_chart` still see only the six standard tables.
+  - One snapshot per as_of, computed by `run_demand(as_of)`. Thresholds come
+    from `config/demand.yaml`, never from code.
+- **The agent never changes an approval status.** Only `src/demand/approve.py`
+  (the approval CLI, and the Week 6 buttons on top of it) changes a pre-build
+  status. Nothing in `src/agent`, `src/reports` or `src/app` imports it, and a
+  test checks this.
+- **`data/planted_issues.json` is for tests only.** Alert, forecast and report code
+  never read it. Only `tests/test_demand_acceptance.py` uses the planted issues.
 - **Round once.**
   - Percentages, rates and changes are calculated from unrounded values.
   - They are stored unrounded and rounded once, when shown (`fmt_pct` /
@@ -74,6 +91,8 @@ How the core rule is enforced (keep these in place; see `docs/decisions.md`):
   LangGraph, etc.), web frameworks (FastAPI, Django, etc.).
 - The AI agent and reports open DuckDB **read-only**. Nothing writes to
   business data except the data generator and the `forecasts` table.
+  Demand-planning results are written only to `data/planning.duckdb`
+  (`src/demand/store.py`), and approvals only by `src/demand/approve.py`.
 - Budget: the OpenRouter key has a $10 credit limit. Do not call the API
   unless the task explicitly needs it.
 - Ask before adding any package not listed above.
@@ -96,14 +115,20 @@ AGENTS.md, CLAUDE.md          assistant context (this file is the source)
 .claude/                      Claude Code settings, hooks, skills
 .cursor/rules/                Cursor rules (point back to this file)
 config/reports.yaml           report schedules, queries, recipients
-data/                         generated database + planted_issues.json (git-ignored)
+config/demand.yaml            demand-planning thresholds (Week 5)
+data/                         sales.duckdb, planning.duckdb, audit.duckdb and
+                              planted_issues.json (all generated, git-ignored)
 docs/project_plan.md          full project plan (read-only)
 scripts/compare_models.py     Week 4 model comparison
 src/data/generate.py          dummy data generator (connector #1)
-src/analytics/                KPI SQL views, customer patterns, forecasting, pre-build
+src/analytics/                KPI SQL views, demand series, customer alerts and RFM,
+                              forecast accuracy and forecasts, pre-build
+src/demand/                   run_demand + CLI, approval CLI, planning.duckdb store,
+                              config loader
 src/agent/                    llm.py (only LLM client), tools, prompts, agent loop,
                               SQL guard, answer number guard, eval grader
-src/reports/                  report builder, emailer, scheduler, Jinja2 templates
+src/reports/                  report builder, demand sections, emailer, scheduler,
+                              Jinja2 templates
 src/app/streamlit_app.py      chat + dashboard
 outputs/reports, outputs/logs dry-run reports and logs (git-ignored)
 tests/                        pytest suite
@@ -115,7 +140,10 @@ Run from the repo root with the virtual environment active.
 
 ```
 python -m src.data.generate              # build data/sales.duckdb (seed 42)
-pytest                                   # run all tests
+pytest                                   # fast tests (slow ones skipped)
+pytest --runslow                         # all tests, incl. forecast fits and acceptance
+python -m src.demand.run --as-of 2026-09-30   # demand snapshot (about 100 s)
+python -m src.demand.approve --id <id> --approve|--reject --by <name> [--note "..."]
 ruff format . && ruff check --fix .      # format and lint
 python -m src.reports.scheduler          # start scheduled reports (Week 3+)
 python -m src.agent.chat                 # chat agent in the terminal (spends credit)
@@ -131,8 +159,8 @@ streamlit run src/app/streamlit_app.py   # chat and dashboard (Week 6)
 - SQL lives in `.sql` files or clearly named module-level constants, never
   built by string concatenation from user input.
 - Use `logging`, not `print`, in library code (`print` is fine for CLI summaries).
-- Open DuckDB with `read_only=True` everywhere except the generator and the
-  forecast writer.
+- Open DuckDB with `read_only=True` everywhere except the generator, the forecast
+  writer and the planning store (`src/demand/store.py`, `approve.py`).
 - Read secrets with `os.environ` / python-dotenv; never hard-code them.
 - Keep code readable for a developer with some Python experience: plain
   Python, clear names, comments for intent rather than mechanics.
@@ -146,7 +174,8 @@ streamlit run src/app/streamlit_app.py   # chat and dashboard (Week 6)
 - Never commit `.env` or real secrets, and never print API keys.
 - Never read `.env` or open `data/*.duckdb` directly; use the project's Python
   scripts.
-- Finish every task by running `ruff` and `pytest` and fixing failures.
+- Finish every task by running `ruff` and `pytest` and fixing failures. Before a
+  PR, run `pytest --runslow` too (the acceptance tests are slow).
 - Report real command output; never invent results.
 - When adding a report, an agent tool, changing the dummy data or comparing
   models, follow the matching checklist in `.claude/skills/*/SKILL.md`.

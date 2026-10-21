@@ -436,3 +436,314 @@ text are marked **(clarified)**.
   `stop` at 602 tokens, and the summary is `ok` and complete.
 - **Not changed:** the chat agent sets no `max_tokens`, so its answers are not
   cut by our own cap. Its `finish_reason` is recorded but not acted on.
+
+## Week 5: demand planning
+
+### main is the only base branch; dev is dropped
+- **Decision (project owner, 2026-10-21):** every week branches from `main` and
+  merges back into `main` through a PR with tests. There will be no `dev` branch.
+  This replaces the "if a `dev` branch is created later" note in the Week 4 entry
+  "Base branch is `main` (no `dev` yet)".
+- **Why:** there is one developer, every week still goes through a reviewed PR with
+  the full test suite, and the dev/main split caused confusion in Weeks 3 and 4.
+
+### Money is rounded half-up, once, from the exact sum
+- **Decision (2026-10-21):** closes the Week 4 wrap-up "Known limit (money)". Money
+  is still summed in SQL from unrounded line values (DuckDB DECIMAL, exact) and
+  rounded once when it enters the Report. `builder.round_money` now rounds the exact
+  decimal half-up, like SQL `ROUND`, instead of Python's `round()` on the float.
+- **Cause:** pandas returns the DECIMAL sum as a float. August 2026 net revenue is
+  exactly 462,431.555, but the float is just below it, so `round()` gave 462,431.55.
+  `str()` of the float gives back the exact decimal, because these sums have at most
+  15 significant digits.
+- **Effect:** August 2026 net revenue shows 462,431.56, matching SQL. The Week 2
+  hand-checked figures are unchanged (covered by a test).
+
+### Eval grader skips dates like the answer guard
+- **Decision (2026-10-21):** the grader's "no unsupported numbers" check blanks
+  dates with `answer_guard.without_dates_and_code`, so "1–31 May" or "July 1-31" no
+  longer sends a q12-style answer to review. This closes the Week 4 "Grader limit".
+
+### Demand data layer and data/planning.duckdb
+- **Decision (2026-10-21):** demand-planning results go in `data/planning.duckdb`,
+  next to the sales database it was computed from (tests write it next to their
+  temporary sales database). The schema is created by `src/demand/store.py`.
+  `sales.duckdb` stays read-only, and `run_sql` still sees only the six tables.
+- **One snapshot per as_of:** every table has an `as_of` column. A rerun replaces
+  all of that as_of's rows in one transaction. A snapshot whose pre-build
+  recommendations were approved or rejected is only replaced with `--force`
+  (project owner, 2026-10-21), and `prebuild_decisions` is never deleted.
+- **Tables beyond the eight in the brief:**
+  - `demand_weekly`: the weekly series with stockout and imputed flags, so reports,
+    tests and the agent read the same numbers the forecasts used.
+  - `customer_rfm`: the RFM scores now and 28 days earlier, needed for segment moves.
+  - `planner_review`: products held back from pre-build because of forecast bias.
+  - `prebuild_decisions`: the append-only approval history.
+- **Demand series:** units on non-cancelled orders per Monday-to-Sunday week (the
+  `get_forecast` definition), complete weeks only (the week's Sunday is on or before
+  as_of). It starts at the later of the product's launch week and the first full data
+  week (2024-10-07; the data starts on Tuesday 2024-10-01).
+- **Stockout week:** the week's Monday inventory snapshot shows `on_hand = 0`
+  (inventory snapshots are taken on Mondays).
+- **Lead time:** `products.lead_time_days` exists, so it is used (weeks = days / 7).
+  The 4-week default in `config/demand.yaml` applies only to a missing value.
+- **Stock position:** on hand and on order come from the latest inventory snapshot
+  on or before as_of. A product with no row in that snapshot (discontinued) has no
+  stock position, so it gets no stock alert and no pre-build recommendation.
+
+### Demand alert rules decided in Week 5
+- **Decision (2026-10-21):** rules the brief left open, as built in
+  `src/analytics/customers.py` and `src/analytics/demand.py`:
+  - **Revenue** in customer and category alerts is net revenue (completed orders),
+    the KPI definition, summed exactly in SQL. **Orders** and order dates use all
+    non-cancelled orders (the demand definition).
+  - **Windows** are inclusive and end on as_of: the last 365 days is
+    as_of - 364 to as_of; the last 90 days is as_of - 89 to as_of, and the prior 90
+    days are the 90 days before that.
+  - **Overdue:** the usual interval is the median gap between distinct order dates
+    in the window (two orders on one day count as one date). Serious and overdue
+    customers are ranked together by last-365-day revenue.
+  - **Declining** customers are ranked by revenue lost (prior minus recent).
+  - **New high-value:** the bar is the 90th percentile of last-90-day revenue over
+    all customers with revenue in that window. A new customer at or above the bar is
+    flagged.
+  - **Category alerts:** the last 8 complete weeks are the 8 Monday-to-Sunday weeks
+    ending on or before as_of (to 2026-09-27 for both 09-27 and 09-30). All
+    categories are stored, with `flagged` true for a drop greater than 15%.
+  - **Stock alerts** are ranked by stockout weeks (most first), then days of cover
+    (lowest first). Days of cover is n/a when the last 4 weeks are all stockout
+    weeks or have no demand.
+- **RFM segment map:** R, F and M are scored 1 to 5 by percentile rank (ties share
+  a score) over customers with a non-cancelled order in the 365 days to the scoring
+  date. R = days since the last order (fewer is better), F = orders in the window,
+  M = net revenue in the window. First match wins:
+
+  | Segment | Rule |
+  | --- | --- |
+  | Champions | R >= 4, F >= 4 and M >= 4 |
+  | Loyal | R >= 3 and F >= 3 |
+  | Promising | R >= 4 |
+  | Needs attention | R = 3 |
+  | At risk | F >= 3 (R is 1 or 2) |
+  | Lapsed | everyone else (R is 1 or 2, F is 1 or 2) |
+
+  The top segments are Champions and Loyal; the at-risk ones are At risk and Lapsed.
+  A customer in a top segment 28 days earlier with no order in the window now
+  counts as Lapsed.
+- **Alert counts on the seed-42 data (as of 2026-09-30):** overdue 609 (482
+  serious, 127 overdue; 603 of them retail), declining 158, new high-value 1,
+  segment moves 197, category 1 (Apparel), stock 10. The overdue list is long
+  because many retail customers order every 2 to 3 days, so 5 days without an order
+  is already over 2x their interval. This is reported to the project owner and not
+  changed; reports show the top 10 by revenue.
+
+### Forecast accuracy of the seeded forecasts
+- **Decision (2026-10-21):** accuracy uses the `forecasts` rows with model `seeded`
+  whose week is complete on as_of and that were created on or before it. Actuals
+  are the demand series (the `get_forecast` definition), so a stockout week counts
+  as 0 actual units.
+- Category and overall rows are totals (all product-weeks summed, then divided) and
+  are never flagged. WAPE and bias are stored as unrounded fractions.
+- **Result on the seed-42 data (as of 2026-09-27 and 2026-09-30, the same 8 weeks):**
+  overall WAPE 16.9%, bias +0.6%. 24 products are flagged: 24 for bias, 3 also for
+  WAPE. 18 products are under 20 units and not flagged. AP-1150 Classic Denim Jacket
+  has bias +27.3%. 8 of the 10 stockout products are among the flagged, because the
+  seeded forecast did not know about the stockout and actual demand was 0 in those
+  weeks. Being flagged for bias keeps them out of pre-build ("needs planner review").
+
+### Our own forecasts and backtest
+- **Decision (2026-10-21):** `src/analytics/forecasting.py` fits statsforecast AutoETS
+  and SeasonalNaive (season length 52), weekly, 12 weeks ahead, on every product with
+  at least 26 weeks of history. Rules decided in the build:
+  - **Fallback (project owner, 2026-10-21):** products with fewer than 26 weeks (3 on
+    the seed data, including SB-1042 Smart Bottle Pro) get the mean of their last 4
+    non-stockout weeks, held flat, stored as model `recent_mean` with
+    `is_fallback = true`.
+  - Products with fewer than 52 weeks get no SeasonalNaive forecast (it needs a full
+    season), so AutoETS is used. AutoETS treats a season of 52 as non-seasonal
+    (statsforecast handles seasons up to 24).
+  - Forecasts are clipped at 0, because a falling ETS trend can go negative.
+  - **Backtest windows:** 6 windows of 4 weeks, every 4 weeks, with the newest
+    ending on the last complete week, so all of them lie inside the last 26 weeks
+    ((26 - 4) / 4 + 1 = 6). A product is skipped in a window with fewer than 13
+    training weeks. Stockout weeks are imputed for fitting and **not scored**,
+    because they have no real demand to compare with.
+  - The model with the lower backtest WAPE is chosen per product; AutoETS on a tie
+    or when SeasonalNaive has no score.
+  - statsforecast runs in one process (`n_jobs=1`). A process pool crashed under
+    macOS spawn, and reports build inside scheduler threads.
+  - Fits are cached in the process by series content, so as_of dates with the same
+    complete weeks (2026-09-27 and 2026-09-30) fit once.
+- **Result on the seed-42 data (as of 2026-09-30):** backtest WAPE, on the 242
+  products scored by both models: AutoETS 40.5%, SeasonalNaive 53.7%; chosen mix
+  40.3%. Chosen: AutoETS 226, SeasonalNaive 21, recent_mean 3. A full
+  `run_demand` takes about 98 seconds, almost all of it statsforecast.
+
+### Pre-build recommendations and approval
+- **Decision (2026-10-21):** `src/analytics/prebuild.py` follows the brief's formula
+  with our own chosen forecast (Step 5) and the latest stock snapshot on or before
+  as_of. Rules decided in the build:
+  - **Lead time** in weeks is `lead_time_days / 7`. A part week counts in proportion
+    (30 days = 4 full forecast weeks plus 2/7 of the fifth).
+  - **Safety stock sd** is the sample sd (n - 1) of weekly units over the last 26
+    weeks with stockout weeks left out. It is 0 when fewer than 2 weeks remain.
+  - **Rounding:** the formula result is stored unrounded (`prebuild_raw`), and the
+    recommended units are that result rounded up to a whole unit.
+  - **Planner review:** every product flagged for bias in forecast accuracy goes
+    to `planner_review`, whatever its pre-build result, and gets no recommendation.
+  - **Order:** by days of cover (on hand / average daily demand of the last 4
+    non-stockout weeks), lowest first; unknown cover last; ties by SKU.
+  - **Id:** `YYYYMMDD-SKU` (for example `20260930-SB-1042`), so a rerun keeps the id.
+- **Approval:** `python -m src.demand.approve --id <id> --approve|--reject --by
+  <name> [--note]`. Only a pending recommendation can be decided, once. The status
+  update and the `prebuild_decisions` row are written in one transaction. No code
+  in `src/agent`, `src/reports` or `src/app` imports the approval module (a test
+  checks this).
+- **Result on the seed-42 data:** 122 recommendations and 24 products for planner
+  review as of 2026-09-30; 96 and 24 as of 2026-09-27. SB-1042 Smart Bottle Pro:
+  327 units, 9.1 days of cover, **ranked 5th** as of 2026-09-30. Four smaller
+  products have less cover (AP-1007 5.0, AP-1002 5.3, AP-1003 7.5 and BE-1015 8.1
+  days). This is reported to the project owner at the acceptance step and no rule
+  is changed.
+
+### Demand sections in the reports
+- **Decision (2026-10-21):** `src/reports/demand_sections.py` builds the sections from
+  the snapshot for the report's own as_of (`get_or_run`: reused if stored, otherwise
+  computed, which adds about 100 seconds to that report). The scheduler is unchanged.
+  - **Weekly and monthly, "Demand alerts":** overdue customers (serious and overdue
+    together, by 365-day revenue), declining customers, flagged categories, stock
+    alerts, forecast-accuracy flags (largest bias first), pending pre-build
+    recommendations (by days of cover) and the planner-review list. The email
+    shows 10 rows per list and "and N more". The "Demand alerts" Excel sheet has
+    every row of every list in one table, with a List column, plus the new
+    high-value and segment-change lists, which are not in the email.
+  - **Monthly, "Forecast accuracy":** overall, by category and flagged products in
+    the email; the Excel sheet adds every product.
+  - The daily snapshot has no demand sections.
+  - **Summaries:** each list's count and first 3 rows are added to the summary
+    input as text lines. The number guard is unchanged; it now also accepts the
+    numbers in those lines.
+  - The template gained one optional element, a muted footer line under a table
+    (the "and N more").
+- **Test time:** the report and demand tests fit forecasts for 2026-08-31 and
+  2026-09-27/30 (about 100 seconds each), so `pytest` now takes about 4 minutes.
+
+### Demand-planning agent tools
+- **Decision (2026-10-21):** `get_customer_alerts`, `get_forecast_accuracy` and
+  `get_prebuild_recommendations` read the latest snapshot with as_of on or before
+  `DATA_END_DATE`. With none they return `status: not_computed` and the command to
+  run; they never compute (a question has 120 seconds; a run takes about 100).
+- **Arguments differ from the Week 4 stubs** (the stubs' region, segment, weeks and
+  "proposed" are gone), following the Week 5 brief:
+  - customer alerts: `alert_type`, `severity`, `limit`;
+  - forecast accuracy: `sku_or_name` or `category`;
+  - pre-build: `status` (pending, approved or rejected) and `limit`.
+- Every number is returned with a `_shown` text for the answer guard. The tools
+  return no email address, and they have no way to change a status.
+- **Eval:** 5 demand questions (q21 to q25) use `gold_planning_sql`, run read-only
+  by `scripts/fill_gold.py` on the 2026-09-30 snapshot in `planning.duckdb`.
+
+### Overdue and segment-move alerts: interval floor and retail filter
+- **Decision (project owner, 2026-10-21):** two rules cut the noise in the overdue
+  and segment-move lists. The declining rule is unchanged.
+  - **The usual interval has a floor of 7 days** (`min_usual_interval_days`). A
+    customer who orders every 2 days is not overdue after 5 days without an order.
+  - **Retail customers count only if they are in the top 20% of all customers by
+    365-day revenue** (`retail_top_share`; the bar is the 80th percentile over
+    customers with revenue in the window). Wholesale customers always count.
+    This applies to overdue and segment-move alerts only.
+- **Why:** with the Week 5 first version, overdue had 609 customers (482 serious)
+  as of 2026-09-30, almost all retail daily buyers, so the list was too long to act on.
+- **New counts:**
+
+  | As of | Overdue (serious + overdue) | Serious: retail / wholesale | Overdue: retail / wholesale | Segment moves: retail / wholesale |
+  | --- | --- | --- | --- | --- |
+  | 2026-09-27 | 62 | 32 / 5 | 24 / 1 | 9 / 14 |
+  | 2026-09-30 | 58 | 36 / 5 | 16 / 1 | 7 / 18 |
+
+  Harbor & Pine Co., Kestrel Home Stores and Bluegate Supplies are serious and
+  rank 1 to 3 on both dates.
+
+### Forecast accuracy leaves out stockout weeks
+- **Decision (project owner, 2026-10-21):** a product's stockout weeks are left out of
+  its WAPE and bias, and of the category and overall totals. This is the same
+  treatment as the Step 5 backtest. `weeks` is the number of weeks measured. A product
+  under 20 actual units after the exclusion is stored but not flagged.
+- **Why:** sales in a stockout week are not real demand. Counting them as 0 actual
+  units flagged 8 of the 10 stockout products for bias, which kept them out of
+  pre-build exactly when they need stock.
+- **Result (2026-09-27 and 2026-09-30):** 17 products flagged, all for bias (was 24).
+  Overall WAPE is 15.9%, bias -0.4%. AP-1150 Classic Denim Jacket is still +27.3%.
+  9 of the 10 stockout products are no longer flagged and are back in the pre-build
+  calculation. HK-1011 Ultra Mixing Bowls is still flagged: its bias over its 7
+  non-stockout weeks is +16.3%.
+- This replaces the result paragraph in "Forecast accuracy of the seeded forecasts".
+
+### Pre-build ranking: urgent first, then value at risk
+- **Decision (project owner, 2026-10-21):** this replaces the "Order: by days of cover"
+  rule. Pre-build recommendations are ranked in two groups:
+  1. **urgent:** days of cover below the lead time in days (stock runs out before
+     a new order could arrive);
+  2. **normal:** everything else, including unknown cover.
+
+  Within each group they are ranked by **value at risk** = pre-build units x unit
+  price, largest first; ties by SKU. `value_at_risk`, `unit_price` and `priority`
+  are stored on `prebuild_recommendations` (added to an existing planning.duckdb on
+  first use) and shown in the reports.
+- **Why:** a planner prioritises by urgency, then by money at stake, not by days of
+  cover alone. Days of cover alone put four small products (10 to 55 units) ahead of
+  SB-1042 Smart Bottle Pro (327 units).
+- **Result as of 2026-09-30:** 129 recommendations (72 urgent, 57 normal). The top 5:
+  SB-1042 (11,441.73), EL-1028 (6,613.65), AP-1004 (3,704.05), EL-1024 (3,179.70),
+  TO-1005 (2,849.50), all urgent.
+
+### Email pre-build table: 5 columns
+- **Decision (project owner, 2026-10-21):** the email's pre-build table shows only
+  product, days of cover, pre-build units, value at risk and reason (urgent or
+  normal), so it fits a phone screen. The "Demand alerts" Excel sheet keeps every
+  column, including the id the approval command needs.
+
+### Slow tests are skipped by default
+- **Decision (project owner, 2026-10-21):** tests that need the real statsforecast fit
+  (the seed-data forecast and backtest checks, the gold-value check, which q24
+  depends on, and every Week 5 acceptance test) are marked `slow`.
+  - `pytest` skips them.
+  - `pytest -m slow` runs only them; `pytest --runslow` runs everything.
+  - The marker is registered in `pyproject.toml`; the skip logic is in
+    `tests/conftest.py`.
+- **How:** default tests replace the fit with a recent-mean stand-in (session fixture
+  `fast_forecasts`). Slow tests use `real_demand_runs`, which runs the real fit on its
+  own copy of the sales database, so fast and real snapshots never share a
+  `planning.duckdb`. The forecasting unit test fits a 3-product subset for real
+  (3.4 s), so the default run still exercises statsforecast.
+- **Times (2026-10-21):** default `pytest` about 39 s (443 passed, 12 skipped);
+  `pytest -m slow` about 101 s (12 tests).
+
+### Two changes from the approved Week 5 plan
+- **Code layout (2026-10-21):** the approved plan put the calculations in new files
+  under `src/demand/`. They live in `src/analytics/` instead, filling the empty Week 1
+  files the folder map already reserved:
+  - `customers.py`: customer alerts and RFM;
+  - `forecasting.py`: accuracy, forecasts and backtest;
+  - `prebuild.py`: pre-build;
+  - `demand.py` (new): the demand series, stock position, category and stock alerts.
+
+  `src/demand/` holds only the store (`store.py`), the CLIs (`run.py`, `approve.py`)
+  and the config loader (`config.py`).
+- **Single process (2026-10-21):** forecasting runs in one process (`n_jobs=1`)
+  because the statsforecast process pool crashed on macOS. A full `run_demand` takes
+  about 98 seconds.
+
+### Week 6 demo uses the September monthly business review
+- **Decision (project owner, 2026-10-21):** the Week 6 demo uses the September 2026
+  monthly business review (as of 2026-09-30). It is the one report that shows all 5
+  planted problems:
+  - the 3 churned wholesale customers, serious overdue and ranked 1 to 3;
+  - the Apparel decline;
+  - the 10 stockout products;
+  - the AP-1150 bias;
+  - the SB-1042 Smart Bottle Pro pre-build, ranked 1st.
+- **Why not the weekly review (as of 2026-09-27):** it cannot show the SB-1042
+  pre-build. The latest inventory snapshot on or before 27 Sep is the 21 Sep one
+  (329 on hand, 202 on order), which still covers the product's 4-week lead time.
+  The low stock (123 on hand, none on order) appears only in the 28 Sep snapshot.

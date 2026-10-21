@@ -8,9 +8,10 @@ model is generated from that model, so the schema and the validation cannot drif
 apart. Invalid arguments are returned to the model as the tool result; each tool
 gets 2 retries per question before the error becomes final (ToolSession).
 
-Three tools are registered with their final argument schemas but are built in
-Week 5; until then they return {"status": "not_available_yet", ...}. Week 5 replaces
-only their function bodies.
+The three demand-planning tools (Week 5) only read stored snapshots in
+data/planning.duckdb: the latest one with as_of on or before DATA_END_DATE. They never
+compute one (an agent question has 120 seconds; a run takes longer), and they cannot
+change an approval status. With no snapshot they say how to create one.
 """
 
 import json
@@ -30,7 +31,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from src.agent import sql_guard
 from src.analytics import kpis
-from src.reports import builder
+from src.demand import store
+from src.reports import builder, data_clock
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +44,13 @@ MAX_NAME_MATCHES = 10
 DEFAULT_FORECAST_WEEKS = 8
 MAX_FORECAST_WEEKS = 12
 SLUG_MAX_CHARS = 40
-NOT_AVAILABLE = {"status": "not_available_yet", "message": "Built in Week 5"}
+DEFAULT_DEMAND_ROWS = 10
+MAX_DEMAND_ROWS = 50
+NOT_COMPUTED = {
+    "status": "not_computed",
+    "message": "Demand planning has not been computed yet. Ask the planner to run "
+    "python -m src.demand.run --as-of <YYYY-MM-DD>.",
+}
 
 # The standard comparisons for each period kind, as in the scheduled reports.
 STANDARD_COMPARISONS: dict[str, list[str]] = {
@@ -85,6 +93,12 @@ class ToolContext:
     db_path: Path = kpis.DB_PATH
     charts_dir: Path = CHARTS_DIR
     sql_timeout_seconds: float = sql_guard.DEFAULT_TIMEOUT_SECONDS
+    data_end: date | None = None  # DATA_END_DATE; demand tools read snapshots up to it
+
+    @property
+    def planning_db(self) -> Path:
+        """planning.duckdb next to the sales database."""
+        return store.planning_path_for(self.db_path)
 
 
 class ToolError(Exception):
@@ -138,19 +152,27 @@ class GetCustomerAlertsArgs(StrictArgs):
     alert_type: Literal["overdue", "declining", "new_high_value", "segment_change"] | None = Field(
         default=None, description="Only this kind of alert; all kinds if omitted."
     )
-    region: str | None = Field(default=None, description="Only customers in this region.")
-    segment: str | None = Field(default=None, description="Only customers in this segment.")
+    severity: Literal["serious", "overdue", "warning", "info"] | None = Field(
+        default=None,
+        description="Only this severity: serious or overdue (overdue alerts), warning "
+        "(declining, segment_change), info (new_high_value).",
+    )
+    limit: int = Field(
+        default=DEFAULT_DEMAND_ROWS, ge=1, le=MAX_DEMAND_ROWS, description="Rows to return."
+    )
 
 
 class GetForecastAccuracyArgs(StrictArgs):
-    weeks: int = Field(default=8, ge=1, le=26, description="Weeks to measure, most recent first.")
-    sku_or_name: str | None = Field(default=None, description="One product; all if omitted.")
+    sku_or_name: str | None = Field(default=None, description="One product (SKU or name).")
+    category: str | None = Field(default=None, description="One category, e.g. Apparel.")
 
 
 class GetPrebuildRecommendationsArgs(StrictArgs):
-    sku_or_name: str | None = Field(default=None, description="One product; all if omitted.")
-    status: Literal["proposed", "approved", "rejected"] | None = Field(
-        default=None, description="Only recommendations with this status."
+    status: Literal["pending", "approved", "rejected"] | None = Field(
+        default=None, description="Only recommendations with this status; all if omitted."
+    )
+    limit: int = Field(
+        default=DEFAULT_DEMAND_ROWS, ge=1, le=MAX_DEMAND_ROWS, description="Rows to return."
     )
 
 
@@ -332,19 +354,208 @@ def make_chart(args: MakeChartArgs, ctx: ToolContext) -> dict:
     }
 
 
+# ---------------------------------------------------------------- demand-planning tools
+
+CUSTOMER_ALERT_FIELDS = {
+    "customer_name": None,
+    "customer_type": None,
+    "region": None,
+    "severity": None,
+    "last_order_date": None,
+    "days_since_last_order": builder.fmt_count,
+    "usual_interval_days": builder.fmt_days,
+    "revenue_365d": builder.fmt_money,
+    "revenue_recent": builder.fmt_money,
+    "revenue_prior": builder.fmt_money,
+    "revenue_change_pct": lambda v: builder.fmt_change(v, "pct"),
+    "first_order_date": None,
+    "segment_before": None,
+    "segment_now": None,
+}
+ACCURACY_FIELDS = {
+    "level": None,
+    "key": None,
+    "name": None,
+    "category": None,
+    "weeks": builder.fmt_count,
+    "actual_units": builder.fmt_count,
+    "forecast_units": builder.fmt_count,
+    "wape": builder.fmt_pct,
+    "bias": lambda v: builder.fmt_change(None if v is None else v * 100, "pct"),
+    "flagged": None,
+    "flag_wape": None,
+    "flag_bias": None,
+    "below_min_units": None,
+}
+PREBUILD_FIELDS = {
+    "rec_id": None,
+    "rank": None,
+    "sku": None,
+    "name": None,
+    "category": None,
+    "status": None,
+    "recommended_units": builder.fmt_count,
+    "value_at_risk": builder.fmt_money,
+    "priority": None,
+    "days_of_cover": builder.fmt_days,
+    "on_hand": builder.fmt_count,
+    "on_order": builder.fmt_count,
+    "lead_time_weeks": builder.fmt_days,
+    "forecast_lead_time": builder.fmt_count,
+    "safety_stock": builder.fmt_count,
+    "forecast_model": None,
+    "is_fallback": None,
+    "decided_by": None,
+    "decided_at_utc": None,
+}
+REVIEW_FIELDS = {"sku": None, "name": None, "category": None, "reason": None}
+ROUNDED_MONEY = {"revenue_365d", "revenue_recent", "revenue_prior"}
+
+
+def demand_snapshot(ctx: ToolContext) -> date | None:
+    """The as_of of the latest stored snapshot on or before DATA_END_DATE (None if none)."""
+    end = ctx.data_end or data_clock.data_end_from_env()
+    return store.latest_snapshot(ctx.planning_db, end)
+
+
+def read_planning(ctx: ToolContext, table: str, as_of: date) -> pd.DataFrame:
+    """One table of one snapshot, read-only."""
+    return store.read_table(ctx.planning_db, table, as_of)
+
+
+def record(row: dict, fields: dict[str, Callable | None]) -> dict:
+    """A row with JSON-safe values plus "<field>_shown" text for every number."""
+    out: dict[str, Any] = {}
+    for name, fmt in fields.items():
+        value = json_value(row.get(name))
+        if name in ROUNDED_MONEY and value is not None:
+            value = builder.rounded(value, "money")
+        out[name] = value
+        if fmt is not None:
+            out[f"{name}_shown"] = fmt(value)
+    return out
+
+
+def snapshot_header(as_of: date) -> dict:
+    """Where the numbers come from."""
+    return {
+        "snapshot_as_of": as_of.isoformat(),
+        "source": "demand-planning snapshot in planning.duckdb (computed by python -m "
+        "src.demand.run); numbers are stored results, not live queries",
+    }
+
+
 def get_customer_alerts(args: GetCustomerAlertsArgs, ctx: ToolContext) -> dict:
-    """Customer ordering-pattern alerts (Week 5)."""
-    return dict(NOT_AVAILABLE)
+    """Customer ordering-pattern alerts from the latest demand snapshot."""
+    as_of = demand_snapshot(ctx)
+    if as_of is None:
+        return dict(NOT_COMPUTED)
+    alerts = read_planning(ctx, "customer_alerts", as_of)
+    counts = alerts.groupby(["alert_type", "severity"]).size()
+    if args.alert_type:
+        alerts = alerts[alerts["alert_type"] == args.alert_type]
+    if args.severity:
+        alerts = alerts[alerts["severity"] == args.severity]
+    alerts = alerts.sort_values(["alert_type", "rank"])
+    rows = [
+        {"alert_type": r["alert_type"], "rank": int(r["rank"]), **record(r, CUSTOMER_ALERT_FIELDS)}
+        for r in alerts.head(args.limit).to_dict("records")
+    ]
+    return {
+        **snapshot_header(as_of),
+        "definitions": "overdue: 4+ orders in 365 days and days since last order over 1.5x "
+        "the usual (median) gap, serious over 2x, ranked by 365-day revenue; declining: "
+        "last-90-day revenue more than 25% below the prior 90 days (prior at least 1,000); "
+        "new_high_value: first order in the last 90 days and top 10% of 90-day revenue; "
+        "segment_change: RFM segment moved from Champions/Loyal to At risk/Lapsed vs 28 "
+        "days earlier. Revenue is net revenue (completed orders).",
+        "counts": [
+            {"alert_type": t, "severity": sev, "customers": int(n)}
+            for (t, sev), n in counts.items()
+        ],
+        "matching": len(alerts),
+        "returned": len(rows),
+        "rows": rows,
+    }
 
 
 def get_forecast_accuracy(args: GetForecastAccuracyArgs, ctx: ToolContext) -> dict:
-    """Forecast accuracy, WAPE and bias (Week 5)."""
-    return dict(NOT_AVAILABLE)
+    """Seeded-forecast WAPE and bias from the latest demand snapshot."""
+    as_of = demand_snapshot(ctx)
+    if as_of is None:
+        return dict(NOT_COMPUTED)
+    table = read_planning(ctx, "forecast_accuracy", as_of)
+    overall = table[table["level"] == "overall"]
+    result: dict[str, Any] = {
+        **snapshot_header(as_of),
+        "definitions": "WAPE = sum |actual - forecast| / sum actual; bias = (sum forecast - "
+        "sum actual) / sum actual, positive = forecast too high. Actual = units on "
+        "non-cancelled orders. Flagged: WAPE over 40% or bias beyond 15%, products with "
+        "at least 20 actual units.",
+        "overall": [record(r, ACCURACY_FIELDS) for r in overall.to_dict("records")],
+    }
+    if args.sku_or_name:
+        with sql_guard.open_readonly(ctx.db_path) as con:
+            product = find_product(con, args.sku_or_name)
+        rows = table[(table["level"] == "product") & (table["key"] == product["sku"])]
+        if rows.empty:
+            raise ToolError(f"No seeded-forecast accuracy for {product['sku']} {product['name']}.")
+        result["product"] = record(rows.iloc[0].to_dict(), ACCURACY_FIELDS)
+    if args.category:
+        rows = table[
+            (table["level"] == "category")
+            & (table["key"].str.lower() == args.category.strip().lower())
+        ]
+        if rows.empty:
+            options = sorted(table.loc[table["level"] == "category", "key"])
+            raise ToolError(f"No category {args.category!r}; use one of {options}.")
+        result["category"] = record(rows.iloc[0].to_dict(), ACCURACY_FIELDS)
+    if not args.sku_or_name:
+        flagged = table[(table["level"] == "product") & table["flagged"]]
+        if args.category:
+            flagged = flagged[flagged["category"].str.lower() == args.category.strip().lower()]
+        flagged = flagged.reindex(flagged["bias"].abs().sort_values(ascending=False).index)
+        result["flagged_count"] = len(flagged)
+        result["flagged_products"] = [
+            record(r, ACCURACY_FIELDS) for r in flagged.head(MAX_DEMAND_ROWS).to_dict("records")
+        ]
+        if not args.category:
+            categories = table[table["level"] == "category"].sort_values("key")
+            result["by_category"] = [
+                record(r, ACCURACY_FIELDS) for r in categories.to_dict("records")
+            ]
+    return result
 
 
 def get_prebuild_recommendations(args: GetPrebuildRecommendationsArgs, ctx: ToolContext) -> dict:
-    """Pre-build recommendations, read-only; the agent cannot approve them (Week 5)."""
-    return dict(NOT_AVAILABLE)
+    """Pre-build recommendations from the latest demand snapshot, read-only.
+
+    The agent can never approve or reject: only a planner can, with the approval CLI.
+    """
+    as_of = demand_snapshot(ctx)
+    if as_of is None:
+        return dict(NOT_COMPUTED)
+    recs = read_planning(ctx, "prebuild_recommendations", as_of).sort_values("rank")
+    status_counts = recs["status"].value_counts().to_dict()
+    if args.status:
+        recs = recs[recs["status"] == args.status]
+    review = read_planning(ctx, "planner_review", as_of).sort_values("sku")
+    return {
+        **snapshot_header(as_of),
+        "definitions": "pre-build = max(0, forecast over lead time + safety stock - on hand "
+        "- on order); safety stock = 1.65 x sd of weekly demand (26 weeks) x sqrt(lead "
+        "time in weeks). Ranked urgent first (days of cover below the lead time), then by "
+        "value at risk = pre-build units x unit price. Only planners approve or "
+        "reject; the agent cannot change a status.",
+        "status_counts": {k: int(v) for k, v in status_counts.items()},
+        "matching": len(recs),
+        "returned": min(len(recs), args.limit),
+        "rows": [record(r, PREBUILD_FIELDS) for r in recs.head(args.limit).to_dict("records")],
+        "needs_planner_review_count": len(review),
+        "needs_planner_review": [
+            record(r, REVIEW_FIELDS) for r in review.head(args.limit).to_dict("records")
+        ],
+    }
 
 
 # ---------------------------------------------------------------- registry
@@ -424,20 +635,23 @@ TOOLS: dict[str, Tool] = {
         ),
         Tool(
             "get_customer_alerts",
-            "Customer ordering-pattern alerts (overdue, declining, new high-value, segment "
-            "changes). Not available until Week 5.",
+            "Customer ordering-pattern alerts from the stored demand-planning snapshot: "
+            "overdue (serious/overdue), declining, new high-value and RFM segment changes, "
+            "with counts per type and the top customers.",
             GetCustomerAlertsArgs,
             get_customer_alerts,
         ),
         Tool(
             "get_forecast_accuracy",
-            "Forecast accuracy (WAPE and bias) per product. Not available until Week 5.",
+            "Forecast accuracy (WAPE and bias) of the seeded forecasts: overall, by category, "
+            "flagged products, or one product or category.",
             GetForecastAccuracyArgs,
             get_forecast_accuracy,
         ),
         Tool(
             "get_prebuild_recommendations",
-            "Pre-build recommendations for planners (read-only). Not available until Week 5.",
+            "Pre-build recommendations (read-only) with their approval status, and products "
+            "that need planner review. The agent cannot approve or reject.",
             GetPrebuildRecommendationsArgs,
             get_prebuild_recommendations,
         ),
@@ -543,7 +757,7 @@ def result_row_count(result: dict) -> int | None:
     """Rows in a tool result, for agent_log."""
     if "row_count" in result:
         return int(result["row_count"])
-    for key in ("kpis", "weeks"):
+    for key in ("kpis", "weeks", "rows", "flagged_products"):
         if key in result:
             return len(result[key])
     return None

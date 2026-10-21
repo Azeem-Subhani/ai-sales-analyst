@@ -13,6 +13,7 @@ from pathlib import Path
 
 import matplotlib.image as mpimg
 import openpyxl
+import pandas as pd
 import pytest
 import yaml
 
@@ -80,6 +81,7 @@ def allowed_numbers(numbers: dict) -> set[str]:
                 builder.fmt_pct(leaf),
                 builder.fmt_change(leaf, "pct"),
                 builder.fmt_change(leaf, "pp"),
+                builder.fmt_days(leaf),
             ]
         else:
             shown = [str(leaf)]
@@ -118,8 +120,29 @@ def test_headline_net_revenue_is_shown(reports: dict[str, Report], name: str) ->
 def test_placeholders_present(reports: dict[str, Report], name: str) -> None:
     text = visible_text(reports[name].html)
     assert builder.SUMMARY_PLACEHOLDER in text
-    if name == "weekly_sales_review":
-        assert "Demand alerts" in text and builder.DEMAND_ALERTS_PLACEHOLDER in text
+    assert "Added in Week 5" not in text  # the Week 2 placeholders are filled
+
+
+def test_demand_sections_by_report(reports: dict[str, Report]) -> None:
+    sections = {name: set(r.numbers["sections"]) for name, r in reports.items()}
+    assert "demand_alerts" not in sections["daily_sales_snapshot"]
+    assert "forecast_accuracy" not in sections["daily_sales_snapshot"]
+    assert "demand_alerts" in sections["weekly_sales_review"]
+    assert {"demand_alerts", "forecast_accuracy"} <= sections["monthly_business_review"]
+
+
+def test_demand_lists_are_cut_at_10_rows_with_and_n_more(reports: dict[str, Report]) -> None:
+    report = reports["weekly_sales_review"]
+    overdue = next(
+        g for g in report.numbers["sections"]["demand_alerts"]["groups"] if g["key"] == "overdue"
+    )
+    assert overdue["count"] > 10 and len(overdue["rows"]) == overdue["count"]  # all stored
+    text = visible_text(report.html)
+    assert overdue["more"] == overdue["count"] - 10
+    assert f"and {builder.fmt_count(overdue['more'])} more" in text
+    sheet = openpyxl.load_workbook(report.excel_path)["Demand alerts"]
+    lists = [row[0] for row in sheet.iter_rows(min_row=2, values_only=True)]
+    assert lists.count(overdue["title"]) == overdue["count"]
 
 
 def test_daily_has_no_charts_or_excel(reports: dict[str, Report]) -> None:
@@ -133,7 +156,11 @@ def test_excel_sheets_and_formats(reports: dict[str, Report], name: str) -> None
     path = reports[name].excel_path
     assert path is not None and path.exists()
     workbook = openpyxl.load_workbook(path)
-    assert workbook.sheetnames == EXCEL_SHEETS
+    demand_sheets = {
+        "weekly_sales_review": ["Demand alerts"],
+        "monthly_business_review": ["Demand alerts", "Forecast accuracy"],
+    }
+    assert workbook.sheetnames == EXCEL_SHEETS + demand_sheets[name]
     for sheet in workbook.worksheets:
         assert sheet.freeze_panes == "A2"
     categories = workbook["Categories"]
@@ -228,3 +255,63 @@ def test_unknown_query_name_in_config_is_rejected(tmp_path: Path) -> None:
     path.write_text(yaml.safe_dump(config), encoding="utf-8")
     with pytest.raises(ValueError, match="top_widgets"):
         builder.load_config(path)
+
+
+def test_money_is_rounded_half_up_from_the_exact_sum(reports: dict[str, Report]) -> None:
+    # Regression (Week 5): August 2026 net revenue is exactly 462,431.555 in SQL.
+    # Python's round() on the float gave 462,431.55; SQL ROUND gives 462,431.56.
+    report = reports["monthly_business_review"]
+    rows = report.numbers["sections"]["kpis_month"]["rows"]
+    net = next(r for r in rows if r["kpi"] == "net_revenue")["current"]
+    assert net == 462431.56
+    assert "462,431.56" in report.html and "462,431.55" not in report.html
+
+
+def test_week2_hand_checked_figures_unchanged(reports: dict[str, Report]) -> None:
+    # docs/hand_checks/week2_weekly_2026-09-27.md
+    page = visible_text(reports["weekly_sales_review"].html)
+    for figure in ["114,286.82", "661", "172.90", "43.1%", "31,481.36", "2,767.45"]:
+        assert figure in page, figure
+    assert "Stokes, Robinson and Gough" in page
+
+
+def test_prebuild_email_table_has_5_columns_and_excel_has_all() -> None:
+    from src.reports import demand_sections
+
+    frame = pd.DataFrame(
+        [
+            {
+                "rank": 1,
+                "name": "Alpha",
+                "sku": "A-1",
+                "priority": "urgent",
+                "days_of_cover": 3.0,
+                "lead_time_weeks": 4.0,
+                "on_hand": 2,
+                "on_order": 0,
+                "recommended_units": 10,
+                "unit_price": 9.99,
+                "value_at_risk": 99.9,
+                "rec_id": "20260930-A-1",
+            }
+        ]
+    )
+    group = demand_sections.group(
+        "prebuild",
+        "Pre-build",
+        frame,
+        demand_sections.PREBUILD_COLUMNS,
+        email_columns=demand_sections.PREBUILD_EMAIL_COLUMNS,
+    )
+    section = {"title": "Demand alerts", "note": "", "name": "demand_alerts", "groups": [group]}
+    table = demand_sections.group_views(section)[1]
+    assert table["header"] == [
+        "Product",
+        "Days of cover",
+        "Pre-build units",
+        "Value at risk",
+        "Reason",
+    ]
+    assert [c["text"] for c in table["rows"][0]] == ["Alpha", "3.0", "10", "99.90", "urgent"]
+    _, sheet, _ = demand_sections.excel_frame(section)
+    assert {"Id", "On hand", "Unit price", "Value at risk"} <= set(sheet.columns)

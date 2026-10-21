@@ -1,4 +1,4 @@
-"""Run the 20 evaluation questions live against one model and grade the answers.
+"""Run the evaluation questions live against one model and grade the answers.
 
 This calls OpenRouter and spends credit (roughly a few cents per run with low-cost
 models). It is not part of pytest; pytest only tests the grader.
@@ -284,7 +284,9 @@ def print_progress(result: QuestionResult) -> None:
 def print_summary(run: EvalRun, out_dir: Path | None = None) -> None:
     """Score, review list and totals."""
     summary = run.summary()
-    print(f"\nScore: {run.correct}/{len(run.results)} correct (target {TARGET_CORRECT}/20)")
+    print(
+        f"\nScore: {run.correct}/{len(run.results)} correct (Week 4 target {TARGET_CORRECT}/20 on q01-q20)"
+    )
     for result in run.results:
         if result.correct is not True:
             print(f"  {result.id} {verdict_label(result.correct)}: {'; '.join(result.reasons)}")
@@ -302,7 +304,7 @@ def print_summary(run: EvalRun, out_dir: Path | None = None) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     """Run the eval from the command line."""
-    parser = argparse.ArgumentParser(description="Run the 20 eval questions live and grade them.")
+    parser = argparse.ArgumentParser(description="Run the eval questions live and grade them.")
     parser.add_argument("--model", help="model ID (default: LLM_MODEL from .env)")
     parser.add_argument("--no-fallback", action="store_true", help="measure the model alone")
     parser.add_argument("--ids", help="comma-separated question ids, e.g. q01,q17")

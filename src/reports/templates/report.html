@@ -40,12 +40,12 @@ Covers {{ numbers.period.start }} to {{ numbers.period.end }}{% if numbers.data_
 </td></tr>
 {%- elif block.get('placeholder') %}
 <tr><td style="padding:10px 12px;border:1px dashed {{ rule }};font-size:13px;color:{{ muted }};{{ font }}"><em>{{ block.placeholder }}</em></td></tr>
-{%- else %}
+{%- elif block.get('header') %}
 <tr><td style="padding:0;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;font-size:12px;{{ font }}">
 <tr>
 {%- for heading in block.header %}
-<th align="{{ 'left' if loop.first or heading in ('Product', 'Customer', 'Category', 'Type') else 'right' }}" style="padding:5px 3px;border-bottom:2px solid {{ rule }};color:{{ muted }};font-weight:bold;font-size:11px;">{{ heading }}</th>
+<th align="{{ 'left' if loop.first or heading in ('Product', 'Customer', 'Category', 'Type', 'SKU', 'Severity', 'Id', 'Reason', 'Segment now', 'Segment 28 days earlier', 'First order') else 'right' }}" style="padding:5px 3px;border-bottom:2px solid {{ rule }};color:{{ muted }};font-weight:bold;font-size:11px;">{{ heading }}</th>
 {%- endfor %}
 </tr>
 {%- for row in block.rows %}
@@ -57,6 +57,9 @@ Covers {{ numbers.period.start }} to {{ numbers.period.end }}{% if numbers.data_
 {%- endfor %}
 </table>
 </td></tr>
+{%- if block.get('footer') %}
+<tr><td style="padding:4px 0 0 0;font-size:12px;color:{{ muted }};{{ font }}"><em>{{ block.footer }}</em></td></tr>
+{%- endif %}
 {%- endif %}
 {%- endfor %}
 

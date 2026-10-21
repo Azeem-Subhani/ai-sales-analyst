@@ -19,9 +19,9 @@ BY_ID = {q["id"]: q for q in QUESTIONS}
 # ---------------------------------------------------------------- the question set
 
 
-def test_twenty_questions_with_unique_ids_and_gold() -> None:
-    assert len(QUESTIONS) == 20
-    assert len(BY_ID) == 20
+def test_25_questions_with_unique_ids_and_gold() -> None:
+    assert len(QUESTIONS) == 25  # 20 from Week 4, 5 demand-planning questions (Week 5)
+    assert len(BY_ID) == 25
     for question in QUESTIONS:
         for item in question.get("alternatives") or [question]:
             gold = item["gold"]
@@ -50,14 +50,20 @@ def test_coverage_of_required_topics() -> None:
         "Classic Denim Jacket",
         "chart",
         "ambiguous",
+        "demand planning",
     ]:
         assert needed in topics, needed
     assert any(q.get("require_assumption") for q in QUESTIONS)
 
 
-def test_gold_values_match_the_sql(built: dict) -> None:
-    """Stored gold values equal a fresh run of every gold_sql on the seed-42 data."""
-    assert fill_gold.main(["--check", "--db", str(built["db_path"])]) == 0
+@pytest.mark.slow
+def test_gold_values_match_the_sql(real_demand_runs: dict) -> None:
+    """Stored gold values equal a fresh run of every gold SQL on the seed-42 data.
+
+    Demand questions read the 2026-09-30 snapshot with real forecasts (q24 depends on
+    them), stored next to the slow tests' copy of the database.
+    """
+    assert fill_gold.main(["--check", "--db", str(real_demand_runs["db_path"])]) == 0
 
 
 def test_known_gold_values() -> None:
@@ -372,3 +378,29 @@ def test_key_balance_measures_spend_and_survives_a_failed_read(
     assert balance.spent() == pytest.approx(0.01)
     assert balance.spent() == pytest.approx(0.01)  # failed read keeps the last figure
     assert balance.spent() == pytest.approx(0.03)
+
+
+@pytest.mark.parametrize(
+    "period",
+    ["1–31 May 2026", "1-31 May", "May 1-31, 2026", "July 1-31", "1 to 30 September"],
+)
+def test_date_ranges_are_not_unsupported_numbers(period: str) -> None:
+    # q12-style answer (Week 5): the grader blanks dates with the answer guard's
+    # patterns, so the day numbers in a month range are not flagged.
+    evidence = ['{"rows": [["2026-05", 401234.56]]}']
+    answer = f"Net revenue for {period} was 401,234.56."
+    assert eval_grader.unsupported_numbers(answer, evidence) == []
+
+
+def test_date_range_does_not_hide_a_made_up_number() -> None:
+    evidence = ['{"rows": [["2026-05", 401234.56]]}']
+    answer = "Net revenue for 1-31 May was 401,234.56, about 12,943 a day."
+    assert eval_grader.unsupported_numbers(answer, evidence) == ["12,943"]
+
+
+def test_demand_questions_use_the_planning_snapshot_only() -> None:
+    demand = [q for q in QUESTIONS if q["topic"].startswith("demand planning")]
+    assert len(demand) == 5
+    for question in demand:
+        assert "gold_planning_sql" in question and "gold_sql" not in question
+        assert "DATE '2026-09-30'" in question["gold_planning_sql"]

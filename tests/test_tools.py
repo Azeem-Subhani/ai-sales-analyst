@@ -189,18 +189,90 @@ def test_make_chart_uses_the_guard_and_checks_columns(session: tools.ToolSession
     assert "'c' is not in the query result" in wrong.result["error"]
 
 
-@pytest.mark.parametrize(
-    "name", ["get_customer_alerts", "get_forecast_accuracy", "get_prebuild_recommendations"]
-)
-def test_stub_tools_return_not_available_yet(session: tools.ToolSession, name: str) -> None:
+DEMAND_TOOLS = ["get_customer_alerts", "get_forecast_accuracy", "get_prebuild_recommendations"]
+
+
+@pytest.mark.parametrize("name", DEMAND_TOOLS)
+def test_demand_tools_say_not_computed_without_a_snapshot(tmp_path: Path, name: str) -> None:
+    # No planning.duckdb next to this (missing) sales database: never compute, explain.
+    session = tools.ToolSession(tools.ToolContext(db_path=tmp_path / "sales.duckdb"))
     outcome = run(session, name)
-    assert outcome.result == {"status": "not_available_yet", "message": "Built in Week 5"}
+    assert outcome.result["status"] == "not_computed"
+    assert "python -m src.demand.run" in outcome.result["message"]
 
 
-def test_stub_tools_validate_their_final_arguments(session: tools.ToolSession) -> None:
-    ok = run(session, "get_customer_alerts", alert_type="overdue", region="London")
-    assert ok.result["status"] == "not_available_yet"
-    bad = run(session, "get_forecast_accuracy", weeks=99)
+@pytest.fixture
+def demand_session(built: dict, demand_runs: dict, tmp_path: Path) -> tools.ToolSession:
+    """A session whose DATA_END_DATE is 2026-09-30, with the shared snapshots stored."""
+    from datetime import date
+
+    ctx = tools.ToolContext(
+        db_path=built["db_path"], charts_dir=tmp_path, data_end=date(2026, 9, 30)
+    )
+    return tools.ToolSession(ctx)
+
+
+def test_customer_alerts_filters_and_counts(demand_session: tools.ToolSession) -> None:
+    outcome = run(
+        demand_session, "get_customer_alerts", alert_type="overdue", severity="serious", limit=3
+    )
+    result = outcome.result
+    assert outcome.success and result["snapshot_as_of"] == "2026-09-30"
+    names = [r["customer_name"] for r in result["rows"]]
+    assert names == ["Harbor & Pine Co.", "Kestrel Home Stores", "Bluegate Supplies"]
+    assert all(r["severity"] == "serious" for r in result["rows"])
+    assert result["rows"][0]["revenue_365d_shown"] == "25,660.17"
+    counts = {(c["alert_type"], c["severity"]): c["customers"] for c in result["counts"]}
+    assert result["matching"] == counts[("overdue", "serious")]
+    assert not any("email" in key for r in result["rows"] for key in r)
+
+
+def test_customer_alerts_reads_the_latest_snapshot_on_or_before_data_end(
+    built: dict, demand_runs: dict, tmp_path: Path
+) -> None:
+    from datetime import date
+
+    ctx = tools.ToolContext(db_path=built["db_path"], data_end=date(2026, 9, 29))
+    outcome = run(tools.ToolSession(ctx), "get_customer_alerts", limit=1)
+    assert outcome.result["snapshot_as_of"] == "2026-09-27"
+
+
+def test_forecast_accuracy_for_one_product_and_category(demand_session: tools.ToolSession) -> None:
+    product = run(demand_session, "get_forecast_accuracy", sku_or_name="AP-1150").result["product"]
+    assert product["key"] == "AP-1150" and product["flag_bias"] is True
+    assert product["bias_shown"] == builder_change(product["bias"])
+    category = run(demand_session, "get_forecast_accuracy", category="apparel").result
+    assert category["category"]["key"] == "Apparel"
+    assert all(p["category"] == "Apparel" for p in category["flagged_products"])
+    everything = run(demand_session, "get_forecast_accuracy").result
+    assert len(everything["by_category"]) == 8 and everything["flagged_count"] >= 1
+    bad = run(demand_session, "get_forecast_accuracy", category="Garden")
+    assert not bad.success and "use one of" in bad.result["error"]
+
+
+def builder_change(bias: float) -> str:
+    """Bias fraction shown as a signed percentage, like the reports."""
+    from src.reports import builder
+
+    return builder.fmt_change(bias * 100, "pct")
+
+
+def test_prebuild_recommendations_are_read_only(demand_session: tools.ToolSession) -> None:
+    result = run(demand_session, "get_prebuild_recommendations", status="pending", limit=5).result
+    assert result["returned"] == 5 and result["matching"] >= 5
+    assert [r["rank"] for r in result["rows"]] == [1, 2, 3, 4, 5]
+    assert all(r["status"] == "pending" for r in result["rows"])
+    assert result["needs_planner_review_count"] >= 1
+    assert "cannot change a status" in result["definitions"]
+    assert not hasattr(tools, "approve")
+
+
+def test_demand_tools_validate_arguments(demand_session: tools.ToolSession) -> None:
+    bad = run(demand_session, "get_customer_alerts", severity="critical")
+    assert bad.result["error"] == "invalid_arguments"
+    bad = run(demand_session, "get_prebuild_recommendations", status="proposed")
+    assert bad.result["error"] == "invalid_arguments"
+    bad = run(demand_session, "get_forecast_accuracy", weeks=8)  # not an argument
     assert bad.result["error"] == "invalid_arguments"
 
 

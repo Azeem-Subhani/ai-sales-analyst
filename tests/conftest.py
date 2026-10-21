@@ -1,12 +1,16 @@
 """Shared pytest fixtures."""
 
+import shutil
 import smtplib
 import socket
+from datetime import date
 from email.message import EmailMessage
 from typing import ClassVar, Self
 
+import pandas as pd
 import pytest
 
+from src.analytics import forecasting
 from src.data import generate as gen
 
 OWNER = "owner@example.com"  # dummy report owner used in email tests
@@ -102,3 +106,78 @@ def smtp(monkeypatch: pytest.MonkeyPatch) -> type[FakeSMTP]:
     monkeypatch.setenv("GMAIL_ADDRESS", "sender@example.com")
     monkeypatch.setenv("GMAIL_APP_PASSWORD", "test-app-password")
     return FakeSMTP
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    """--runslow runs the slow tests as well as the default ones."""
+    parser.addoption("--runslow", action="store_true", help="also run tests marked slow")
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Skip slow tests unless --runslow is given or -m selects them."""
+    if config.getoption("--runslow") or "slow" in (config.getoption("-m") or ""):
+        return
+    skip = pytest.mark.skip(reason="slow: run with --runslow or -m slow")
+    for item in items:
+        if "slow" in item.keywords:
+            item.add_marker(skip)
+
+
+DEMAND_DAYS = [date(2026, 9, 27), date(2026, 9, 30)]
+REAL_OWN_FORECASTS = forecasting.own_forecasts
+
+
+def fast_own_forecasts(inputs: object, series: pd.DataFrame, settings: dict) -> tuple:
+    """Stand-in for the statsforecast fit in default tests: recent-mean forecasts only.
+
+    Every product gets the fallback forecast and there is no backtest, so a demand run
+    takes about a second. Tests marked slow use the real fit (real_demand_runs).
+    """
+    ids = sorted(series["product_id"].unique())
+    forecasts = forecasting.recent_mean_forecast(series, ids, settings)
+    forecasts["is_chosen"], forecasts["is_fallback"] = True, True
+    forecasts["sku"] = forecasts["product_id"].map(series.groupby("product_id")["sku"].first())
+    return forecasts, pd.DataFrame()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def fast_forecasts() -> object:
+    """Use the fast stand-in for every demand run except real_demand_runs."""
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(forecasting, "own_forecasts", fast_own_forecasts)
+        yield
+
+
+@pytest.fixture
+def real_own_forecasts() -> object:
+    """The real statsforecast fit, for tests that call it on a small product subset."""
+    return REAL_OWN_FORECASTS
+
+
+@pytest.fixture(scope="session")
+def demand_runs(built: dict) -> dict:
+    """Demand snapshots for 2026-09-27 and 2026-09-30 with the fast forecast stand-in.
+
+    planning.duckdb is written next to the temporary sales database.
+    """
+    from src.demand import run
+
+    return {day: run.run_demand(day, sales_db=built["db_path"]) for day in DEMAND_DAYS}
+
+
+@pytest.fixture(scope="session")
+def real_demand_runs(built: dict, tmp_path_factory: pytest.TempPathFactory) -> dict:
+    """The same snapshots with the real statsforecast fit (slow tests only).
+
+    They use their own copy of the sales database, so their planning.duckdb never
+    mixes with the fast snapshots.
+    """
+    from src.demand import run
+
+    folder = tmp_path_factory.mktemp("real_demand")
+    db_path = folder / "sales.duckdb"
+    shutil.copy(built["db_path"], db_path)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(forecasting, "own_forecasts", REAL_OWN_FORECASTS)
+        runs = {day: run.run_demand(day, sales_db=db_path) for day in DEMAND_DAYS}
+    return {"db_path": db_path, **runs}

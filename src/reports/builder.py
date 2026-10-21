@@ -22,7 +22,10 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
+from types import ModuleType
+from typing import Any
 
 import matplotlib
 
@@ -51,8 +54,6 @@ HTML_FILENAME = "report.html"
 RESERVED_CONFIG_KEYS = {"delivery"}
 
 SUMMARY_PLACEHOLDER = "Summary unavailable for this run"
-DEMAND_ALERTS_PLACEHOLDER = "Added in Week 5"
-FORECAST_ACCURACY_PLACEHOLDER = "Added in Week 5"
 
 TOP_N = 10
 DAILY_TOP_N = 5
@@ -61,6 +62,7 @@ TREND_MONTHS = 12
 
 # Rounding applied once, when numbers enter the Report (display and Excel use these).
 MONEY_DECIMALS = 2
+MONEY_STEP = Decimal(1).scaleb(-MONEY_DECIMALS)  # 0.01
 # Rates and changes are not rounded when stored: they are rounded once, when shown
 # (fmt_pct, fmt_change, Excel number formats). Rounding them on the way in as well
 # turned a true +8.6495% into "+8.7%" (Week 4 wrap-up, docs/decisions.md).
@@ -107,6 +109,7 @@ EXCEL_FORMATS = {
     "count": "#,##0",
     "rate": "0.0%",
     "change": "+0.0;-0.0;0.0",
+    "days": "0.0",
 }
 
 # Chart look: one blue series for the current period, warm gray for the comparison,
@@ -200,8 +203,21 @@ def rounded(value: float | None, kind: str) -> float | int | None:
     if kind in UNROUNDED_KINDS:
         return value
     if kind == "money":
-        return round(value, MONEY_DECIMALS)
+        return round_money(value)
     raise ValueError(f"Unknown value kind {kind!r}.")
+
+
+def round_money(value: float) -> float:
+    """Money to cents, half-up, from the exact decimal the SQL sum produced.
+
+    DuckDB sums DECIMAL columns exactly (August 2026 net revenue is 462,431.555), but
+    pandas hands the sum over as a float, and Python's round() works on the binary
+    value just below it, giving 462,431.55. str() of the float gives back the exact
+    decimal (sums here have at most 15 significant digits), and that is rounded
+    half-up like SQL ROUND, giving 462,431.56.
+    """
+    exact = Decimal(str(value))
+    return float(exact.quantize(MONEY_STEP, rounding=ROUND_HALF_UP))
 
 
 def fmt_money(value: float | None) -> str:
@@ -212,6 +228,11 @@ def fmt_money(value: float | None) -> str:
 def fmt_count(value: float | None) -> str:
     """12345 -> '12,345'."""
     return "n/a" if value is None else f"{value:,.0f}"
+
+
+def fmt_days(value: float | None) -> str:
+    """Days with one decimal: 9.087 -> '9.1' (days of cover, usual order gap)."""
+    return "n/a" if value is None else f"{value:,.1f}"
 
 
 def fmt_pct(value: float | None) -> str:
@@ -266,6 +287,9 @@ class Context:
     con: duckdb.DuckDBPyConnection
     period: kpis.Period
     comparisons: dict[str, kpis.Period]
+    as_of: date | None = None
+    db_path: Path = kpis.DB_PATH
+    demand: Any = None  # the demand snapshot, loaded by the first section that needs it
 
     @property
     def primary(self) -> str:
@@ -428,6 +452,13 @@ def placeholder_section(title: str, note: str) -> dict:
     return {"type": "placeholder", "title": title, "note": note}
 
 
+def demand_sections() -> ModuleType:
+    """src.reports.demand_sections, imported on use (it uses this module's formatters)."""
+    from src.reports import demand_sections as module
+
+    return module
+
+
 # Query name in reports.yaml -> function building that section's numbers.
 QUERY_SECTIONS: dict[str, Callable[[Context], dict]] = {
     "kpis_day": lambda ctx: kpi_section(ctx, DAILY_KPIS),
@@ -452,10 +483,8 @@ QUERY_SECTIONS: dict[str, Callable[[Context], dict]] = {
     "top_products_5": lambda ctx: top_section(ctx, "products", DAILY_TOP_N),
     "top_customers": lambda ctx: top_section(ctx, "customers", TOP_N),
     "customer_growth": customer_growth_section,
-    "demand_alerts": lambda ctx: placeholder_section("Demand alerts", DEMAND_ALERTS_PLACEHOLDER),
-    "forecast_accuracy": lambda ctx: placeholder_section(
-        "Forecast accuracy", FORECAST_ACCURACY_PLACEHOLDER
-    ),
+    "demand_alerts": lambda ctx: demand_sections().demand_alerts_section(ctx),
+    "forecast_accuracy": lambda ctx: demand_sections().forecast_accuracy_section(ctx),
 }
 
 
@@ -711,6 +740,8 @@ def section_views(section: dict, comparisons: list[str]) -> list[dict]:
         return [breakdown_table_view(section)]
     if section["type"] == "top":
         return top_table_views(section)
+    if section["type"] == "groups":
+        return demand_sections().group_views(section)
     return [{"title": section["title"], "placeholder": section["note"]}]
 
 
@@ -750,6 +781,8 @@ def excel_frames(numbers: dict) -> list[tuple[str, pd.DataFrame, dict[str, str]]
             frames.append((EXCEL_SHEETS[section["dimension"]], *breakdown_frame(section)))
         elif section["type"] == "top":
             frames.append((EXCEL_SHEETS[f"top_{section['entity']}"], *top_frame(section)))
+        elif section["type"] == "groups":
+            frames.append(demand_sections().excel_frame(section))
     return frames
 
 
@@ -879,7 +912,7 @@ def build_report(
         last = kpis.last_order_date(con)
         if as_of > last:
             raise ValueError(f"as_of {as_of} is after the last order date {last}.")
-        ctx = Context(con, period, comparisons)
+        ctx = Context(con, period, comparisons, as_of=as_of, db_path=db_path)
         sections = {query: QUERY_SECTIONS[query](ctx) for query in block["queries"]}
         images, charts = {}, {}
         for chart in block.get("charts", []):

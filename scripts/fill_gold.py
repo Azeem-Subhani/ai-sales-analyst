@@ -2,6 +2,9 @@
 
 No LLM call. Every gold_sql runs through the agent's SQL guard on a read-only
 connection, so gold values come from SQL only, never from a person or a model.
+Demand-planning questions (Week 5) use gold_planning_sql instead: SQL over the stored
+demand snapshot in planning.duckdb (next to the sales database), opened read-only.
+Run python -m src.demand.run --as-of 2026-09-30 first.
 
     python scripts/fill_gold.py           # rewrite questions.yaml with fresh gold values
     python scripts/fill_gold.py --check   # exit 1 if any stored gold value is out of date
@@ -16,18 +19,34 @@ import yaml
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))  # so "python scripts/fill_gold.py" finds src/
 
+import duckdb
+
 from src.agent import eval_grader, sql_guard
 from src.analytics import kpis
+from src.demand import store
 
 QUESTIONS_PATH = PROJECT_ROOT / "tests" / "eval" / "questions.yaml"
 HEADER_END = "\n\n- id:"  # the header comment ends where the first question starts
 
 
 def gold_for(item: dict, db_path: Path) -> dict:
-    """Run one gold_sql and turn its rows into gold numbers and names."""
-    result = sql_guard.run_query(item["gold_sql"], db_path)
-    rows = [[plain(v) for v in row] for row in result.rows]
-    return eval_grader.gold_from_rows(item["grade"], result.columns, rows)
+    """Run one gold_sql (or gold_planning_sql) and turn its rows into gold numbers and names."""
+    if "gold_planning_sql" in item:
+        columns, raw = planning_rows(item["gold_planning_sql"], store.planning_path_for(db_path))
+    else:
+        result = sql_guard.run_query(item["gold_sql"], db_path)
+        columns, raw = result.columns, result.rows
+    rows = [[plain(v) for v in row] for row in raw]
+    return eval_grader.gold_from_rows(item["grade"], columns, rows)
+
+
+def planning_rows(sql: str, planning_db: Path) -> tuple[list[str], list[tuple]]:
+    """Run gold SQL on the planning database, read-only."""
+    if not planning_db.exists():
+        raise SystemExit(f"{planning_db} not found; run python -m src.demand.run first.")
+    with duckdb.connect(str(planning_db), read_only=True) as con:
+        cursor = con.execute(sql)
+        return [d[0] for d in cursor.description], cursor.fetchall()
 
 
 def plain(value: object) -> object:

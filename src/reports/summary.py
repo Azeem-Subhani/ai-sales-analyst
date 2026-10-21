@@ -97,6 +97,10 @@ def summary_inputs(numbers: dict) -> list[str]:
             lines += breakdown_lines(section, comparisons)
         elif section["type"] == "top":
             lines += top_lines(section, comparisons)
+        elif section["type"] == "groups":
+            from src.reports import demand_sections  # imports builder, like this module
+
+            lines += demand_sections.summary_lines(section)
     return lines
 
 

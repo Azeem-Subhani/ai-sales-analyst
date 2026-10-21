@@ -113,7 +113,7 @@ def test_guard_accepts_formatting_variants(weekly_numbers: dict, text: str) -> N
         ("Revenue grew 99.9% overall.", ["99.9"]),  # a calculated percentage
         ("Revenue was 114k.", ["114"]),  # an abbreviation is not a copy
         ("Net revenue was 114,286.83.", ["114,286.83"]),
-        ("Orders hit 661 and then 12.", ["12"]),  # above the 1-10 allowance
+        ("Orders hit 661 and then 9137.", ["9137"]),  # not in the data (12 now is: demand lists)
     ],
 )
 def test_guard_catches_invented_numbers(weekly_numbers: dict, text: str, bad: list[str]) -> None:

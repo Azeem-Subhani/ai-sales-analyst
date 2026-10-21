@@ -11,9 +11,9 @@ explains the results.
 - Full plan: [docs/project_plan.md](docs/project_plan.md)
 - Rules and conventions: [AGENTS.md](AGENTS.md)
 
-Status: **Week 3**. The dummy data, KPI reports, scheduling and Gmail delivery
-are done. LLM summaries, the agent, demand planning and the UI come in later
-weeks.
+Status: **Week 5**. The dummy data, KPI reports, scheduling, Gmail delivery, LLM
+summaries, the chat agent and demand planning are done. The Streamlit UI comes in
+Week 6.
 
 ## Setup
 
@@ -62,8 +62,11 @@ counts, the date range and total revenue.
 
 ```bash
 python -m src.data.generate              # rebuild the database
-pytest                                   # run all tests
+pytest                                   # fast tests (about 40 s; slow ones skipped)
+pytest --runslow                         # everything, including forecast fits (about 2.5 min)
+pytest -m slow                           # only the slow tests
 ruff format . && ruff check --fix .      # format and lint
+python -m src.demand.run --as-of 2026-09-30   # demand-planning snapshot (about 100 s)
 ```
 
 ## Scheduled reports and Gmail
@@ -196,6 +199,68 @@ python -m src.reports.builder --report weekly_sales_review --as-of 2026-09-27 --
 python -m src.reports.scheduler --run-now weekly_sales_review --no-summary
 ```
 
+## Demand planning
+
+Demand planning finds ordering-pattern problems, checks forecast accuracy, makes
+its own forecasts and suggests pre-build quantities for a planner to approve. Every
+number is calculated in SQL or Python (`src/analytics/`); nothing here uses the LLM.
+
+**Demand** means units (quantity) on all non-cancelled orders (completed or
+returned), per Monday-to-Sunday week. Forecasts, forecast accuracy, safety stock and
+pre-build all use this one definition. It is the same one `get_forecast` uses.
+
+**What one run computes** (`run_demand(as_of)`; complete weeks and data on or before
+as_of only):
+
+- **Customer alerts:**
+  - *Overdue* (serious above 2x the usual reorder gap, overdue above 1.5x; the
+    usual gap has a 7-day floor);
+  - *declining* (last 90 days more than 25% below the prior 90);
+  - *new high-value*;
+  - *RFM segment moves* (from Champions or Loyal to At risk or Lapsed).
+
+  Overdue and segment moves cover wholesale customers and the top 20% of retail
+  customers by revenue.
+- **Category alerts:** revenue in the last 8 weeks vs the 8 before; a drop over
+  15% is flagged.
+- **Stock alerts:** stockout weeks in the last 4 weeks, and days of cover.
+- **Forecast accuracy:** WAPE and bias of the seeded forecasts, with stockout weeks
+  left out. Flagged at WAPE over 40% or bias beyond 15%.
+- **Our own forecasts:** statsforecast AutoETS and SeasonalNaive, 12 weeks ahead,
+  with a 26-week backtest that picks the better model per product. Products with
+  under 26 weeks of history use a recent-mean fallback.
+- **Pre-build:** max(0, forecast over lead time + safety stock - on hand - on
+  order), ranked urgent first (cover below lead time), then by value at risk.
+  Products flagged for bias go to "needs planner review" instead.
+
+```bash
+python -m src.demand.run --as-of 2026-09-30            # compute and store a snapshot
+python -m src.demand.run --as-of 2026-09-30 --force    # replace one with decided recommendations
+python -m src.demand.approve --id 20260930-SB-1042 --approve --by "A. Planner" --note "ok"
+python -m src.demand.approve --id 20260930-AP-1004 --reject --by "A. Planner"
+```
+
+- **`config/demand.yaml`:** every threshold above. A hash of it is stored with each
+  snapshot.
+- **`data/planning.duckdb`:** all results, one snapshot per as_of, next to
+  `sales.duckdb` (which stays read-only). A rerun replaces that as_of's snapshot. If
+  any of its recommendations was approved or rejected, the rerun is refused unless
+  `--force`. Decisions are kept in `prebuild_decisions` either way.
+- **Approval:** only `src.demand.approve` changes a status (pending to approved or
+  rejected, once). It records who, when and the note. The agent and the reports
+  can never change a status.
+- **In the reports:**
+  - The weekly and monthly reports have a "Demand alerts" section: overdue and
+    declining customers, category, stock and forecast-accuracy flags, pending
+    pre-builds and planner review.
+  - The monthly report also has "Forecast accuracy".
+  - Each list shows 10 rows in the email; the Excel sheets "Demand alerts" and
+    "Forecast accuracy" have every row.
+  - The daily snapshot has no demand sections.
+  - A report reuses the snapshot for its as_of, or computes one if none exists.
+- **Week 6 demo:** use the September monthly business review (as of 2026-09-30).
+  It is the one report that shows all 5 planted problems (see `docs/decisions.md`).
+
 ## Chat agent
 
 Ask questions about the sales data in plain English:
@@ -207,9 +272,11 @@ python -m src.agent.chat --question "How did we do last month?"
 
 **Tools.** The agent answers with seven read-only tools:
 
-- Working now: `get_kpis`, `run_sql`, `make_chart` and `get_forecast`.
-- Week 5: customer alerts, forecast accuracy and pre-build. These say "not
-  available yet".
+- Sales: `get_kpis`, `run_sql`, `make_chart` and `get_forecast`.
+- Demand planning: `get_customer_alerts`, `get_forecast_accuracy` and
+  `get_prebuild_recommendations`. They read the latest stored snapshot on or
+  before `DATA_END_DATE` and never compute one. With no snapshot they say to run
+  `python -m src.demand.run`. They cannot approve or reject anything.
 
 **Rules that keep its numbers honest:**
 
@@ -237,20 +304,23 @@ Both scripts call OpenRouter and spend credit; pytest never does.
 
 ```bash
 python scripts/fill_gold.py --check          # free: stored gold values still match the SQL
-python scripts/run_eval.py --max-spend 0.40  # the 20 eval questions on LLM_MODEL, fallback on
+python scripts/run_eval.py --max-spend 0.40  # the 25 eval questions on LLM_MODEL, fallback on
 python scripts/run_eval.py --ids q17,q20     # a subset
 python scripts/compare_models.py --reference openai/gpt-5.6-luna         # free preflight + estimate
 python scripts/compare_models.py --reference openai/gpt-5.6-luna --run   # live model check
 ```
 
-- **Gold values:** `tests/eval/questions.yaml` holds the 20 questions. Their
-  gold values come from SQL via `scripts/fill_gold.py`; nobody types them.
+- **Gold values:** `tests/eval/questions.yaml` holds 25 questions (20 sales,
+  5 demand planning). Their gold values come from SQL via `scripts/fill_gold.py`;
+  nobody types them. The demand questions use `gold_planning_sql` on the 2026-09-30
+  snapshot, so run `python -m src.demand.run --as-of 2026-09-30` first.
 - **`run_eval.py` output:** results go to `outputs/eval/<timestamp>_<model>/`.
-  The target is 19/20. `--max-spend` is checked against the key balance.
+  Targets: 19 of the 20 sales questions and 4 of the 5 demand questions.
+  `--max-spend` is checked against the key balance.
 - **`compare_models.py`:** runs main, fallback and a reference model with
   fallback off, and writes `docs/model_comparison_week4.md`.
 
-The latest eval results are in `docs/eval_results_week4.md`.
+The latest eval results are in `docs/eval_results_week5.md` (25/25).
 
 ## Working with Claude Code and Cursor
 
