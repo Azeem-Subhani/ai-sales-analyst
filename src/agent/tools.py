@@ -245,16 +245,18 @@ def get_kpis(args: GetKpisArgs, ctx: ToolContext) -> dict:
         row = {
             "kpi": record["kpi"],
             "label": record["label"],
-            "value": current,
+            "value": json_value(current),
             "shown": fmt(current),
         }
         for name in comparisons:
             value = builder.rounded(record[name], kind)
             change = builder.rounded(record[f"{name}_change"], "change")
             row[name] = {
-                "value": value,
+                "value": json_value(value),
                 "shown": fmt(value),
-                "change": change,
+                # Shown text comes from the unrounded change (rounded once); the
+                # number is cut to FLOAT_DECIMALS only to keep the JSON readable.
+                "change": json_value(change),
                 "change_shown": builder.fmt_change(change, unit),
             }
         rows.append(row)

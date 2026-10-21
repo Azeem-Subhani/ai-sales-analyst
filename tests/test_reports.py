@@ -176,6 +176,37 @@ def test_planted_apparel_decline_visible_in_weekly(reports: dict[str, Report]) -
     assert builder.fmt_change(apparel["net_revenue_change"], "pct") in report.html
 
 
+def kpi_change(report: Report, section: str, kpi: str, comparison: str) -> float:
+    """The stored change of one KPI against one comparison."""
+    rows = report.numbers["sections"][section]["rows"]
+    return next(r for r in rows if r["kpi"] == kpi)["comparisons"][comparison]["change"]
+
+
+def test_percent_change_is_rounded_once(reports: dict[str, Report]) -> None:
+    # Regression (Week 4 wrap-up): August 2026 net revenue vs August 2025 is
+    # +8.6495%. Rounding it to 2 decimals first (8.65) and then to 1 showed "+8.7%".
+    report = reports["monthly_business_review"]
+    change = kpi_change(report, "kpis_month", "net_revenue", "same_month_last_year")
+    assert change == pytest.approx(8.6495, abs=0.0001)  # stored unrounded
+    assert builder.fmt_change(change, "pct") == "+8.6%"
+    row = html.unescape(report.html)
+    assert "+8.6%" in row and "+8.7%" not in row
+
+
+def test_apparel_change_matches_hand_check(reports: dict[str, Report]) -> None:
+    # Raw -25.346%: rounded once it is -25.3% (rounded twice it showed -25.4%).
+    report = reports["weekly_sales_review"]
+    rows = report.numbers["sections"]["category_breakdown"]["rows"]
+    apparel = next(r for r in rows if r["value"] == "Apparel")
+    assert builder.fmt_change(apparel["net_revenue_change"], "pct") == "-25.3%"
+
+
+def test_rates_are_stored_unrounded(reports: dict[str, Report]) -> None:
+    rows = reports["weekly_sales_review"].numbers["sections"]["category_breakdown"]["rows"]
+    shares = [r["share"] for r in rows]
+    assert any(round(share, 4) != share for share in shares)
+
+
 @pytest.mark.parametrize(
     ("name", "as_of"),
     [

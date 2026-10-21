@@ -82,7 +82,7 @@ def test_known_gold_values() -> None:
         (661, 0, "661 orders", True),
         (661, 0, "662 orders", False),  # counts must be exact
         (-28.5, 1, "fell 28.5%", True),  # sign ignored
-        (8.6, 1, "up 8.7% on last year", True),  # the reports' double rounding
+        (8.6, 1, "up 8.7% on last year", True),  # one unit off: a model rounding twice
         (43.2, 1, "43%", False),  # rates keep their display decimal
         (500.1, 1, "500.1 units", True),
         (500.1, 1, "500 units", False),
