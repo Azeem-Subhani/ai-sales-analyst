@@ -2,7 +2,8 @@
 
 system_prompt.md is the template. The parts that could drift are filled in at run
 time instead of being typed by hand:
-- table schemas and useful column values, read from sales.duckdb (read-only);
+- table schemas and useful column values, read from sales.duckdb (read-only),
+  without the personal contact columns the SQL guard blocks (customers.email);
 - KPI definitions, copied from docs/decisions.md (the agreed source);
 - "today": DATA_END_DATE when set (the dummy data ends 2026-09-30), else the real date;
 - what "last month", "this week" and so on mean: the latest complete periods on or
@@ -74,7 +75,13 @@ def table_schemas(db_path: Path) -> str:
         for table in TABLE_ORDER:
             # Table names come from the fixed tuple above, never from user input.
             columns = con.execute(DESCRIBE_SQL.format(table=table)).fetchall()
-            lines.append(f"- {table}({', '.join(f'{name} {kind}' for name, kind in columns)})")
+            # Blocked personal contact columns are left out, so the model never asks.
+            shown = [
+                f"{name} {kind}"
+                for name, kind in columns
+                if name.lower() not in sql_guard.PERSONAL_DATA_COLUMNS
+            ]
+            lines.append(f"- {table}({', '.join(shown)})")
     return "\n".join(lines)
 
 

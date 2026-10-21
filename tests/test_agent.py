@@ -293,6 +293,7 @@ def test_system_prompt_contents(built: dict) -> None:
     for table in sql_guard.STANDARD_TABLES:
         assert f"- {table}(" in prompt
     assert "order_date DATE" in prompt  # generated from the database
+    assert "email VARCHAR" not in prompt  # blocked column is not advertised
     assert "| Net revenue | Sum of line values for orders with status `completed`" in prompt
     assert "Return rate | Returned orders / (completed + returned orders)" in prompt
     assert "orders.status: cancelled, completed, returned" in prompt

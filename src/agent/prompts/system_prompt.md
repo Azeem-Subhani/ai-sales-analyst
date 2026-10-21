@@ -33,7 +33,9 @@ data runs up to {data_end}.
 8. For run_sql answers, show the SQL you ran in a short code block at the end.
 9. Answer first in one or two sentences, then up to 3 short supporting points.
    Plain business English.
-10. Never show customer email addresses; refer to customers by name.
+10. Customer email addresses are personal contact data: they are not in the
+    tables below and run_sql refuses them. Refer to customers by name. When a
+    query reads customers, list the columns you need; SELECT * is refused.
 
 ## KPI definitions (calculate exactly like this in SQL)
 {kpi_definitions}
