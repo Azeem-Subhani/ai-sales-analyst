@@ -73,6 +73,9 @@ def forecast_accuracy(
 ) -> pd.DataFrame:
     """WAPE and bias per product, per category and overall, with product flags.
 
+    A product's stockout weeks are left out (weeks counts the weeks measured), and the
+    20-unit minimum applies to the weeks that remain.
+
     A product is flagged for WAPE above wape_flag or |bias| above bias_flag, unless its
     actual units over the weeks measured are below min_actual_units (its figures are
     still stored). Category and overall rows are totals and are never flagged.
@@ -81,10 +84,13 @@ def forecast_accuracy(
     forecasts = seeded_forecasts(con, inputs.as_of, model)
     if forecasts.empty:
         return pd.DataFrame()
-    actuals = series[["product_id", "week_start", "units"]].rename(columns={"units": "actual"})
+    actuals = series[["product_id", "week_start", "units", "is_stockout"]]
+    actuals = actuals.rename(columns={"units": "actual"})
     actuals = actuals.assign(week_start=pd.to_datetime(actuals["week_start"]).dt.date)
     pairs = forecasts.merge(actuals, on=["product_id", "week_start"], how="left")
     pairs["actual"] = pairs["actual"].fillna(0).astype(float)
+    # Sales in a stockout week are not real demand: leave those weeks out, as in Step 5.
+    pairs = pairs[~pairs["is_stockout"].fillna(False).astype(bool)]
     products = inputs.products.set_index("product_id")[["sku", "name", "category"]]
     pairs = pairs.join(products, on="product_id")
 

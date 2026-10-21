@@ -587,3 +587,10 @@ def test_retail_needs_top_20_percent_revenue_wholesale_always_counts() -> None:
     assert eligible == {9, 10}  # bar = 820: retail 9 (900) in, wholesale 10 always
     orders = orders_frame({8: [DAY0 - timedelta(days=d) for d in (100, 86, 72, 58)]})
     assert customers.overdue_alerts(orders, revenue, DAY0, ALERT_SETTINGS, eligible).empty
+
+
+def test_accuracy_leaves_out_stockout_weeks(demand_runs: dict) -> None:
+    table = demand_runs[AS_OF_SUNDAY].table("forecast_accuracy").set_index("key")
+    assert table.loc["TO-1019", "weeks"] == 5  # 3 of its 8 seeded weeks were stockouts
+    assert table.loc["PS-1003", "weeks"] == 7
+    assert table.loc["AP-1150", "weeks"] == 8

@@ -663,3 +663,18 @@ text are marked **(clarified)**.
 
   Harbor & Pine Co., Kestrel Home Stores and Bluegate Supplies are serious and
   rank 1 to 3 on both dates.
+
+### Forecast accuracy leaves out stockout weeks
+- **Decision (project owner, 2026-10-21):** a product's stockout weeks are left out of
+  its WAPE and bias, and of the category and overall totals. This is the same
+  treatment as the Step 5 backtest. `weeks` is the number of weeks measured. A product
+  under 20 actual units after the exclusion is stored but not flagged.
+- **Why:** sales in a stockout week are not real demand. Counting them as 0 actual
+  units flagged 8 of the 10 stockout products for bias, which kept them out of
+  pre-build exactly when they need stock.
+- **Result (2026-09-27 and 2026-09-30):** 17 products flagged, all for bias (was 24).
+  Overall WAPE is 15.9%, bias -0.4%. AP-1150 Classic Denim Jacket is still +27.3%.
+  9 of the 10 stockout products are no longer flagged and are back in the pre-build
+  calculation. HK-1011 Ultra Mixing Bowls is still flagged: its bias over its 7
+  non-stockout weeks is +16.3%.
+- This replaces the result paragraph in "Forecast accuracy of the seeded forecasts".
