@@ -259,3 +259,31 @@ text are marked **(clarified)**.
 - **Why one unit of tolerance:** the builder rounds changes to 2 decimals and
   then displays 1, so a true 8.6495% shows as 8.7%. This also affects the Week 2
   reports and is listed as an open item.
+
+### Model check: main and fallback chosen by the project owner
+- **Decision:** the project owner chose the models. The main model is
+  `deepseek/deepseek-v4-flash` and the fallback is `openai/gpt-6-luna`.
+  `openai/gpt-5.6-luna` was run as a reference only. `.env` was not changed by
+  the check.
+- **Results (2026-10-21):** see `docs/model_comparison_week4.md`. All runs used
+  fallback off, temperature 0 and throughput routing.
+
+  | Model | Correct | Median / p90 latency | Cost per question | Providers |
+  | --- | --- | --- | --- | --- |
+  | main | 13/20 | 7.2 / 12.7 s | $0.00083 | 15 |
+  | fallback | 18/20 | 7.6 / 16.6 s | $0.00042 | 3 |
+  | reference | 19/20 | 8.8 / 10.1 s | $0.00072 | 3 |
+
+- **Owner's rules:** a recommendation is made only if the main model scores
+  below 19/20 while another model reaches 19, or the fallback scores below
+  17/20. The first rule is met: the main model scored 13 and the reference 19.
+  So a change of main model is recommended for the owner to decide; nothing was
+  switched. The fallback passed its rule with 18.
+- **Main model's misses:** most are numbers it calculated itself (sums, medians,
+  month-on-month changes, made-up thresholds), against the prompt rule.
+- **Cost reporting:** OpenRouter reported `usage.cost = 0` on every response.
+  Spend is therefore measured from the API key's credit balance. Week 4 spend
+  is about $0.089 against the owner's $0.50 cap. That covers three model-check
+  runs: the first invalid, the second cut short, the third reported here.
+- **Grader limit:** a date range written as "July 1-31" can be flagged as an
+  unsupported number. Such flags go to review, not to wrong.
