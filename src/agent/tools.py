@@ -19,7 +19,7 @@ import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Literal
@@ -452,6 +452,7 @@ class ToolOutcome:
     row_count: int | None = None
     error: str | None = None
     duration_seconds: float = 0.0
+    called_at_utc: datetime | None = None
 
     def content(self) -> str:
         """The tool result message content sent back to the model."""
@@ -467,9 +468,11 @@ class ToolSession:
 
     def execute(self, name: str, arguments: str) -> ToolOutcome:
         """Validate the arguments and run the tool; never raises for expected problems."""
+        called_at = datetime.now(UTC).replace(tzinfo=None)
         started = time.monotonic()
         outcome = self._execute(name, arguments)
         outcome.duration_seconds = round(time.monotonic() - started, 3)
+        outcome.called_at_utc = called_at
         return outcome
 
     def _execute(self, name: str, arguments: str) -> ToolOutcome:

@@ -217,3 +217,23 @@ text are marked **(clarified)**.
   overstate forecast error by the return rate.
 - **Week 5:** forecast accuracy (WAPE and bias) should use the same demand
   definition. Confirm with the project owner.
+
+### Agent loop, prompt and agent_log
+- **Loop:** `src/agent/agent.py` is a plain loop with no framework.
+  - Limits per question: 10 tool calls and 120 seconds.
+  - At the tool limit, the model is asked once more with `tool_choice="none"`.
+    The answer then starts with "(Stopped early: ...)".
+  - Each model request's timeout is capped by the time left for the question.
+- **Prompt:** `src/agent/prompts/` replaces the `prompts.py` stub. It holds
+  `system_prompt.md` (the template) and `examples.yaml` (5 question/SQL pairs).
+  - Table schemas and column values are read from the database.
+  - KPI definitions are copied from this file's Week 2 section.
+  - "Today" is `DATA_END_DATE`, or the real date when it is unset.
+  - A test runs every example query through the SQL guard and checks its value.
+- **Logging:** `agent_log` (one row per question) and `agent_tool_calls` (one row
+  per tool call) are in `data/audit.duckdb`, linked by `question_id`.
+- **Chat CLI:** each question is answered on its own, with no conversation
+  history. The Week 6 Streamlit app keeps history.
+- **Email addresses:** `customers.email` is in the schema. The prompt tells the
+  model never to show email addresses. Blocking the column in the SQL guard is
+  an open item before real data arrives.
