@@ -1,6 +1,9 @@
-# Agent evaluation set: 20 questions a sales manager would ask (Week 4).
+# Agent evaluation set: 25 questions a sales manager would ask (20 from Week 4,
+# 5 demand-planning questions from Week 5).
 #
 # Each question has gold_sql (written by hand, run read-only by scripts/fill_gold.py)
+# or, for demand planning, gold_planning_sql (run read-only on the stored snapshot in
+# planning.duckdb)
 # and a grade spec that says which result cells are the key numbers and names.
 # The "gold" blocks are written by scripts/fill_gold.py from the SQL; never edit
 # them by hand. Grading rules are in src/agent/eval_grader.py.
@@ -624,3 +627,151 @@
       decimals: 0
     names:
     - September
+
+- id: q21
+  topic: demand planning, overdue customers
+  question: Which customers are seriously overdue on their orders, and how many are there?
+  expected_tools:
+  - get_customer_alerts
+  gold_planning_sql: |
+    SELECT customer_name, count(*) OVER () AS serious_customers
+    FROM customer_alerts
+    WHERE as_of = DATE '2026-09-30' AND alert_type = 'overdue' AND severity = 'serious'
+    ORDER BY rank
+    LIMIT 3
+  grade:
+    numbers:
+    - column: serious_customers
+      decimals: 0
+    names:
+    - column: customer_name
+      rows: all
+  gold:
+    numbers:
+    - label: serious_customers[0]
+      value: 482
+      decimals: 0
+    names:
+    - Harbor & Pine Co.
+    - Kestrel Home Stores
+    - Bluegate Supplies
+
+- id: q22
+  topic: demand planning, forecast accuracy of one product
+  question: How accurate were the forecasts for the Classic Denim Jacket? Give WAPE and bias.
+  expected_tools:
+  - get_forecast_accuracy
+  gold_planning_sql: |
+    SELECT name, round(100 * wape, 1) AS wape_pct, round(100 * bias, 1) AS bias_pct
+    FROM forecast_accuracy
+    WHERE as_of = DATE '2026-09-30' AND level = 'product' AND key = 'AP-1150'
+  grade:
+    numbers:
+    - column: wape_pct
+      decimals: 1
+    - column: bias_pct
+      decimals: 1
+  gold:
+    numbers:
+    - label: wape_pct
+      value: 27.3
+      decimals: 1
+    - label: bias_pct
+      value: 27.3
+      decimals: 1
+
+- id: q23
+  topic: demand planning, overall forecast accuracy
+  question: What is our overall forecast WAPE, and which category has the highest WAPE?
+  expected_tools:
+  - get_forecast_accuracy
+  gold_planning_sql: |
+    SELECT (SELECT round(100 * wape, 1) FROM forecast_accuracy
+            WHERE as_of = DATE '2026-09-30' AND level = 'overall') AS overall_wape_pct,
+           key AS category,
+           round(100 * wape, 1) AS category_wape_pct
+    FROM forecast_accuracy
+    WHERE as_of = DATE '2026-09-30' AND level = 'category'
+    ORDER BY wape DESC
+    LIMIT 1
+  grade:
+    numbers:
+    - column: overall_wape_pct
+      decimals: 1
+    - column: category_wape_pct
+      decimals: 1
+    names:
+    - column: category
+  gold:
+    numbers:
+    - label: overall_wape_pct
+      value: 16.9
+      decimals: 1
+    - label: category_wape_pct
+      value: 19.4
+      decimals: 1
+    names:
+    - Toys
+
+- id: q24
+  topic: demand planning, pre-build
+  question: Which three products should we pre-build first, and how many units of each?
+  expected_tools:
+  - get_prebuild_recommendations
+  gold_planning_sql: |
+    SELECT name, recommended_units
+    FROM prebuild_recommendations
+    WHERE as_of = DATE '2026-09-30' AND status = 'pending'
+    ORDER BY rank
+    LIMIT 3
+  grade:
+    numbers:
+    - column: recommended_units
+      decimals: 0
+      rows: all
+    names:
+    - column: name
+      rows: all
+  gold:
+    numbers:
+    - label: recommended_units[0]
+      value: 33
+      decimals: 0
+    - label: recommended_units[1]
+      value: 18
+      decimals: 0
+    - label: recommended_units[2]
+      value: 55
+      decimals: 0
+    names:
+    - Classic Denim Jeans
+    - Deluxe Rain Jacket
+    - Classic Chino Trousers
+
+- id: q25
+  topic: demand planning, declining customers
+  question: How many customers are declining, and which three have lost the most revenue?
+  expected_tools:
+  - get_customer_alerts
+  gold_planning_sql: |
+    SELECT customer_name, count(*) OVER () AS declining_customers
+    FROM customer_alerts
+    WHERE as_of = DATE '2026-09-30' AND alert_type = 'declining'
+    ORDER BY rank
+    LIMIT 3
+  grade:
+    numbers:
+    - column: declining_customers
+      decimals: 0
+    names:
+    - column: customer_name
+      rows: all
+  gold:
+    numbers:
+    - label: declining_customers[0]
+      value: 158
+      decimals: 0
+    names:
+    - Griffiths-Williams
+    - Bird-Kelly
+    - Kestrel Home Stores

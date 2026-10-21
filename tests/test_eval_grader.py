@@ -19,9 +19,9 @@ BY_ID = {q["id"]: q for q in QUESTIONS}
 # ---------------------------------------------------------------- the question set
 
 
-def test_twenty_questions_with_unique_ids_and_gold() -> None:
-    assert len(QUESTIONS) == 20
-    assert len(BY_ID) == 20
+def test_25_questions_with_unique_ids_and_gold() -> None:
+    assert len(QUESTIONS) == 25  # 20 from Week 4, 5 demand-planning questions (Week 5)
+    assert len(BY_ID) == 25
     for question in QUESTIONS:
         for item in question.get("alternatives") or [question]:
             gold = item["gold"]
@@ -50,13 +50,18 @@ def test_coverage_of_required_topics() -> None:
         "Classic Denim Jacket",
         "chart",
         "ambiguous",
+        "demand planning",
     ]:
         assert needed in topics, needed
     assert any(q.get("require_assumption") for q in QUESTIONS)
 
 
-def test_gold_values_match_the_sql(built: dict) -> None:
-    """Stored gold values equal a fresh run of every gold_sql on the seed-42 data."""
+def test_gold_values_match_the_sql(built: dict, demand_runs: dict) -> None:
+    """Stored gold values equal a fresh run of every gold SQL on the seed-42 data.
+
+    Demand questions read the 2026-09-30 snapshot that demand_runs stored next to the
+    test database.
+    """
     assert fill_gold.main(["--check", "--db", str(built["db_path"])]) == 0
 
 
@@ -390,3 +395,11 @@ def test_date_range_does_not_hide_a_made_up_number() -> None:
     evidence = ['{"rows": [["2026-05", 401234.56]]}']
     answer = "Net revenue for 1-31 May was 401,234.56, about 12,943 a day."
     assert eval_grader.unsupported_numbers(answer, evidence) == ["12,943"]
+
+
+def test_demand_questions_use_the_planning_snapshot_only() -> None:
+    demand = [q for q in QUESTIONS if q["topic"].startswith("demand planning")]
+    assert len(demand) == 5
+    for question in demand:
+        assert "gold_planning_sql" in question and "gold_sql" not in question
+        assert "DATE '2026-09-30'" in question["gold_planning_sql"]

@@ -627,3 +627,18 @@ text are marked **(clarified)**.
     (the "and N more").
 - **Test time:** the report and demand tests fit forecasts for 2026-08-31 and
   2026-09-27/30 (about 100 seconds each), so `pytest` now takes about 4 minutes.
+
+### Demand-planning agent tools
+- **Decision (2026-10-21):** `get_customer_alerts`, `get_forecast_accuracy` and
+  `get_prebuild_recommendations` read the latest snapshot with as_of on or before
+  `DATA_END_DATE`. With none they return `status: not_computed` and the command to
+  run; they never compute (a question has 120 seconds; a run takes about 100).
+- **Arguments differ from the Week 4 stubs** (the stubs' region, segment, weeks and
+  "proposed" are gone), following the Week 5 brief:
+  - customer alerts: `alert_type`, `severity`, `limit`;
+  - forecast accuracy: `sku_or_name` or `category`;
+  - pre-build: `status` (pending, approved or rejected) and `limit`.
+- Every number is returned with a `_shown` text for the answer guard. The tools
+  return no email address, and they have no way to change a status.
+- **Eval:** 5 demand questions (q21 to q25) use `gold_planning_sql`, run read-only
+  by `scripts/fill_gold.py` on the 2026-09-30 snapshot in `planning.duckdb`.

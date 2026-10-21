@@ -329,6 +329,14 @@ def read_snapshot(path: Path, as_of: date) -> dict[str, pd.DataFrame]:
         }
 
 
+def read_table(path: Path, table: str, as_of: date) -> pd.DataFrame:
+    """One snapshot table's rows for one as_of (read-only)."""
+    if table not in SNAPSHOT_TABLES:
+        raise ValueError(f"Unknown planning table {table!r}.")
+    with connect_read(path) as con:
+        return con.execute(f"SELECT * FROM {table} WHERE as_of = $as_of", {"as_of": as_of}).df()
+
+
 def table_exists(con: duckdb.DuckDBPyConnection, table: str) -> bool:
     """True if the table exists in the connected database."""
     query = "SELECT count(*) FROM information_schema.tables WHERE table_name = $name"

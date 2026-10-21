@@ -297,7 +297,7 @@ def test_system_prompt_contents(built: dict) -> None:
     assert "| Net revenue | Sum of line values for orders with status `completed`" in prompt
     assert "Return rate | Returned orders / (completed + returned orders)" in prompt
     assert "orders.status: cancelled, completed, returned" in prompt
-    assert "not_available_yet" in prompt
+    assert "not_computed" in prompt and "get_prebuild_recommendations" in prompt
     assert prompt.count("```sql") == 5
     assert "{" not in prompt.split("## KPI definitions")[0]  # template fully filled
 

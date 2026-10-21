@@ -145,7 +145,9 @@ def _run_loop(
 ) -> None:
     """The tool loop; fills answer in place."""
     session = tools.ToolSession(
-        tools.ToolContext(db_path=config.db_path, charts_dir=config.charts_dir)
+        tools.ToolContext(
+            db_path=config.db_path, charts_dir=config.charts_dir, data_end=config.data_end
+        )
     )
     messages: list[dict[str, Any]] = [
         {
