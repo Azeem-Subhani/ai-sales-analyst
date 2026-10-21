@@ -4,12 +4,14 @@ SMTP is the FakeSMTP from conftest.py, so no real email is sent. Runs use "today
 2026-10-21 and DATA_END_DATE 2026-09-30, so the weekly report covers 21 to 27 Sep 2026.
 """
 
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import pytest
 import yaml
+from apscheduler.triggers.interval import IntervalTrigger
 
 from src.reports import audit, builder, scheduler
 from src.reports.delivery_config import ConfigError
@@ -205,3 +207,67 @@ def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
 def pd_date(value: object) -> date:
     """A DuckDB DATE read back through pandas, as a date."""
     return value.date() if hasattr(value, "date") else value
+
+
+# ---------------------------------------------------------------- command line
+
+
+@pytest.fixture
+def cli_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Keep main() away from the real .env and log folder."""
+    monkeypatch.setattr(scheduler, "load_dotenv", lambda: None)
+    monkeypatch.setattr(scheduler, "LOG_DIR", tmp_path / "logs")
+    monkeypatch.setenv("TIMEZONE", "UTC")
+    monkeypatch.setenv("REPORT_MODE", "dry_run")
+
+
+def test_list_shows_all_jobs(cli_env: None, capsys: pytest.CaptureFixture) -> None:
+    assert scheduler.main(["--list"]) == 0
+    out = capsys.readouterr().out
+    for name in ("daily_sales_snapshot", "weekly_sales_review", "monthly_business_review"):
+        assert name in out
+    assert "cron[day_of_week='mon', hour='8', minute='0']" in out
+
+
+def test_cron_next_fire_times(settings: scheduler.Settings) -> None:
+    now = datetime(2026, 10, 21, 12, 0, tzinfo=ZoneInfo("UTC"))  # a Wednesday
+    lines = {
+        line.split()[0]: line
+        for line in scheduler.describe_jobs(scheduler.job_specs(settings), now)
+    }
+    assert "Thu 2026-10-22 07:00" in lines["daily_sales_snapshot"]
+    assert "Mon 2026-10-26 08:00" in lines["weekly_sales_review"]
+    assert "Sun 2026-11-01 08:00" in lines["monthly_business_review"]
+
+
+def test_test_every_uses_interval_triggers(settings: scheduler.Settings) -> None:
+    specs = scheduler.job_specs(settings, test_every_minutes=2)
+    assert len(specs) == 3
+    for spec in specs:
+        assert isinstance(spec.trigger, IntervalTrigger)
+        assert spec.trigger.interval.total_seconds() == 120
+        assert spec.triggered_by == "test"
+    jobs = scheduler.build_scheduler(settings, specs).get_jobs()
+    assert sorted(job.id for job in jobs) == sorted(spec.name for spec in specs)
+
+
+@pytest.mark.parametrize("args", [["--run-now", "weekly_sales_review"], ["--test-every", "2"], []])
+def test_missing_password_is_one_clear_line(
+    cli_env: None,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+    args: list[str],
+) -> None:
+    monkeypatch.setenv("REPORT_MODE", "send")
+    monkeypatch.setenv("REPORT_OWNER_EMAIL", OWNER)
+    monkeypatch.setenv("GMAIL_ADDRESS", "sender@example.com")
+    monkeypatch.delenv("GMAIL_APP_PASSWORD", raising=False)
+    assert scheduler.main(args) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("Error: GMAIL_APP_PASSWORD not set in .env.")
+    assert "Traceback" not in err
+
+
+def test_run_now_unknown_report(cli_env: None, capsys: pytest.CaptureFixture) -> None:
+    assert scheduler.main(["--run-now", "no_such_report"]) == 1
+    assert "Unknown report 'no_such_report'" in capsys.readouterr().err

@@ -5,10 +5,17 @@ always saved), email it when REPORT_MODE=send, and write the attempt to report_r
 A failure is retried once after REPORT_RETRY_DELAY_SECONDS; if the retry fails too,
 a failure notice goes to delivery.failure_recipients. Config problems (allowlist,
 Gmail credentials, unset ${VAR}) are not retried, because retrying cannot fix them.
+
+    python -m src.reports.scheduler                       start; runs until Ctrl+C
+    python -m src.reports.scheduler --list                jobs and next run times
+    python -m src.reports.scheduler --run-now weekly_sales_review
+    python -m src.reports.scheduler --test-every 2        testing only: all reports every 2 min
 """
 
+import argparse
 import logging
 import os
+import sys
 import threading
 import time
 import uuid
@@ -16,6 +23,13 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
+
+from apscheduler.schedulers.blocking import BlockingScheduler
+from apscheduler.triggers.base import BaseTrigger
+from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
+from dotenv import load_dotenv
 
 from src.analytics import kpis
 from src.reports import audit, builder, data_clock, emailer
@@ -167,3 +181,153 @@ def notify_failure(name: str, as_of: date, error: Exception, settings: Settings)
         logger.info("Failure notice for %s sent", name)
     except Exception as notice_error:  # noqa: BLE001 - logged; nothing else can be done
         logger.error("Could not send the failure notice for %s: %s", name, notice_error)
+
+
+# ---------------------------------------------------------------- jobs
+
+MISFIRE_GRACE_SECONDS = 15 * 60  # a laptop waking up late still sends that morning's report
+LOG_DIR = builder.PROJECT_ROOT / "outputs" / "logs"
+LOG_FILE = "scheduler.log"
+
+
+@dataclass
+class JobSpec:
+    """One scheduled report: its trigger and how runs are labelled in the audit."""
+
+    name: str
+    trigger: BaseTrigger
+    triggered_by: str
+
+
+def job_specs(settings: Settings, test_every_minutes: int | None = None) -> list[JobSpec]:
+    """One job per report: its cron schedule, or every N minutes in test mode."""
+    specs = []
+    for name, block in builder.load_config(settings.config_path).items():
+        if test_every_minutes:
+            trigger = IntervalTrigger(minutes=test_every_minutes, timezone=settings.timezone)
+            specs.append(JobSpec(name, trigger, "test"))
+        else:
+            trigger = CronTrigger(timezone=settings.timezone, **block["schedule"])
+            specs.append(JobSpec(name, trigger, "schedule"))
+    return specs
+
+
+def run_job(name: str, settings: Settings, triggered_by: str) -> None:
+    """Scheduler entry point: run_report, never letting an error kill the scheduler."""
+    try:
+        run_report(name, settings, triggered_by)
+    except Exception:
+        logger.exception("Job %s crashed", name)
+
+
+def build_scheduler(settings: Settings, specs: list[JobSpec]) -> BlockingScheduler:
+    """A BlockingScheduler with one job per spec (test jobs also fire straight away)."""
+    scheduler = BlockingScheduler(timezone=settings.timezone)
+    for spec in specs:
+        extra = {"next_run_time": datetime.now(ZoneInfo(settings.timezone))}
+        scheduler.add_job(
+            run_job,
+            spec.trigger,
+            args=[spec.name, settings, spec.triggered_by],
+            id=spec.name,
+            name=spec.name,
+            max_instances=1,  # a slow run (e.g. waiting to retry) is never doubled up
+            coalesce=True,
+            misfire_grace_time=MISFIRE_GRACE_SECONDS,
+            **(extra if spec.triggered_by == "test" else {}),
+        )
+    return scheduler
+
+
+def describe_jobs(specs: list[JobSpec], now: datetime) -> list[str]:
+    """One line per job with its trigger and next fire time."""
+    width = max(len(spec.name) for spec in specs)
+    lines = []
+    for spec in specs:
+        next_time = spec.trigger.get_next_fire_time(None, now)
+        when = f"{next_time:%a %Y-%m-%d %H:%M %Z}" if next_time else "never"
+        lines.append(f"{spec.name:<{width}}  next {when}  ({spec.trigger})")
+    return lines
+
+
+# ---------------------------------------------------------------- command line
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Command-line options (no option: start the scheduler and run until stopped)."""
+    parser = argparse.ArgumentParser(description="Run the scheduled reports.")
+    action = parser.add_mutually_exclusive_group()
+    action.add_argument("--list", action="store_true", help="show jobs and next run times")
+    action.add_argument("--run-now", metavar="REPORT", help="run one report once and exit")
+    action.add_argument(
+        "--test-every",
+        type=int,
+        metavar="MINUTES",
+        help="testing only: run every report every N minutes",
+    )
+    return parser.parse_args(argv)
+
+
+def setup_logging() -> None:
+    """Log to the console and to outputs/logs/scheduler.log."""
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        handlers=[logging.StreamHandler(), logging.FileHandler(LOG_DIR / LOG_FILE)],
+    )
+
+
+def check_send_ready(settings: Settings) -> None:
+    """In send mode, fail at start-up (not at 08:00 Monday) if email cannot work."""
+    if settings.mode != "send":
+        return
+    emailer.gmail_credentials()
+    delivery_settings(builder.read_config_file(settings.config_path))
+    for block in builder.load_config(settings.config_path).values():
+        report_recipients(block)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the command; expected problems print one clear line and return 1."""
+    args = parse_args(argv)
+    load_dotenv()
+    setup_logging()
+    try:
+        settings = settings_from_env()
+        if args.list:
+            specs = job_specs(settings)
+            print(
+                f"Mode {settings.mode}, time zone {settings.timezone}, data end {settings.data_end}"
+            )
+            print("\n".join(describe_jobs(specs, datetime.now(ZoneInfo(settings.timezone)))))
+            return 0
+        check_send_ready(settings)
+        if args.run_now:
+            return 0 if run_report(args.run_now, settings, "run_now") else 1
+        if args.test_every is not None and args.test_every < 1:
+            raise ConfigError("--test-every needs a whole number of minutes, 1 or more.")
+        specs = job_specs(settings, args.test_every)
+    except ConfigError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 1
+
+    if args.test_every:
+        logger.warning(
+            "TEST MODE: every report runs every %d minute(s). Stop with Ctrl+C.", args.test_every
+        )
+    scheduler = build_scheduler(settings, specs)
+    logger.info(
+        "Scheduler started (%s mode, %s). Stop with Ctrl+C.", settings.mode, settings.timezone
+    )
+    for line in describe_jobs(specs, datetime.now(ZoneInfo(settings.timezone))):
+        logger.info(line)
+    try:
+        scheduler.start()
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Scheduler stopped")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
