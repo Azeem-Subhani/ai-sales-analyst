@@ -175,3 +175,45 @@ text are marked **(clarified)**.
   copy the data; reviewers should check direction in the Week 6 dry-run review.
 - **Scheduler start-up:** a missing `OPENROUTER_API_KEY` is logged as a one-line
   warning, not an error, because reports must still send without a summary.
+
+### pydantic is pinned (15th pin)
+- **Decision:** `pydantic==2.14.1` is added to `requirements.txt` as the 15th
+  top-level pin. It was already installed as a dependency of `openai`, so
+  `requirements-lock.txt` was regenerated with no change.
+- **Why:** the agent tools import pydantic directly, for argument models and
+  for generating the tool JSON schemas. A direct import should be a direct pin,
+  so an `openai` upgrade cannot silently change it.
+
+### SQL guard reads DuckDB's parse tree
+- **Decision:** `src/agent/sql_guard.py` accepts a query only if all of these
+  hold:
+  1. `duckdb.extract_statements` finds exactly one statement, and it is a SELECT.
+  2. The text starts with SELECT or WITH.
+  3. No blocked keyword appears outside strings and comments.
+  4. Every table, CTE and function in `json_serialize_sql`'s parse tree passes.
+     Only the six standard tables and the query's own CTEs may be read. Table
+     functions other than `range`, `generate_series` and `unnest` are refused,
+     and so are file and system functions.
+- **Replaces:** the plan's idea of reading table names from `EXPLAIN`. The
+  parse tree also catches `read_csv(...)` and `'file.csv'` scans, and it
+  needs no database.
+- **Why the start-keyword check:** DuckDB reports `PRAGMA`, `DESCRIBE`, `SHOW`
+  and `SUMMARIZE` as SELECT statements.
+- **Second layer:** the agent's connection is read-only with
+  `SET enable_external_access = false`. This is done with SET, not a
+  connect-time config, because DuckDB refuses two in-process connections to one
+  file with different configs. The setting applies to the whole in-process
+  database until it closes; nothing in the project reads files through DuckDB.
+  `audit.duckdb` is never attached.
+- Limits: 500 rows (501 are fetched to detect truncation), 10 seconds via
+  `interrupt()`.
+
+### get_forecast compares with demand, not "units sold"
+- **Decision:** `get_forecast` puts actual units next to each forecast week.
+  Actual units are units on non-cancelled orders (completed or returned), per
+  Monday-to-Sunday week.
+- **Why:** the generator seeded the forecasts from that demand series. The
+  "Units sold" KPI counts completed orders only, so comparing against it would
+  overstate forecast error by the return rate.
+- **Week 5:** forecast accuracy (WAPE and bias) should use the same demand
+  definition. Confirm with the project owner.
