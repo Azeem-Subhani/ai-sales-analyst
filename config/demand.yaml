@@ -15,6 +15,9 @@ customer_alerts:
   overdue_min_orders: 4         # orders in the window needed to judge a usual interval
   overdue_factor: 1.5           # days since last order > 1.5 x usual interval = overdue
   serious_factor: 2.0           # > 2 x usual interval = serious
+  min_usual_interval_days: 7    # floor for the usual interval (daily buyers are not "overdue")
+  retail_top_share: 0.20        # overdue / segment moves: retail only if in the top 20%
+                                # of all customers by 365-day revenue; wholesale always
   declining_window_days: 90     # last 90 days vs the 90 days before
   declining_drop: 0.25          # revenue more than 25% below the prior window
   declining_min_prior_revenue: 1000

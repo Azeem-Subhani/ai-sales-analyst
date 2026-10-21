@@ -567,3 +567,23 @@ def test_only_the_approval_cli_can_change_a_status() -> None:
             text = path.read_text(encoding="utf-8")
             assert "demand.approve" not in text and "import approve" not in text, path
             assert "UPDATE prebuild_recommendations" not in text, path
+
+
+def test_usual_interval_has_a_7_day_floor() -> None:
+    every_2 = [DAY0 - timedelta(days=d) for d in (11, 9, 7, 5)]  # 5 days since, gap 2
+    late = [DAY0 - timedelta(days=d) for d in (21, 19, 17, 15)]  # 15 days since: > 2 x 7
+    orders = orders_frame({1: every_2, 2: late})
+    alerts = customers.overdue_alerts(orders, pd.Series(dtype=float), DAY0, ALERT_SETTINGS)
+    assert alerts["customer_id"].tolist() == [2]
+    assert alerts.iloc[0]["usual_interval_days"] == 7 and alerts.iloc[0]["severity"] == "serious"
+
+
+def test_retail_needs_top_20_percent_revenue_wholesale_always_counts() -> None:
+    info = pd.DataFrame(
+        {"customer_type": ["retail"] * 9 + ["wholesale"]}, index=pd.Index(range(1, 11))
+    )
+    revenue = pd.Series({cid: float(cid * 100) for cid in range(1, 11)})
+    eligible = customers.alert_eligible(info, revenue, top_share=0.2)
+    assert eligible == {9, 10}  # bar = 820: retail 9 (900) in, wholesale 10 always
+    orders = orders_frame({8: [DAY0 - timedelta(days=d) for d in (100, 86, 72, 58)]})
+    assert customers.overdue_alerts(orders, revenue, DAY0, ALERT_SETTINGS, eligible).empty

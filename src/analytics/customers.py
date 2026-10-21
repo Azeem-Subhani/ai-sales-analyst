@@ -3,13 +3,17 @@
 Alert types (thresholds in config/demand.yaml, customer_alerts):
 - overdue: customers with at least 4 orders in the last 365 days whose days since
   their last order exceed 1.5x their usual interval (serious above 2x). The usual
-  interval is the median number of days between their order dates in that window.
+  interval is the median number of days between their order dates in that window,
+  with a floor of 7 days.
 - declining: last-90-day revenue more than 25% below the prior 90 days, with prior
   revenue of at least 1,000.
 - new_high_value: first-ever order in the last 90 days, and revenue since then in the
   top 10% of all customers' last-90-day revenue.
 - segment_change: the RFM segment moved from a top segment (Champions, Loyal) to an
   at-risk one (At risk, Lapsed) compared with 28 days earlier.
+
+Overdue and segment-move alerts cover wholesale customers and the retail customers in
+the top 20% of all customers by last-365-day revenue; the other lists cover everyone.
 
 Orders = non-cancelled orders (the demand definition). Revenue = net revenue
 (completed orders, as in the KPIs), summed exactly in SQL. Windows are inclusive and
@@ -71,11 +75,22 @@ def customer_info(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
 
 
 def overdue_alerts(
-    orders: pd.DataFrame, revenue_365d: pd.Series, as_of: date, settings: dict
+    orders: pd.DataFrame,
+    revenue_365d: pd.Series,
+    as_of: date,
+    settings: dict,
+    eligible: set | None = None,
 ) -> pd.DataFrame:
-    """Customers past their usual reorder interval, ranked by last-365-day revenue."""
+    """Customers past their usual reorder interval, ranked by last-365-day revenue.
+
+    The usual interval is the median gap, but never less than min_usual_interval_days,
+    so a customer who orders every 2 days is not overdue after 5. eligible limits the
+    customers considered (None = everyone).
+    """
     start = window_start(as_of, settings["window_days"])
     window = orders[orders["order_date"] >= start]
+    if eligible is not None:
+        window = window[window["customer_id"].isin(eligible)]
     rows = []
     for customer_id, group in window.groupby("customer_id"):
         if len(group) < settings["overdue_min_orders"]:
@@ -84,7 +99,7 @@ def overdue_alerts(
         if len(days) < MIN_ORDER_DATES:  # need at least one gap between order dates
             continue
         gaps = pd.Series([(b - a).days for a, b in pairwise(days)])
-        usual = float(gaps.median())
+        usual = max(float(gaps.median()), float(settings["min_usual_interval_days"]))
         since = (as_of - days[-1]).days
         ratio = since / usual
         if ratio > settings["serious_factor"]:
@@ -213,7 +228,9 @@ def rfm_scores(
     return frame.rename_axis("customer_id").reset_index()
 
 
-def segment_change_alerts(now: pd.DataFrame, before: pd.DataFrame) -> pd.DataFrame:
+def segment_change_alerts(
+    now: pd.DataFrame, before: pd.DataFrame, eligible: set | None = None
+) -> pd.DataFrame:
     """Customers who moved from a top segment to an at-risk segment.
 
     A customer in a top segment before and with no order in the window now counts
@@ -224,6 +241,8 @@ def segment_change_alerts(now: pd.DataFrame, before: pd.DataFrame) -> pd.DataFra
     was = before.set_index("customer_id")
     current = now.set_index("customer_id")["segment"] if not now.empty else pd.Series(dtype=str)
     top = was[was["segment"].isin(TOP_SEGMENTS)]
+    if eligible is not None:
+        top = top[top.index.isin(eligible)]
     segment_now = current.reindex(top.index).fillna(SEGMENT_NOT_ACTIVE)
     moved = segment_now[segment_now.isin(AT_RISK_SEGMENTS)]
     alerts = pd.DataFrame(
@@ -239,6 +258,19 @@ def segment_change_alerts(now: pd.DataFrame, before: pd.DataFrame) -> pd.DataFra
 
 
 # ---------------------------------------------------------------- all together
+
+
+def alert_eligible(info: pd.DataFrame, revenue_365d: pd.Series, top_share: float) -> set:
+    """Customers whose overdue and segment-move alerts are shown.
+
+    Wholesale customers always; retail customers only in the top `top_share` of all
+    customers by last-365-day revenue (customers with revenue in the window).
+    """
+    active = revenue_365d[revenue_365d > 0]
+    bar = float(active.quantile(1 - top_share)) if not active.empty else 0.0
+    wholesale = set(info.index[info["customer_type"] == "wholesale"])
+    big_retail = set(active.index[active >= bar]) - wholesale
+    return wholesale | big_retail
 
 
 def ranked(
@@ -278,16 +310,18 @@ def customer_alerts(
     rfm_now = rfm_scores(orders, revenue_365d, as_of, settings)
     rfm_before = rfm_scores(orders, revenue_before, before_day, settings)
 
+    info = customer_info(con)
+    eligible = alert_eligible(info, revenue_365d, settings["retail_top_share"])
     parts = [
-        overdue_alerts(orders, revenue_365d, as_of, settings),
+        overdue_alerts(orders, revenue_365d, as_of, settings, eligible),
         declining_alerts(recent, prior, settings),
         new_high_value_alerts(orders, recent_new, as_of, settings),
-        segment_change_alerts(rfm_now, rfm_before),
+        segment_change_alerts(rfm_now, rfm_before, eligible),
     ]
     alerts = pd.concat([p for p in parts if not p.empty], ignore_index=True)
     if alerts.empty:
         return alerts, pd.concat([rfm_now, rfm_before], ignore_index=True)
-    alerts = alerts.join(customer_info(con), on="customer_id")
+    alerts = alerts.join(info, on="customer_id")
     # revenue_365d for every alert type, so any list can be read by account size.
     alerts["revenue_365d"] = alerts["customer_id"].map(revenue_365d).fillna(0.0)
     return alerts, pd.concat([rfm_now, rfm_before], ignore_index=True)

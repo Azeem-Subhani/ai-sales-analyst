@@ -642,3 +642,24 @@ text are marked **(clarified)**.
   return no email address, and they have no way to change a status.
 - **Eval:** 5 demand questions (q21 to q25) use `gold_planning_sql`, run read-only
   by `scripts/fill_gold.py` on the 2026-09-30 snapshot in `planning.duckdb`.
+
+### Overdue and segment-move alerts: interval floor and retail filter
+- **Decision (project owner, 2026-10-21):** two rules cut the noise in the overdue
+  and segment-move lists. The declining rule is unchanged.
+  - **The usual interval has a floor of 7 days** (`min_usual_interval_days`). A
+    customer who orders every 2 days is not overdue after 5 days without an order.
+  - **Retail customers count only if they are in the top 20% of all customers by
+    365-day revenue** (`retail_top_share`; the bar is the 80th percentile over
+    customers with revenue in the window). Wholesale customers always count.
+    This applies to overdue and segment-move alerts only.
+- **Why:** with the Week 5 first version, overdue had 609 customers (482 serious)
+  as of 2026-09-30, almost all retail daily buyers, so the list was too long to act on.
+- **New counts:**
+
+  | As of | Overdue (serious + overdue) | Serious: retail / wholesale | Overdue: retail / wholesale | Segment moves: retail / wholesale |
+  | --- | --- | --- | --- | --- |
+  | 2026-09-27 | 62 | 32 / 5 | 24 / 1 | 9 / 14 |
+  | 2026-09-30 | 58 | 36 / 5 | 16 / 1 | 7 / 18 |
+
+  Harbor & Pine Co., Kestrel Home Stores and Bluegate Supplies are serious and
+  rank 1 to 3 on both dates.
