@@ -82,5 +82,16 @@ How the pieces fit:
    - `REPORT_MODE=dry_run python -m src.reports.scheduler --run-now <name>` builds
      the period chosen by the data clock and writes a `report_runs` row.
    - If the new period kind needs it, add a case to `tests/test_data_clock.py`.
-10. Run `ruff format . && ruff check --fix .`, `pytest` and `pytest --runslow`
+10. **Backfill and dashboard (Week 6):**
+    - The backfill (`python -m src.reports.backfill`) takes run dates from the
+      schedules in `reports.yaml`, so a new report is backfilled with no code
+      change. Check that the `tests/test_backfill.py` counts still hold, or update
+      them.
+    - If the report should also show on the dashboard, add a data function to
+      `src/reports/views.py` that reuses the builder sections and rounds once
+      (`views.table`), with a test in `tests/test_views.py`.
+    - Then add the page in `src/ui/app_pages/` (not `pages/`), register it in
+      `src/ui/app.py`, and add it to `PAGES` in `tests/test_ui.py`. Pages have no
+      SQL and open no database (`tests/test_guardrails.py`).
+11. Run `ruff format . && ruff check --fix .`, `pytest` and `pytest --runslow`
     (the Week 5 acceptance tests build the weekly and monthly reports), then commit.

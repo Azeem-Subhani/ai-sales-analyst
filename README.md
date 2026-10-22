@@ -11,9 +11,15 @@ explains the results.
 - Full plan: [docs/project_plan.md](docs/project_plan.md)
 - Rules and conventions: [AGENTS.md](AGENTS.md)
 
-Status: **Week 5**. The dummy data, KPI reports, scheduling, Gmail delivery, LLM
-summaries, the chat agent and demand planning are done. The Streamlit UI comes in
-Week 6.
+Status: **Week 6**. Everything is in place:
+- the dummy data and KPI reports;
+- scheduling, Gmail delivery and LLM summaries;
+- the chat agent and demand planning;
+- the report backfill;
+- the Streamlit dashboard (sales, demand with pre-build approvals, chat, saved
+  reports).
+
+The live demo is in [docs/demo_script.md](docs/demo_script.md).
 
 ## Setup
 
@@ -62,11 +68,13 @@ counts, the date range and total revenue.
 
 ```bash
 python -m src.data.generate              # rebuild the database
-pytest                                   # fast tests (about 40 s; slow ones skipped)
-pytest --runslow                         # everything, including forecast fits (about 2.5 min)
+pytest                                   # fast tests (about 45 s: 480 pass, 13 slow skipped)
+pytest --runslow                         # everything, incl. forecast fits (about 2.5 min: 493 pass)
 pytest -m slow                           # only the slow tests
 ruff format . && ruff check --fix .      # format and lint
 python -m src.demand.run --as-of 2026-09-30   # demand-planning snapshot (about 100 s)
+streamlit run src/ui/app.py              # dashboard and chat
+python -m src.reports.backfill --from 2026-09-14 --to 2026-10-01   # past reports as dry runs
 ```
 
 ## Scheduled reports and Gmail
@@ -132,6 +140,33 @@ If a run fails, it is retried once after `REPORT_RETRY_DELAY_SECONDS`. If the
 retry fails too, a short failure notice is emailed. Config problems (missing
 Gmail password, address not on the allowlist) are not retried. In send mode,
 missing settings are reported at start-up as one line, not a stack trace.
+
+### Backfill: past reports without waiting
+
+The backfill builds every report the scheduler would have sent on a range of run
+dates, as if "today" were each date:
+
+```bash
+python -m src.reports.backfill --from 2026-09-14 --to 2026-10-01               # with summaries
+python -m src.reports.backfill --from 2026-09-14 --to 2026-10-01 --no-summary  # no LLM spend
+```
+
+- **Same schedule as the scheduler:** run dates come from the schedules in
+  `reports.yaml` and each period from the data clock. 14 Sep to 1 Oct gives 14
+  daily snapshots, 3 weekly reviews (as of 13, 20 and 27 Sep) and the September
+  monthly review.
+- **Never sends:** it is always a dry run, whatever `REPORT_MODE` says, and it
+  never writes `report_runs`.
+- **Output:**
+  - reports in `outputs/backfill/<run date>/<report>_<as_of>/`;
+  - `outputs/backfill/manifest.csv`, with one row per report (status, summary
+    status, folder, error);
+  - `outputs/backfill/index.html`, with a link to each report.
+
+  A failed report is recorded and the rest still run.
+- **Demand snapshots:** the weekly and monthly reports create any missing snapshot
+  (about 100 s each).
+- The 14 Sep to 1 Oct run took about 4.5 minutes and cost about $0.01 of summaries.
 
 ### Run history
 
@@ -246,9 +281,10 @@ python -m src.demand.approve --id 20260930-AP-1004 --reject --by "A. Planner"
   `sales.duckdb` (which stays read-only). A rerun replaces that as_of's snapshot. If
   any of its recommendations was approved or rejected, the rerun is refused unless
   `--force`. Decisions are kept in `prebuild_decisions` either way.
-- **Approval:** only `src.demand.approve` changes a status (pending to approved or
-  rejected, once). It records who, when and the note. The agent and the reports
-  can never change a status.
+- **Approval:** only `approve.decide()` changes a status, from pending to approved
+  or rejected, once. It records who, when and the note. Two places call it: the
+  approval CLI and the dashboard's Demand page. The agent and the reports can never
+  change a status.
 - **In the reports:**
   - The weekly and monthly reports have a "Demand alerts" section: overdue and
     declining customers, category, stock and forecast-accuracy flags, pending
@@ -277,6 +313,11 @@ python -m src.agent.chat --question "How did we do last month?"
   `get_prebuild_recommendations`. They read the latest stored snapshot on or
   before `DATA_END_DATE` and never compute one. With no snapshot they say to run
   `python -m src.demand.run`. They cannot approve or reject anything.
+  - Each list returns at most 10 rows, with `total_count` and `more_count`, and
+    the answer says "and N more". The full lists are in the dashboard and the
+    report Excel.
+  - Declining customers are sorted by revenue lost (prior 90 days minus last 90
+    days), largest first.
 
 **Rules that keep its numbers honest:**
 
@@ -320,7 +361,43 @@ python scripts/compare_models.py --reference openai/gpt-5.6-luna --run   # live 
 - **`compare_models.py`:** runs main, fallback and a reference model with
   fallback off, and writes `docs/model_comparison_week4.md`.
 
-The latest eval results are in `docs/eval_results_week5.md` (25/25).
+The latest eval results are in `docs/eval_results_week6.md` (25/25, fallback off).
+The grader also checks name order on ranked questions ("top", "most", "first").
+
+## Dashboard
+
+```bash
+streamlit run src/ui/app.py
+```
+
+The dashboard opens in the browser. The sidebar **As of** date (default
+`DATA_END_DATE`) applies to every page:
+
+- **Sales:**
+  - a day / week / month toggle;
+  - KPI cards with the report comparisons (% for money and counts, pp for rates);
+  - a trend chart (13 weeks or 12 months), the category breakdown, and the top 10
+    products and customers.
+- **Demand:**
+  - full, sortable lists for customer alerts, category and stock alerts, forecast
+    accuracy and pre-build;
+  - with no snapshot for that date, it shows the `python -m src.demand.run` command
+    to run.
+- **Pre-build approvals** (Demand page, Pre-build tab):
+  - type your name in **Decided by** and add an optional note;
+  - **Approve** or **Reject**, then **Confirm**;
+  - the decision goes through the same `approve.decide()` as the CLI.
+- **Chat:**
+  - the same agent as `python -m src.agent.chat`, one question at a time;
+  - each answer has a details panel with the tool calls, model, tokens, cost and
+    latency;
+  - it has no approval actions, and each answer spends a little credit.
+- **Reports:** the saved dry-run and backfilled reports, with charts, plus the Excel
+  download.
+
+The dashboard does no calculation and has no SQL. It shows what
+`src/reports/views.py` and `src/reports/saved.py` return. Reads are read-only and
+short-lived, so the CLIs can still write while it is open.
 
 ## Working with Claude Code and Cursor
 
@@ -351,5 +428,7 @@ Claude Code also denies reading or editing `.env` and `data/*.duckdb` directly,
 `git push --force`, and `rm -rf`.
 
 **Cursor has no copy of these hooks**, so `tests/test_guardrails.py` checks the
-same rules (only `llm.py` imports `openai`, `.env` is not tracked). Run
+same rules (only `llm.py` imports `openai`, `.env` is not tracked), plus the Week 6
+ones (no SQL in `src/ui`, approvals only through `decide()`, the backfill never
+sends, demand-tool lists capped at 10). Run
 `pytest` before committing work done in Cursor, and run ruff yourself.
