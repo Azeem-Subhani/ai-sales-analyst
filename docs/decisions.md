@@ -1205,3 +1205,86 @@ Original items:
   came from this machine.
 - **Follow-up (not done):** log every summary call (report, as_of, tokens, provider)
   and add a source column to `agent_log`, so spend can be reconciled per caller.
+
+## Week 7: dashboard redesign (UI only)
+
+### Week 7: two passes, the owner's HTML design wins (2026-10-22)
+- **First pass (Steps 1 to 4, superseded in look):** a flat emerald design from the
+  brief: background `#F8FAF9`, accent `#059669`, 8px radius, no shadows, Geist.
+- **Revision (owner):** the project owner supplied an HTML chat mock-up and asked for
+  the whole app to follow it. It replaces the brief's "flat, no shadows, 8px" rules
+  and token values. Behaviour did not change.
+- **Tokens** (`style.TOKENS`; the same values in `.streamlit/config.toml` and as
+  `light-dark()` pairs in `src/ui/style.css`; `tests/test_ui_style.py` checks all three):
+
+  | token | light | dark |
+  | --- | --- | --- |
+  | bg | `#EFF3F1` | `#0E1411` |
+  | surface, sidebar | `#FFFFFF` | `#161E1A` |
+  | text | `#0F1A15` | `#EEF4F0` |
+  | muted | `#5B6862` | `#9AA9A1` |
+  | border | `rgba(15, 26, 21, 0.09)` | `rgba(255, 255, 255, 0.09)` |
+  | accent | `#0B7A54` | `#3DD69B` |
+  | accent_strong | `#095F42` | `#62E3B2` |
+  | accent_soft | `#E3F5EC` | `rgba(61, 214, 155, 0.14)` |
+  | on_accent | `#FFFFFF` | `#04140D` |
+  | good / bad / warn | `#166534` / `#B91C1C` / `#B45309` | `#86EFAC` / `#F87171` / `#FBBF24` |
+
+  - Dark `secondaryBackgroundColor` in config is `#1D2823`, an opaque version of
+    accent_soft on the surface, because Streamlit widgets look wrong on a
+    see-through fill.
+- **Contrast choices:**
+  - Primary buttons and the user's chat bubble use the accent with `on_accent` text:
+    white on `#0B7A54` in light mode, near-black on `#3DD69B` in dark mode.
+  - Links and text on the soft accent tint use `accent_strong`, which reads better
+    than the accent on white.
+  - The good-delta green (`#166534` / `#86EFAC`) is kept separate from the accent,
+    and every delta has an up or down arrow, so a positive change does not read as
+    brand colour and colour is never the only signal.
+- **Look:**
+  - soft shadows (`--shadow-sm`, `--shadow-card`, `--shadow-md` from the HTML);
+  - 16px cards, 10px buttons and inputs, a 28px chat composer, pill badges;
+  - Inter for the UI and Geist Mono for SQL and the data view. Both are self-hosted
+    in `src/ui/static/fonts` (OFL, licence files next to them), served by
+    `enableStaticServing`; Streamlit only serves a `static/` folder next to the main
+    script.
+- **Icons:** Lucide (lucide-static 1.52.0, ISC, noted in `src/ui/icons.py`).
+  - `st.html` strips inline SVG (its sanitiser allows HTML only), so each icon is a
+    CSS mask (`.icon.i-<name>`), percent-encoded so `style.css` holds no `<`.
+  - Widget icons come from `::before` rules on `st-key-*` containers; every Material
+    icon and emoji in our code is gone.
+  - Streamlit's own icons inside its widgets (expander chevron, date picker,
+    dataframe toolbar) are unchanged.
+- **One gradient:** the fade above the chat composer, as in the HTML (owner's
+  choice). Nothing else uses a gradient; a test allows exactly that one rule.
+- **Theme switching:** Streamlit sets `color-scheme` on `.stApp`, so the
+  `light-dark()` pairs follow the theme picked in the app menu at once.
+  - `st.context.theme` does not rerun the app on a switch, so it could not drive
+    the CSS.
+  - The one place that still uses it is the coloured severity words in Demand
+    tables. Those tables are drawn on a canvas, so after a theme switch their colours
+    update on the next interaction.
+- **Layout:**
+  - Every page header shows the title, a description, a "Data through" status pill
+    and the page controls (`common.header`). The model chip left the sidebar: the
+    model, tokens and cost are inside each chat answer's opened steps view only.
+  - Bordered containers are drawn as cards through `common.card(name)`, because
+    Streamlit 1.66 gives them no class of their own.
+- **Chat (from the HTML):**
+  - a 760px column, a hero with a trust pill, and "Suggested questions" cards
+    (equal height per row);
+  - the user's question as an accent bubble, the answer in a surface bubble with the
+    steps line at the top; no avatars.
+  - A card click still sends the question, as before: `st.chat_input` has no
+    `value` argument in 1.66, so it cannot be pre-filled as in the HTML. There is no
+    Dark/Light button either: Streamlit has no API to switch the theme from code.
+- **Reports, `ok_after_retry` display fix:**
+  - The Reports page showed "summary ok_after_retry". It now shows nothing for `ok`
+    and `ok_after_retry`, as the Week 6 wrap-up entry says, and a "Summary
+    unavailable" badge for `guard_failed`, `llm_unavailable`, `truncated` and
+    `skipped`.
+  - The backfill manifest table in the expander still lists the raw statuses, since
+    it is the audit file as written.
+- **Not changed:** email templates, report builder, agent, analytics, demand code,
+  `views.py`, `saved.py`, package versions. Chat was checked in the browser only on
+  a scratchpad mock page with a fake agent; no model calls were made this week.
