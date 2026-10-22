@@ -1,8 +1,9 @@
 # Dashboard theme (Week 7 redesign, built to the owner's HTML chat mock-up): a soft
 # green-grey page, white cards with gentle shadows (style.css), a deep emerald accent and
 # Inter (self-hosted in src/ui/static/fonts, OFL). The colours are the tokens in
-# src/ui/style.py (TOKENS); tests/test_ui.py checks that they match. The viewer picks
-# light or dark in the app menu; the default follows the operating system.
+# src/ui/style.py (TOKENS); tests/test_ui_style.py checks that they match. The viewer
+# picks System, Light or Dark in the top-right menu (⋮ > Settings); System follows the
+# operating system.
 
 [server]
 runOnSave = false
@@ -13,8 +14,10 @@ address = "localhost"
 enableStaticServing = true
 
 [client]
-# Hide the developer toolbar and the Deploy button.
-toolbarMode = "minimal"
+# "viewer": the top-right menu keeps the viewer options (theme switch, print, record
+# screen) and hides the developer ones (Deploy, Rerun, Clear cache). "minimal" would
+# hide the whole menu, theme switch included (Week 7 fix).
+toolbarMode = "viewer"
 
 [browser]
 gatherUsageStats = false

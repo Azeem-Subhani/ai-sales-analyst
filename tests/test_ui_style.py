@@ -100,6 +100,12 @@ def test_dashboard_binds_to_localhost() -> None:
     assert config["server"]["address"] == "localhost"
 
 
+def test_menu_keeps_the_theme_switch() -> None:
+    """'viewer' shows the theme switch and hides Deploy; 'minimal' would hide the menu."""
+    config = tomllib.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    assert config["client"]["toolbarMode"] == "viewer"
+
+
 # ---------------------------------------------------------------- Reports page
 
 MANIFEST_FIELDS = [

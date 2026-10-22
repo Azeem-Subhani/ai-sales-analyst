@@ -1258,7 +1258,13 @@ Original items:
 - **One gradient:** the fade above the chat composer, as in the HTML (owner's
   choice). Nothing else uses a gradient; a test allows exactly that one rule.
 - **Theme switching:** Streamlit sets `color-scheme` on `.stApp`, so the
-  `light-dark()` pairs follow the theme picked in the app menu at once.
+  `light-dark()` pairs follow the theme picked in the top-right ⋮ menu (System,
+  Light, Dark) at once.
+  - `toolbarMode` is now `"viewer"` (was `"minimal"` since the Week 6 polish).
+    `"minimal"` hides the whole menu when Streamlit adds no items of its own, so the
+    theme switch was gone and the app only followed the operating system.
+    `"viewer"` keeps the theme switch, Print and Record screen, and still hides
+    Deploy, Rerun and Clear cache. `tests/test_ui_style.py` checks the setting.
   - `st.context.theme` does not rerun the app on a switch, so it could not drive
     the CSS.
   - The one place that still uses it is the coloured severity words in Demand

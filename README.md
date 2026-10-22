@@ -373,7 +373,7 @@ streamlit run src/ui/app.py
 ```
 
 The dashboard opens in the browser in light or dark mode, following your system;
-switch it in the app menu. The theme is in `.streamlit/config.toml`, the extra CSS in
+switch it with System / Light / Dark in the top-right ⋮ menu. The theme is in `.streamlit/config.toml`, the extra CSS in
 `src/ui/style.css`, and the colour tokens in `src/ui/style.py` (Week 7 redesign: soft
 green-grey page, white cards, emerald accent, Inter). The sidebar has the page links and
 the **As of** date (default `DATA_END_DATE`), which applies to every page except Chat.
