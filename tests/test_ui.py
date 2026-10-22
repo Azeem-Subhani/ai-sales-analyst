@@ -414,8 +414,11 @@ def test_chat_input_is_locked_while_answering_and_unlocked_after(
 
 
 @pytest.mark.parametrize(
-    "error",
-    [RuntimeError("tool crashed"), llm.LLMUnavailableError("OpenRouter timed out")],
+    ("error", "message"),
+    [
+        (RuntimeError("tool crashed"), "Something went wrong"),
+        (llm.LLMUnavailableError("OpenRouter timed out"), "The AI service isn't responding"),
+    ],
     ids=["exception", "llm_unavailable"],
 )
 def test_chat_input_is_unlocked_when_answering_fails(
@@ -425,6 +428,7 @@ def test_chat_input_is_unlocked_when_answering_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     error: Exception,
+    message: str,
 ) -> None:
     def failing_ask(question: str, config: agent.AgentConfig, **kwargs: object) -> None:
         raise error
@@ -435,7 +439,8 @@ def test_chat_input_is_unlocked_when_answering_fails(
     assert not at.exception, [e.value for e in at.exception]  # a message, not a traceback
     assert at.session_state[BUSY_KEY] is False  # the finally block released the lock
     assert not at.chat_input[0].disabled
-    assert any("Something went wrong" in e.value for e in at.error)
+    [shown] = [e.value for e in at.error]
+    assert shown.startswith(message)
     assert at.session_state["chat_history"] == []
     # The page still works: the next question is answered.
     monkeypatch.setattr(agent, "ask", FakeAgent())

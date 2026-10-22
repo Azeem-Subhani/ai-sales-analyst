@@ -26,7 +26,7 @@ from html import escape
 
 import streamlit as st
 
-from src.agent import agent
+from src.agent import agent, llm
 from src.reports import data_clock
 from src.ui import chat_steps, common, style
 
@@ -40,6 +40,7 @@ FAILED_MESSAGE = (
     "Something went wrong while answering, and the question was not answered. "
     "Please ask again. The details are in the dashboard log."
 )
+UNAVAILABLE_MESSAGE = "The AI service isn't responding right now. Please try again in a minute."
 STREAM_DELAY_SECONDS = 0.012  # per word of the typewriter effect
 EXAMPLES = [  # (chip label, the question it sends)
     (
@@ -198,7 +199,10 @@ def answer_locked(question: str, history: list[Turn]) -> None:
     """Answer while the input is disabled; always release the lock, then redraw."""
     try:
         history.append(ask_live(question))
-    except Exception:
+    except llm.LLMUnavailableError:
+        logger.exception("Chat question failed: the AI service is unavailable")
+        st.session_state[ERROR_KEY] = UNAVAILABLE_MESSAGE
+    except Exception:  # shown as a message; the page must stay usable
         logger.exception("Chat question failed")
         st.session_state[ERROR_KEY] = FAILED_MESSAGE
     finally:
