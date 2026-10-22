@@ -747,3 +747,50 @@ text are marked **(clarified)**.
   pre-build. The latest inventory snapshot on or before 27 Sep is the 21 Sep one
   (329 on hand, 202 on order), which still covers the product's 4-week lead time.
   The low stock (123 on hand, none on order) appears only in the 28 Sep snapshot.
+
+## Week 6: agent fixes, backfill, dashboard
+
+### revenue_lost is stored with declining alerts
+- **Decision (2026-10-22):** `declining_alerts` already ranked by revenue lost
+  (prior 90 days minus last 90 days) but dropped the column. It is now kept and
+  stored as `customer_alerts.revenue_lost`, added to existing files by a
+  `MIGRATIONS` entry. The 2026-09-27 and 2026-09-30 snapshots were recomputed.
+  None of their recommendations had been decided, so no `--force` was needed.
+- **Why:** the rank and the number the agent quotes come from one calculation. The
+  alternative, the tool subtracting the stored revenues, would have computed the
+  same figure in a second place.
+- `get_customer_alerts` returns `revenue_lost` and `revenue_lost_shown`, rounded
+  once like the other money fields. Older snapshots show it as empty until rerun.
+
+### Demand-tool lists are capped at 10 rows
+- **Decision (2026-10-22):** every list from `get_customer_alerts` (one per alert
+  type), `get_forecast_accuracy` (`overall`, `flagged_products`, `by_category`) and
+  `get_prebuild_recommendations` (`recommendations`, `needs_planner_review`) has at
+  most 10 rows (`DEMAND_LIST_CAP`), plus `total_count` and `more_count`. The `limit`
+  argument (default 10, max 50) was removed, so the model cannot ask for more.
+- The tool descriptions tell the model to say "and N more" and that the full list is
+  in the dashboard and the report Excel. `run_sql` keeps its 500-row limit.
+- `get_forecast_accuracy` lost `flagged_count`; it is now
+  `flagged_products.total_count`.
+
+### Ranked questions are graded in order
+- **Decision (2026-10-22):** a grade spec can say `ordered: true`. The gold names the
+  answer mentions must then appear in gold order (first mention counts). A missing
+  name is left to its own name check, so it is not counted twice.
+- Set on q06, q08, q10, q11, q15, q23, q24 and q25, the questions that ask for "top",
+  "most", "highest", "lowest" or "first". It only bites where there are 2 or more
+  names: q08, q10, q11, q24, q25.
+- q21's gold is now the capped list: 41 serious customers, the first 10 by rank and
+  `more_customers` 31. q25's gold SQL orders by `revenue_lost DESC` (the same order
+  as the rank). Gold values were regenerated with `scripts/fill_gold.py`.
+- Live eval: 25/25 on `openai/gpt-5.6-luna` with fallback off
+  (`docs/eval_results_week6.md`).
+
+### Tests never load .env
+- **Decision (2026-10-22):** a test that calls a CLI `main()` must replace
+  `load_dotenv` first. The autouse OpenRouter block is function-scoped, and a
+  module-scoped fixture (the reports in `test_reports.py`) is built before it
+  applies. Once real keys are in `os.environ`, that fixture calls the model.
+- **What happened:** a first draft of the backfill test did this and spent $0.0083
+  (three report summaries). It was fixed before any commit, and a full run afterwards
+  left the key balance unchanged.

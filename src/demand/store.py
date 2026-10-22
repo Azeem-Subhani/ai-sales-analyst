@@ -75,6 +75,7 @@ TABLES: dict[str, str] = {
         revenue_recent        DOUBLE,   -- declining / new high-value: last 90 days
         revenue_prior         DOUBLE,   -- declining: the 90 days before
         revenue_change_pct    DOUBLE,
+        revenue_lost          DOUBLE,   -- declining: prior minus recent (the rank order)
         first_order_date      DATE,
         segment_before        VARCHAR,
         segment_now           VARCHAR
@@ -206,6 +207,7 @@ MIGRATIONS = [
     "ALTER TABLE prebuild_recommendations ADD COLUMN IF NOT EXISTS unit_price DOUBLE",
     "ALTER TABLE prebuild_recommendations ADD COLUMN IF NOT EXISTS value_at_risk DOUBLE",
     "ALTER TABLE prebuild_recommendations ADD COLUMN IF NOT EXISTS priority VARCHAR",
+    "ALTER TABLE customer_alerts ADD COLUMN IF NOT EXISTS revenue_lost DOUBLE",
 ]
 SNAPSHOT_TABLES = [
     name for name in TABLES if name not in ("demand_snapshots", "prebuild_decisions")
