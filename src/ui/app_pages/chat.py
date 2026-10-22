@@ -223,14 +223,9 @@ def main() -> None:
     busy = st.session_state.get(BUSY_KEY, False)
     if busy and QUESTION_KEY not in st.session_state:  # a lock with nothing to answer
         busy = st.session_state[BUSY_KEY] = False
-    # The narrow 760px chat column (CSS marker chat-page) needs room for the pill and
-    # Clear chat on the right.
+    # page_class marks the page for CSS: the chat is a centred 760px column.
     controls = common.header(
-        "Chat",
-        "Answers from the sales and demand data.",
-        split=(1, 1),
-        page_class="chat-page",
-        wrap=False,
+        "Chat", "Answers from the sales and demand data.", page_class="chat-page"
     )
     if history and controls.button("Clear chat", key="clear-chat", disabled=busy):
         history.clear()
