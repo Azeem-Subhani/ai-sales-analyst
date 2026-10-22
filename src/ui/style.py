@@ -117,7 +117,7 @@ def page_header(title: str, description: str = "") -> str:
 def section_title(text: str, count: object = None, note: str = "") -> str:
     """A section title with an optional muted count and a muted note after it."""
     extra = f' <span class="section-count">{escape(str(count))}</span>' if count is not None else ""
-    tail = f' <span class="section-note">{escape(note)}</span>' if note else ""
+    tail = f' <span class="section-note">\u00b7 {escape(note)}</span>' if note else ""
     return f'<div class="section-title">{escape(text)}{extra}{tail}</div>'
 
 

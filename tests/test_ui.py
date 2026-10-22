@@ -130,10 +130,10 @@ def test_demand_tabs_show_counts_and_severity_tags(
     assert not at.exception
     counts = views.demand_view(AS_OF, planning)["counts"]
     labels = [tab.label for tab in at.tabs]
-    assert f":material/groups: Customer alerts \u00b7 {counts['customer_alerts']}" in labels
-    assert any(f"Pre-build \u00b7 {counts['pending']}" in label for label in labels)
+    assert f"Customer alerts :gray[{counts['customer_alerts']}]" in labels
+    assert f"Pre-build :gray[{counts['pending']} pending]" in labels
     overdue = at.dataframe[0].value
-    assert set(overdue["Severity"]) <= {"\U0001f534 serious", "\U0001f7e0 overdue"}
+    assert set(overdue["Severity"]) <= {"Serious", "Overdue"}  # words, no emoji
 
 
 def test_demand_forecast_units_have_one_decimal(planning: Path) -> None:

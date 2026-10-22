@@ -97,7 +97,8 @@ button:focus-visible { box-shadow: 0 0 0 2px var(--focus); outline: none; }
   font-weight: 500; }
 [data-testid="stTab"][aria-selected="true"], [data-testid="stTab"][aria-selected="true"] p {
   color: var(--text); }
-.tab-count { color: var(--muted); font-weight: 400; }
+/* Counts in tab labels are :gray[] markdown spans; shown in the muted token. */
+[data-testid="stTab"] p span { color: var(--muted); font-weight: 400; }
 
 /* ---- Alerts and toasts in the token colours, flat. */
 [data-testid="stAlert"] [data-testid="stAlertContainer"] { border-radius: var(--radius-card);
@@ -124,6 +125,12 @@ button:focus-visible { box-shadow: 0 0 0 2px var(--focus); outline: none; }
 .tag-good { color: var(--good); } .tag-bad { color: var(--bad); }
 .tag-warn { color: var(--warn); } .tag-accent { color: var(--accent-text); }
 .tag-muted { color: var(--muted); }
+
+/* ---- Demand: pending pre-build rows next to their Approve / Reject buttons. */
+.pending-row { line-height: 1.45; min-width: 0; }
+.pending-name { font-size: 14px; font-weight: 500; color: var(--text); }
+.pending-sku { font-weight: 400; color: var(--muted); font-size: 13px; margin: 0 .25rem; }
+.pending-meta { font-size: 13px; color: var(--muted); margin-top: .1rem; }
 
 /* ---- KPI cards */
 .card-grid { display: grid; gap: .75rem; margin: .5rem 0 .75rem;
