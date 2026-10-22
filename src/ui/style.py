@@ -71,6 +71,8 @@ WIDGET_ICONS = {
     ".st-key-excel-download button": "download",
     '[data-testid="stChatInputSubmitButton"]': "arrow-up",
     ".steps-done > summary": "chevron-right",
+    ".steps-done > summary::after": "circle-check",  # finished: a check before the line
+    ".steps-failed > summary::after": "circle-x",  # a tool failed: a cross instead
     ".step-data > summary": "chevron-right",
     ".st-key-clear-chat button": "trash-2",
 }

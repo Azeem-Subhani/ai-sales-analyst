@@ -40,6 +40,25 @@ SHAPES = {
     ),
     "chevron-right": '<path d="m9 18 6-6-6-6"/>',
     "arrow-right": '<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
+    # Our own brain (not from Lucide), drawn in the same 24px, stroke-1.5 style: two
+    # rounded lobes on a centre line, with two folds each. Shown while the model thinks.
+    "brain": (
+        '<path d="M12 4.5C11 3 8.5 3 7.5 4.5 5.2 4.4 4 6.5 4.6 8.4 3 9.4 2.8 12 4.4 13.2'
+        ' 3.6 15 4.6 17.4 6.8 17.6 7.4 19.6 10.2 20.4 12 19"/>'
+        '<path d="M12 4.5C13 3 15.5 3 16.5 4.5 18.8 4.4 20 6.5 19.4 8.4 21 9.4 21.2 12 19.6'
+        ' 13.2 20.4 15 19.4 17.4 17.2 17.6 16.6 19.6 13.8 20.4 12 19"/>'
+        '<path d="M12 4.5V19"/><path d="M8 8.2c1.3.1 2.3 1 2.3 2.3"/>'
+        '<path d="M6.8 13.6c1.2.6 2.6.3 3.4-.8"/><path d="M16 8.2c-1.3.1-2.3 1-2.3 2.3"/>'
+        '<path d="M17.2 13.6c-1.2.6-2.6.3-3.4-.8"/>'
+    ),
+    "wrench": (
+        '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.106-3.105c.32-.322.863-.22'
+        ".983.218a6 6 0 0 1-8.259 7.057l-7.91 7.91a1 1 0 0 1-2.999-3l7.91-7.91a6 6 0 0 1"
+        ' 7.057-8.259c.438.12.54.662.219.984z"/>'
+    ),
+    "circle-check": '<circle cx="12" cy="12" r="10"/><path d="m16 9-5.5 5.5L8 12"/>',
+    "circle-x": '<circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/>',
+    "info": '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
     "calendar": (
         '<path d="M8 2v3"/><path d="M16 2v3"/><rect x="3" y="3" width="18" height="18" rx="2"/>'
         '<path d="M3 9h18"/>'
@@ -121,10 +140,15 @@ def icon(name: str, extra_class: str = "") -> str:
 
 
 def icon_css(widget_icons: dict[str, str]) -> str:
-    """CSS for every icon class, plus ::before icons on keyed widgets.
+    """CSS for every icon class, plus pseudo-element icons on keyed widgets.
 
     widget_icons maps a CSS selector (such as '.st-key-nav-sales a') to an icon name.
+    The icon goes on ::before unless the selector already names a pseudo-element
+    (e.g. '... > summary::after').
     """
     rules = [mask_rule(f".i-{name}", name) for name in SHAPES]
-    rules += [mask_rule(f"{selector}::before", name) for selector, name in widget_icons.items()]
+    rules += [
+        mask_rule(selector if "::" in selector else f"{selector}::before", name)
+        for selector, name in widget_icons.items()
+    ]
     return "\n".join(rules)

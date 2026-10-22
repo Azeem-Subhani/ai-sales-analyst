@@ -1294,3 +1294,27 @@ Original items:
 - **Not changed:** email templates, report builder, agent, analytics, demand code,
   `views.py`, `saved.py`, package versions. Chat was checked in the browser only on
   a scratchpad mock page with a fake agent; no model calls were made this week.
+
+### Week 7: chat step icons and readable tool names (2026-10-22)
+- **States with icons** (`chat_steps.STATE_ICONS`, drawn as CSS masks like the
+  other icons):
+  - a brain while the model thinks;
+  - a wrench while a tool runs;
+  - a green check when a tool is done, a red cross (and red label) when it failed;
+  - a muted info icon for notes (fallback model, number-check retry).
+- **Animation:** the brain pulses and the wrench rocks while active, both in the
+  accent colour, and the label shimmers. All motion stops under
+  `prefers-reduced-motion`. No completion animation: the live steps are redrawn on
+  every progress event, so a "pop" would replay on every finished row.
+- **Finished line:** the collapsed steps line starts with a green check, or a red
+  cross when any tool failed (`steps-failed`).
+- **Brain icon:** our own drawing (not Lucide), in the same 24px, stroke-1.5 style.
+  The wrench, check, cross and info icons are Lucide (ISC).
+- **Readable tool names:** the 7 agent tools keep their hand-written labels
+  (`STEP_LABELS`). Any other tool name is turned into words from its verb
+  (`get_customer_list` -> "Getting customer list" / "Got customer list"), and only a
+  name with no known verb falls back to "Using a tool" / "Used a tool". A raw tool
+  name never appears in a step line.
+- **Known gap (agent code, not changed):** when an answer is withheld,
+  `answer_guard.withheld_answer` still heads each tool result with the raw tool name
+  ("run_sql:"). That text is built in `src/agent`, which this UI work does not touch.

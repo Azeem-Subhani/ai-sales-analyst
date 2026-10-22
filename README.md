@@ -397,9 +397,10 @@ Each page header shows a "Data through" pill with the last day of data:
   - the same agent as `python -m src.agent.chat`, one question at a time, always
     measured from `DATA_END_DATE`;
   - an empty chat shows 4 suggested questions as cards; a click sends one;
-  - your question shows at once as a green bubble, then each step (tool, fallback,
-    number check retry) shows live as a small muted line in the answer card and
-    collapses to one line ("Checked forecast
+  - your question shows at once as a green bubble, then each step shows live as a
+    small muted line in the answer card, with an icon for its state (a brain while
+    the model thinks, a wrench while a tool runs, a check or a cross when it ends)
+    and a readable tool name, and collapses to one line ("Checked forecast
     accuracy · 7.3 s" or "3 steps · 9.1 s"); opened, it shows each step's time, the
     SQL for `run_sql`, and a "Data" view of each tool result;
   - the input is disabled until the answer is shown;
