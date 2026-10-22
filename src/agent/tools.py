@@ -433,13 +433,25 @@ def record(row: dict, fields: dict[str, Callable | None]) -> dict:
     """A row with JSON-safe values plus "<field>_shown" text for every number."""
     out: dict[str, Any] = {}
     for name, fmt in fields.items():
+        raw = unrounded(row.get(name))
         value = json_value(row.get(name))
-        if name in ROUNDED_MONEY and value is not None:
-            value = builder.rounded(value, "money")
+        if name in ROUNDED_MONEY and raw is not None:
+            value = raw = builder.rounded(raw, "money")  # cents, from the raw value
         out[name] = value
         if fmt is not None:
-            out[f"{name}_shown"] = fmt(value)
+            # Shown text comes from the unrounded value (rounded once); the number is
+            # cut to FLOAT_DECIMALS only to keep the JSON readable.
+            out[f"{name}_shown"] = fmt(raw)
     return out
+
+
+def unrounded(value: Any) -> Any:
+    """A stored number as a plain float (None for NaN); other values unchanged."""
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, float):  # numpy float64 included
+        return None if pd.isna(value) else float(value)
+    return value
 
 
 def capped(frame: pd.DataFrame, fields: dict[str, Callable | None]) -> dict:

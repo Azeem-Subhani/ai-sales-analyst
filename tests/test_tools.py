@@ -295,6 +295,21 @@ def test_forecast_units_are_shown_to_one_decimal(demand_session: tools.ToolSessi
     assert tools.fmt_units_1dp(None) == "n/a"
 
 
+def test_shown_text_is_rounded_once_from_the_unrounded_value() -> None:
+    """0.27249996 is +27.2%; rounding to 4 decimals first (0.2725) would show +27.3%."""
+    row = {"bias": 0.27249996, "wape": 0.27249996, "forecast_units": 500.04999, "weeks": 8}
+    shown = tools.record(row, tools.ACCURACY_FIELDS)
+    assert shown["bias"] == 0.2725  # the raw value for the model keeps 4 decimals
+    assert shown["bias_shown"] == "+27.2%"
+    assert shown["wape_shown"] == "27.2%"
+    assert shown["forecast_units_shown"] == "500.0"
+    assert shown["weeks_shown"] == "8"
+    nan = tools.record({"bias": float("nan")}, {"bias": tools.ACCURACY_FIELDS["bias"]})
+    assert nan == {"bias": None, "bias_shown": "n/a"}
+    money = tools.record({"revenue_lost": 1234.5649}, tools.CUSTOMER_ALERT_FIELDS)
+    assert money["revenue_lost"] == 1234.56 and money["revenue_lost_shown"] == "1,234.56"
+
+
 def builder_change(bias: float) -> str:
     """Bias fraction shown as a signed percentage, like the reports."""
     from src.reports import builder
