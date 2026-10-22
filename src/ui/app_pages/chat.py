@@ -16,6 +16,7 @@ has no approval actions.
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass, field
+from html import escape
 
 import streamlit as st
 
@@ -50,6 +51,7 @@ TOOL_STEPS = {
     "get_forecast_accuracy": ("\U0001f3af", "Checking forecast accuracy"),
     "get_prebuild_recommendations": ("\U0001f4e6", "Checking pre-build recommendations"),
 }
+ASSISTANT_AVATAR = str(style.LOGO_PATH)  # the logo mark, as in the sidebar
 NOTE_KINDS = {agent.EVENT_FALLBACK, agent.EVENT_GUARD_RETRY, agent.EVENT_WITHHELD}
 
 
@@ -143,17 +145,18 @@ def tool_details(steps: list[Step]) -> None:
 
 
 def meta_line(answer: agent.AgentAnswer) -> str:
-    """model · tokens · cost · time, as a small grey line."""
-    cost = "cost n/a" if answer.cost_usd is None else f"${answer.cost_usd:.4f}"
-    parts = [
-        answer.model or "no model",
-        f"{answer.total_tokens:,} tokens",
-        cost,
-        f"{answer.latency_seconds:.1f} s",
-    ]
+    """model · tokens · cost · time, as a small grey line.
+
+    The cost is left out when OpenRouter reports none or $0 (it often does; the real
+    spend is measured from the key balance).
+    """
+    parts = [answer.model or "no model", f"{answer.total_tokens:,} tokens"]
     if answer.fallback_used:
         parts.insert(1, "fallback model")
-    return '<div class="chat-meta">' + " · ".join(parts) + "</div>"
+    if answer.cost_usd:  # None or 0.0: no cost shown
+        parts.append(f"${answer.cost_usd:.4f}")
+    parts.append(f"{answer.latency_seconds:.1f} s")
+    return '<div class="chat-meta">' + escape(" · ".join(parts)) + "</div>"
 
 
 def words(text: str) -> Iterator[str]:
@@ -186,9 +189,8 @@ def show_answer(answer: agent.AgentAnswer, stream: bool) -> None:
 
 def show_turn(turn: Turn) -> None:
     """An earlier question and answer, as history."""
-    with st.chat_message("user"):
-        st.markdown(turn.answer.question)
-    with st.chat_message("assistant"):
+    st.html(style.user_message(turn.answer.question))
+    with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
         with st.status(summary_label(turn), state=status_state(turn.answer), expanded=False):
             for step in turn.steps:
                 st.html(step.html())
@@ -198,9 +200,8 @@ def show_turn(turn: Turn) -> None:
 
 def ask_live(question: str) -> Turn:
     """Show the question, the live steps and the checked answer; return the turn."""
-    with st.chat_message("user"):
-        st.markdown(question)
-    with st.chat_message("assistant"):
+    st.html(style.user_message(question))
+    with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
         status = st.status("Working…", expanded=True)
         live = LiveSteps(status)
         config = agent.AgentConfig(

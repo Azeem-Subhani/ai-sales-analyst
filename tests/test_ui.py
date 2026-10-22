@@ -322,8 +322,9 @@ def test_chat_shows_live_steps_then_the_checked_answer(
     assert not at.exception, [e.value for e in at.exception]
     assert fake.asked == ["Net revenue last week?"]
     markdown = " ".join(m.value for m in at.markdown)
-    assert "Net revenue last week?" in markdown and CHECKED in markdown
+    assert CHECKED in markdown
     html = html_text(at)
+    assert '<div class="user-bubble">Net revenue last week?</div>' in html
     assert "Getting KPIs (get_kpis)" in html and "0.2 s" in html  # the tool step, ticked
     assert html.count('class="step-ok"') == 3  # two model calls and one tool call
     assert "test/model" in html and "1,280 tokens" in html and "$0.0004" in html

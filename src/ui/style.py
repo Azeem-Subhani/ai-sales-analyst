@@ -107,3 +107,15 @@ def status_chips(data_end_shown: str, model: str | None) -> str:
     if model:
         chips.append(f'<span class="chip chip-model">{escape(model)}</span>')
     return f'<div class="sidebar-status">{"".join(chips)}</div>'
+
+
+def user_message(question: str) -> str:
+    """The user's question as a right-aligned gradient bubble next to a slate avatar.
+
+    The question is escaped, so markup in it (a <script> tag, say) shows as text.
+    """
+    return (
+        f'<div class="user-row"><div class="user-bubble">{escape(question)}</div>'
+        '<div class="user-avatar" aria-hidden="true"><span class="user-avatar-head"></span>'
+        '<span class="user-avatar-body"></span></div></div>'
+    )

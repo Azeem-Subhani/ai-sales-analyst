@@ -35,20 +35,24 @@ h1 { letter-spacing: -0.02em; }
 .tag { display: inline-block; padding: .1rem .55rem; border-radius: 999px;
   font-size: .75rem; font-weight: 600; white-space: nowrap; }
 
-/* Chat: assistant on a subtle card, user right-aligned in a gradient bubble. */
+/* Chat: assistant on a subtle card next to the logo avatar; the user's question is our
+   own HTML (style.user_message): a right-aligned gradient bubble next to a slate avatar. */
 [data-testid="stChatMessage"] { background: transparent; padding: .35rem 0; gap: .65rem; }
 [data-testid="stChatMessageContent"] { background: rgba(127,127,160,.07);
   border: 1px solid rgba(127,127,160,.18); border-radius: 18px 18px 18px 6px;
   padding: .7rem 1rem; min-width: 0; overflow-wrap: anywhere; }
-[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
-  flex-direction: row-reverse; }
-[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"])
-  [data-testid="stChatMessageContent"] {
-  background: var(--accent-gradient); border-color: transparent; color: #FFFFFF;
-  border-radius: 18px 18px 6px 18px; flex: 0 1 auto; max-width: min(78%, 620px);
-  margin-left: auto; }
-[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"])
-  [data-testid="stChatMessageContent"] * { color: #FFFFFF; }
+[data-testid="stChatMessageAvatarImage"] { width: 32px; height: 32px; border-radius: 8px; }
+.user-row { display: flex; justify-content: flex-end; align-items: flex-end; gap: .65rem;
+  padding: .35rem 0; }
+.user-bubble { background: var(--accent-gradient); color: #FFFFFF;
+  border-radius: 18px 18px 6px 18px; padding: .7rem 1rem; max-width: min(78%, 620px);
+  min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; line-height: 1.5; }
+.user-avatar { position: relative; flex: none; width: 2rem; height: 2rem; border-radius: 50%;
+  background: #475569; overflow: hidden; }
+.user-avatar-head { position: absolute; left: 50%; top: 22%; width: 34%; height: 34%;
+  transform: translateX(-50%); border-radius: 50%; background: #E2E8F0; }
+.user-avatar-body { position: absolute; left: 50%; top: 62%; width: 62%; height: 50%;
+  transform: translateX(-50%); border-radius: 50% 50% 0 0; background: #E2E8F0; }
 [data-testid="stChatMessageContent"] table { border-collapse: collapse; font-size: .9rem;
   display: block; max-width: 100%; overflow-x: auto; margin: .4rem 0; }
 [data-testid="stChatMessageContent"] th, [data-testid="stChatMessageContent"] td {
@@ -77,8 +81,7 @@ h1 { letter-spacing: -0.02em; }
 @media (max-width: 640px) {
   [data-testid="stMainBlockContainer"] { padding-left: 1rem; padding-right: 1rem; }
   .card-value { font-size: 1.3rem; }
-  [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"])
-    [data-testid="stChatMessageContent"] { max-width: 88%; }
+  .user-bubble { max-width: 84%; }
 }
 
 /* Sidebar: deep navy in both modes (colours in config.toml). Brand block on top,
