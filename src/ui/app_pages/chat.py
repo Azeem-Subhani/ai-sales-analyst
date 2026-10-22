@@ -9,11 +9,16 @@ How a question is shown:
    is then revealed word by word. Unchecked text is never shown. A withheld answer is
    shown as a warning with the tool results instead.
 
+While a question is being answered the chat input is disabled, so a second question
+cannot interrupt the run; the lock is released in a finally block, so an error or a
+timeout never leaves it disabled.
+
 Each question is answered on its own (single-turn, as in the eval); earlier questions
 and answers are only shown as history. The agent's tools are read-only, and this page
 has no approval actions.
 """
 
+import logging
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -25,8 +30,16 @@ from src.agent import agent
 from src.reports import data_clock
 from src.ui import chat_steps, common, style
 
+logger = logging.getLogger(__name__)
+
 HISTORY_KEY = "chat_history"
-PENDING_KEY = "chat_pending"  # an example question clicked on the empty page
+QUESTION_KEY = "chat_question"  # the question being answered
+BUSY_KEY = "chat_busy"  # True while a question is answered: the input is disabled
+ERROR_KEY = "chat_error"  # shown once after a question failed unexpectedly
+FAILED_MESSAGE = (
+    "Something went wrong while answering, and the question was not answered. "
+    "Please ask again. The details are in the dashboard log."
+)
 STREAM_DELAY_SECONDS = 0.012  # per word of the typewriter effect
 EXAMPLES = [  # (chip label, the question it sends)
     (
@@ -171,27 +184,52 @@ def empty_state() -> None:
                 icon=":material/chat_bubble:",
                 width="stretch",
             ):
-                st.session_state[PENDING_KEY] = example
-                st.rerun()
+                start(example)
+
+
+def start(question: str) -> None:
+    """Take a question: lock the input and rerun, so the input is drawn disabled."""
+    st.session_state[QUESTION_KEY] = question
+    st.session_state[BUSY_KEY] = True
+    st.rerun()
+
+
+def answer_locked(question: str, history: list[Turn]) -> None:
+    """Answer while the input is disabled; always release the lock, then redraw."""
+    try:
+        history.append(ask_live(question))
+    except Exception:
+        logger.exception("Chat question failed")
+        st.session_state[ERROR_KEY] = FAILED_MESSAGE
+    finally:
+        st.session_state[BUSY_KEY] = False
+        st.session_state.pop(QUESTION_KEY, None)
+    st.rerun()  # redraw with the input enabled again
 
 
 def main() -> None:
     """Render the page."""
     history: list[Turn] = st.session_state.setdefault(HISTORY_KEY, [])
+    busy = st.session_state.get(BUSY_KEY, False)
+    if busy and QUESTION_KEY not in st.session_state:  # a lock with nothing to answer
+        busy = st.session_state[BUSY_KEY] = False
     title, clear = st.columns([5, 1], vertical_alignment="bottom")
     title.title(":material/forum: Chat")
-    if clear.button("Clear chat", icon=":material/delete_sweep:", disabled=not history):
+    if clear.button("Clear chat", icon=":material/delete_sweep:", disabled=busy or not history):
         history.clear()
         st.rerun()
-    question = st.chat_input("Ask about sales or demand…") or st.session_state.pop(
-        PENDING_KEY, None
-    )
+    submitted = st.chat_input("Ask about sales or demand…", disabled=busy)
+    if submitted and not busy:
+        start(submitted)
+    question = st.session_state.get(QUESTION_KEY) if busy else None
     if not history and not question:
         empty_state()
     for turn in history:
         show_turn(turn)
+    if error := st.session_state.pop(ERROR_KEY, None):
+        st.error(error, icon=":material/error:")
     if question:
-        history.append(ask_live(question))
+        answer_locked(question, history)
 
 
 main()

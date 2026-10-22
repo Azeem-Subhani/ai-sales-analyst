@@ -15,7 +15,7 @@ import pytest
 import streamlit as st
 from streamlit.testing.v1 import AppTest
 
-from src.agent import agent, tools
+from src.agent import agent, llm, tools
 from src.demand import approve, store
 from src.reports import builder, views
 from src.ui import common
@@ -386,3 +386,59 @@ def test_chat_page_shows_the_data_end_chip_instead_of_the_date_picker(
     assert not any("Answers use data" in m.value for m in at.sidebar.markdown)
     at.switch_page("app_pages/sales.py").run()
     assert at.sidebar.date_input[0].value == AS_OF
+
+
+# ---------------------------------------------------------------- input lock
+
+BUSY_KEY = "chat_busy"
+
+
+def test_chat_input_is_locked_while_answering_and_unlocked_after(
+    app_env: None, built: dict, planning: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = FakeAgent()
+    busy_during_run: list[bool] = []
+
+    def ask(question: str, config: agent.AgentConfig, **kwargs: object) -> agent.AgentAnswer:
+        busy_during_run.append(st.session_state.get(BUSY_KEY, False))
+        return fake(question, config, **kwargs)
+
+    monkeypatch.setattr(agent, "ask", ask)
+    at = chat_page(built, planning, tmp_path)
+    at.chat_input[0].set_value("Net revenue last week?").run()
+    assert not at.exception, [e.value for e in at.exception]
+    assert busy_during_run == [True]  # the input was drawn disabled during the run
+    assert at.session_state[BUSY_KEY] is False
+    assert not at.chat_input[0].disabled  # enabled again with the answer shown
+    assert len(at.session_state["chat_history"]) == 1
+
+
+@pytest.mark.parametrize(
+    "error",
+    [RuntimeError("tool crashed"), llm.LLMUnavailableError("OpenRouter timed out")],
+    ids=["exception", "llm_unavailable"],
+)
+def test_chat_input_is_unlocked_when_answering_fails(
+    app_env: None,
+    built: dict,
+    planning: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    error: Exception,
+) -> None:
+    def failing_ask(question: str, config: agent.AgentConfig, **kwargs: object) -> None:
+        raise error
+
+    monkeypatch.setattr(agent, "ask", failing_ask)
+    at = chat_page(built, planning, tmp_path)
+    at.chat_input[0].set_value("Net revenue last week?").run()
+    assert not at.exception, [e.value for e in at.exception]  # a message, not a traceback
+    assert at.session_state[BUSY_KEY] is False  # the finally block released the lock
+    assert not at.chat_input[0].disabled
+    assert any("Something went wrong" in e.value for e in at.error)
+    assert at.session_state["chat_history"] == []
+    # The page still works: the next question is answered.
+    monkeypatch.setattr(agent, "ask", FakeAgent())
+    at.chat_input[0].set_value("Second try?").run()
+    assert not at.exception
+    assert len(at.session_state["chat_history"]) == 1
