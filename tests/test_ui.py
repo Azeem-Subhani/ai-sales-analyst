@@ -512,16 +512,31 @@ def test_chat_empty_state_shows_four_suggestion_cards(
     assert not at.get("chat_message")  # no avatars: answers are plain text
 
 
-def test_ok_after_retry_summary_card_is_green_like_ok(tmp_path: Path) -> None:
+@pytest.mark.parametrize("status", ["ok", "ok_after_retry", None])
+def test_reports_list_shows_nothing_for_a_usable_summary(
+    tmp_path: Path, status: str | None
+) -> None:
+    """ok_after_retry counts as a success and shows exactly like ok (decisions.md)."""
     from src.reports import saved
     from src.ui.app_pages import reports
 
-    def card(status: str) -> str:
-        report = saved.SavedReport(
-            "backfill 2026-09-14", "daily_sales_snapshot", "2026-09-13", tmp_path,
-            summary_status=status,
-        )  # fmt: skip
-        return reports.card_html(report)
+    report = saved.SavedReport(
+        "backfill 2026-09-14", "daily_sales_snapshot", "2026-09-13", tmp_path,
+        period="Sun 13 Sep 2026", summary_status=status,
+    )  # fmt: skip
+    html = reports.row_html(report)
+    assert "ok_after_retry" not in html and "Summary unavailable" not in html
+    assert "generated 2026-09-14" in html
 
-    assert "tag-good" in card("ok") and "tag-good" in card("ok_after_retry")
-    assert "summary ok_after_retry" in card("ok_after_retry")
+
+@pytest.mark.parametrize("status", ["guard_failed", "llm_unavailable", "truncated", "skipped"])
+def test_reports_list_flags_an_unavailable_summary(tmp_path: Path, status: str) -> None:
+    from src.reports import saved
+    from src.ui.app_pages import reports
+
+    report = saved.SavedReport(
+        "backfill 2026-09-14", "daily_sales_snapshot", "2026-09-13", tmp_path,
+        summary_status=status,
+    )  # fmt: skip
+    html = reports.row_html(report)
+    assert "Summary unavailable" in html and status not in html
