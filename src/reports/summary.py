@@ -21,7 +21,8 @@ a prompt asking for the summary, and are then dropped (status guard_failed).
 
 A summary that fails the first attempt and passes the retry gets status
 ok_after_retry (a success: it is shown like ok), and retry_reason records why the
-first attempt failed: refusal, no_number_used, number_mismatch or truncated.
+first attempt failed: content_filter (the provider blocked the prompt), refusal,
+no_number_used, number_mismatch or truncated.
 """
 
 import logging
@@ -46,6 +47,7 @@ SUCCESS_STATUSES = {STATUS_OK, STATUS_OK_AFTER_RETRY}  # the summary is shown
 
 # Why the first attempt failed (retry_reason, written to report_runs and manifest.csv)
 REASON_REFUSAL = "refusal"
+REASON_CONTENT_FILTER = "content_filter"  # the provider's filter blocked the prompt
 REASON_NO_NUMBER = "no_number_used"
 REASON_NUMBER_MISMATCH = "number_mismatch"
 REASON_TRUNCATED = "truncated"
@@ -295,15 +297,15 @@ def write_summary(
         problem = not_a_summary(text, from_input)
         if problem:
             logger.warning(
-                "Summary for %s attempt %d is not a summary of the data: %s",
+                "Summary for %s attempt %d is not a summary of the data: %s (%s via %s)",
                 numbers["report"],
                 attempt,
                 problem,
+                result.model,
+                result.provider or "unknown provider",
             )
             outcome.status, outcome.failed_numbers = STATUS_GUARD_FAILED, []
-            note_first_failure(
-                outcome, REASON_NO_NUMBER if problem == NO_NUMBER_PROBLEM else REASON_REFUSAL
-            )
+            note_first_failure(outcome, failure_reason(problem, result))
             messages += [
                 {"role": "assistant", "content": text},
                 {"role": "user", "content": NOT_A_SUMMARY_PROMPT},
@@ -328,6 +330,13 @@ def write_summary(
         ]
     outcome.text = None
     return outcome  # guard_failed or truncated (the last attempt's problem): dropped
+
+
+def failure_reason(problem: str, result: llm.LLMResult) -> str:
+    """The retry reason for a reply that is not a summary of the data."""
+    if result.content_filtered:
+        return REASON_CONTENT_FILTER
+    return REASON_NO_NUMBER if problem == NO_NUMBER_PROBLEM else REASON_REFUSAL
 
 
 def note_first_failure(outcome: SummaryOutcome, reason: str) -> None:

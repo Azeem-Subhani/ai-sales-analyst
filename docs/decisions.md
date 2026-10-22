@@ -1067,3 +1067,55 @@ text are marked **(clarified)**.
     the prime minister of Pakistan?" and "What's the weather tomorrow?"), graded
     pass when the answer declines and redirects;
   - the rule 11 rewording above and this rule share one live eval rerun.
+
+### Week 6 wrap-up: tests can never reach OpenRouter or Gmail (2026-10-22)
+- **Decision:** `tests/conftest.py` has a session-scoped autouse fixture,
+  `block_live_services`, with no opt-out. Session scope is the point: the Week 6
+  incident ($0.0083) came from a module-scoped fixture built before the old
+  function-scoped block applied.
+- **Layers:** fake values for `OPENROUTER_API_KEY`, `GMAIL_ADDRESS` and
+  `GMAIL_APP_PASSWORD`; `.env` loading off (`PYTHON_DOTENV_DISABLED` plus a no-op
+  `DotEnv.set_as_environment_variables`, which also covers modules that imported
+  `load_dotenv` by name); `llm.make_client` and `llm.key_limit_remaining` raise
+  "OpenRouter is blocked in tests"; socket name resolution and connect refuse
+  `openrouter.ai` and `smtp.gmail.com`. Tests in `test_guardrails.py` prove each one.
+
+### Week 6 wrap-up: `ok_after_retry` summary status (2026-10-22)
+- A summary that fails the guard on the first attempt and passes the retry is
+  `ok_after_retry`, not `ok`. It counts as a success everywhere (email, Reports
+  page, backfill index).
+- `summary_retry_reason` records why the first attempt failed: `content_filter`,
+  `refusal`, `no_number_used`, `number_mismatch` or `truncated`. It is a nullable
+  column in `report_runs` (added in place by `audit.MIGRATIONS`) and a column in the
+  backfill `manifest.csv`.
+
+### Week 6 wrap-up: cause of the daily summary refusals (2026-10-22)
+- **Evidence (no LLM call):** the prompt and refused reply were not stored (only a
+  log warning), so I rebuilt the exact prompts for all 14 daily snapshots and the
+  weekly and monthly reviews from the report numbers. All 6 refused dailies (as of
+  13, 17, 20, 22, 27 and 28 Sep) have **Premium Webcam (Electronics)** as the Rank 1
+  product. None of the 8 dailies that passed does (14 Sep has it at Rank 3; Ultra
+  Webcam is Rank 1 on 23 and 30 Sep). The weekly and monthly prompts never name a
+  webcam. Length, sections, cancellation wording, zeros and "n/a" changes show no
+  pattern.
+- **Live checks (10 calls, $0.0008 by the key balance, 9.7498 to 9.7490):**
+  - the 13 Sep prompt as built, 3 times: refused 3 of 3, every time routed to
+    **Azure** with `finish_reason` **`content_filter`** and 0 tokens;
+  - "Premium Webcam" renamed to "Premium Camera": a normal summary (Azure);
+  - the 23 Sep prompt (Ultra Webcam at Rank 1): a normal summary (Azure);
+  - Azure ignored in the provider settings: OpenRouter 404, no endpoint left. The
+    OpenRouter workspace guardrail (provider allowlist and zero data retention)
+    leaves only Azure for this model;
+  - keeping the name but rewording: "product ... (category ...)" labels, a
+    business-context sentence in the system prompt, quoted names, and all three
+    together: still blocked 4 of 4.
+- **Cause:** Azure's input content filter blocks a daily prompt that lists "Premium
+  Webcam" first. It is not the model and not our wording. The retry passes because
+  the extra conversation turns change what the filter scores.
+- **Fix in this change:** none to the wording (no variant that keeps the real name
+  passed). `LLMResult.provider` and `LLMResult.content_filtered` are recorded, and a
+  filter block gets its own retry reason, `content_filter`. The one retry plus
+  `ok_after_retry` stays the safeguard.
+- **Options for the project owner (outside `summary.py` and `llm.py`, not done):**
+  rename the product in the dummy data generator, or allow a second provider in the
+  OpenRouter workspace guardrail so a provider ignore list becomes possible.

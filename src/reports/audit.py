@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS report_runs (
     started_at_utc    TIMESTAMP NOT NULL,
     finished_at_utc   TIMESTAMP NOT NULL,
     summary_status    VARCHAR,            -- ok | guard_failed | llm_unavailable | skipped (Week 4)
-    summary_retry_reason VARCHAR          -- refusal | no_number_used | number_mismatch | truncated
+    summary_retry_reason VARCHAR          -- why attempt 1 failed (summary.py REASON_*), Week 6
 )
 """
 # Week 4: summary_status. NULL for Week 3 rows and for attempts that failed before

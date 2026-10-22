@@ -54,6 +54,9 @@ SERVER_ERROR_STATUS = 500
 SETUP_HINT = "See 'LLM setup' in README.md."
 TOKENS_PER_PRICE_UNIT = 1_000_000
 FINISH_LENGTH = "length"  # finish_reason when the output hit max_tokens
+# finish_reason when the provider's content filter blocked the request (Week 6 wrap-up:
+# Azure blocks daily summary prompts that list "Premium Webcam" first)
+FINISH_CONTENT_FILTER = "content_filter"
 
 # USD per 1M input and output tokens, used only when OpenRouter's response carries no
 # usage.cost. Filled from OpenRouter's /models prices by the Week 4 model check.
@@ -114,11 +117,17 @@ class LLMResult:
     latency_seconds: float = 0.0
     finish_reason: str | None = None  # stop | length | tool_calls | ... (None: not reported)
     reasoning_tokens: int = 0  # part of output_tokens the model spent thinking, if reported
+    provider: str | None = None  # the provider OpenRouter routed the call to, if reported
 
     @property
     def truncated(self) -> bool:
         """True if the model stopped because it hit max_tokens (the text is cut off)."""
         return self.finish_reason == FINISH_LENGTH
+
+    @property
+    def content_filtered(self) -> bool:
+        """True if the provider's content filter blocked the call (the text is a refusal)."""
+        return self.finish_reason == FINISH_CONTENT_FILTER
 
     def assistant_message(self) -> dict[str, Any]:
         """The assistant turn to append to the conversation before sending tool results."""
@@ -314,7 +323,16 @@ def _parse_response(response: Any, requested_model: str) -> LLMResult:
         cost_usd=_cost(usage, requested_model, input_tokens, output_tokens),
         finish_reason=getattr(choices[0], "finish_reason", None),
         reasoning_tokens=int(getattr(details, "reasoning_tokens", 0) or 0),
+        provider=_provider(response),
     )
+
+
+def _provider(response: Any) -> str | None:
+    """OpenRouter's top-level "provider" field (an extra field the SDK keeps), if any."""
+    provider = getattr(response, "provider", None)
+    if provider is None:
+        provider = (getattr(response, "model_extra", None) or {}).get("provider")
+    return str(provider) if provider else None
 
 
 def _parse_tool_call(call: Any) -> ToolCall:

@@ -257,3 +257,15 @@ def test_missing_finish_reason_is_not_truncated() -> None:
     )
     result = llm.complete(MESSAGES, client=FakeClient(bare), settings=SETTINGS)
     assert (result.finish_reason, result.truncated) == (None, False)
+
+
+def test_provider_is_recorded_when_openrouter_reports_it() -> None:
+    reply = response()
+    reply.provider = "SomeProvider"
+    assert call(FakeClient(reply)).provider == "SomeProvider"
+    assert call(FakeClient(response())).provider is None
+
+
+def test_content_filter_finish_is_flagged() -> None:
+    result = call(FakeClient(response("I'm sorry", finish_reason="content_filter")))
+    assert result.content_filtered and not result.truncated

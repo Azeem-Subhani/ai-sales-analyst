@@ -453,3 +453,10 @@ def test_summary_retry_logged_and_sent(
     assert GOOD in sent_text(smtp)  # ok_after_retry is shown like ok
     row = audit.read_runs(send_settings.audit_path).iloc[0]
     assert (row["summary_status"], row["summary_retry_reason"]) == ("ok_after_retry", "refusal")
+
+
+def test_a_content_filter_block_is_its_own_retry_reason(weekly_numbers: dict) -> None:
+    """Azure's filter blocked daily prompts listing "Premium Webcam" first (Week 6)."""
+    blocked = llm.LLMResult(text=REFUSAL, model="fake/model", finish_reason="content_filter")
+    outcome = summary.write_summary(weekly_numbers, complete=FakeLLM(blocked, GOOD))
+    assert (outcome.status, outcome.retry_reason) == ("ok_after_retry", "content_filter")
