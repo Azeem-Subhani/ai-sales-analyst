@@ -824,3 +824,53 @@ text are marked **(clarified)**.
 - `Report` now carries `summary_cost_usd`. It was calculated before but dropped.
 - **Run (2026-10-22):** 18 of 18 ok, every summary `ok`, 4 min 22 s, $0.0079 by the
   key balance.
+
+### Dashboard: src/ui, read-only, numbers from src/
+- **Path (2026-10-22):** the dashboard is `src/ui/app.py` (`streamlit run
+  src/ui/app.py`), as the Week 6 brief asked. The one-line stub
+  `src/app/streamlit_app.py` was removed. `docs/project_plan.md` still names the
+  old path; it is read-only, so this entry records the change.
+- **Pages live in `src/ui/app_pages/`, not `pages/`.** Streamlit treats a `pages/`
+  folder next to the main script as old-style auto pages. On a rerun it then ran a
+  page without `app.py`, so the sidebar and shared as_of were missing.
+- **No numbers in the UI:**
+  - The pages call `src/reports/views.py` (sales and demand) and
+    `src/reports/saved.py` (saved reports). They have no SQL and open no database;
+    a guardrail test checks this.
+  - `views` reuses the builder's sections and comparisons and returns tables rounded
+    once for display: money half-up to cents, rates as percentages to 1 decimal.
+    Tables stay sortable because the values are numbers, not text.
+- **Sales periods:** the Sales page shows the latest complete day, week or month
+  ending on or before the sidebar date (the data clock's rule), with the matching
+  report's `compare_to`.
+- **Demand page:**
+  - It needs a snapshot for exactly the sidebar date. If there is none, it shows the
+    `python -m src.demand.run --as-of ...` command and has no button to create one.
+  - Lists are full, with no 10-row cap. Declining customers show revenue lost.
+- **Approvals:**
+  - Each Approve or Reject needs a second Confirm click. "Decided by" is required
+    and kept for the session; the note is optional.
+  - Every decision goes through `approve.decide()` with the dashboard's
+    `planning.duckdb` path, exactly as the CLI does.
+  - `ApprovalError`, `PlanningStoreError` and any other write failure (such as a
+    locked file) are shown as an error. After a decision the read cache is cleared.
+  - `tests/test_demand.py`'s approval-import check now covers `src/agent` and
+    `src/reports`. The guardrail tests cover `src/ui`: only the Demand page may call
+    `decide()`.
+- **Chat page:**
+  - It calls `agent.ask`, the same function the CLI uses; no refactor was needed,
+    since the CLI's `main()` only parses arguments.
+  - Each question is single-turn and history is display only.
+  - Answers are measured from `DATA_END_DATE`, not the sidebar date, as in the
+    CLI and the eval.
+  - The details expander shows the tool calls and results, and the CLI footer plus
+    tokens.
+- **Reports page:**
+  - It lists `outputs/reports` folders and the backfill manifest.
+  - The saved HTML is shown with `st.html`, after `saved.inline_images` swaps
+    each chart for a data URI. `st.html` sanitizes the HTML.
+  - `st.iframe` (the replacement for the deprecated `components.html`) runs the page
+    with access to the app, and the report includes LLM-written summary text.
+- **Short-lived reads:** every read opens DuckDB read-only and closes it, and is
+  cached with `st.cache_data` per as_of and file path. The CLIs can still write
+  while the dashboard is open.
