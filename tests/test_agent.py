@@ -4,6 +4,7 @@ The fake replaces llm.chat_with_tools, so no test reaches OpenRouter.
 """
 
 import json
+import re
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -303,6 +304,28 @@ def test_system_prompt_contents(built: dict) -> None:
     assert "Never bold a whole sentence or line." in prompt
     assert "name every row the tool returned, up to 10, in the tool's" in prompt
     assert "{" not in prompt.split("## KPI definitions")[0]  # template fully filled
+
+
+def rule_text(prompt: str, number: int) -> str:
+    """One numbered rule of the system prompt, up to the next rule or section."""
+    match = re.search(rf"^{number}\. (.*?)(?=^\d+\. |^## )", prompt, re.MULTILINE | re.DOTALL)
+    assert match, f"rule {number} not found"
+    return match.group(1)
+
+
+def test_rule_11_example_has_no_digits(built: dict) -> None:
+    """A number in the example ("the last 12 months") was copied and tripped the guard."""
+    rule = rule_text(prompts.build_system_prompt(built["db_path"], DATA_END), 11)
+    assert "say so in your first sentence" in rule
+    assert not re.search(r"\d", rule)
+
+
+def test_rule_14_keeps_the_agent_on_topic(built: dict) -> None:
+    rule = rule_text(prompts.build_system_prompt(built["db_path"], DATA_END), 14)
+    assert rule.startswith("Stay on topic.")
+    for words in ("do not call any", "sales and demand data", "example questions", '"hi"'):
+        assert words in " ".join(rule.split())
+    assert "is a pre-build" in rule  # loosely worded data questions stay on topic
 
 
 def test_prompt_last_month_and_last_week_at_data_end(built: dict) -> None:

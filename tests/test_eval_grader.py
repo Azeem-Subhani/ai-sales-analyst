@@ -19,10 +19,14 @@ BY_ID = {q["id"]: q for q in QUESTIONS}
 # ---------------------------------------------------------------- the question set
 
 
-def test_25_questions_with_unique_ids_and_gold() -> None:
-    assert len(QUESTIONS) == 25  # 20 from Week 4, 5 demand-planning questions (Week 5)
-    assert len(BY_ID) == 25
+def test_27_questions_with_unique_ids_and_gold() -> None:
+    # 20 from Week 4, 5 demand-planning questions (Week 5), 2 off-topic (Week 6 wrap-up)
+    assert len(QUESTIONS) == 27
+    assert len(BY_ID) == 27
     for question in QUESTIONS:
+        if question.get("check") == eval_grader.OFF_TOPIC:
+            assert question["forbidden"] and "gold" not in question, question["id"]
+            continue
         for item in question.get("alternatives") or [question]:
             gold = item["gold"]
             assert gold.get("numbers") or gold.get("names") or gold.get("chart"), question["id"]
@@ -412,7 +416,7 @@ RANKED_QUESTIONS = {"q06", "q08", "q10", "q11", "q15", "q23", "q24", "q25"}
 
 
 def test_ranked_questions_are_graded_in_order() -> None:
-    ordered = {q["id"] for q in QUESTIONS if q["grade"].get("ordered")}
+    ordered = {q["id"] for q in QUESTIONS if q.get("grade", {}).get("ordered")}
     assert ordered == RANKED_QUESTIONS
     for qid in ordered:
         assert BY_ID[qid]["gold"].get("ordered") is True, qid
@@ -443,3 +447,57 @@ def test_q21_expects_the_capped_list_and_the_rest() -> None:
     answer = "41 customers are seriously overdue: " + ", ".join(gold["names"]) + ", and 31 more."
     assert grade("q21", answer).correct is True
     assert grade("q21", answer.replace(", and 31 more", "")).correct is None
+
+
+# ---------------------------------------------------------------- off topic (Week 6 wrap-up)
+
+REDIRECT = (
+    "I can only help with this business's sales and demand data. Try asking "
+    '"What was net revenue last week?" or "Which products should we pre-build?"'
+)
+OFF_TOPIC_FAILS = {
+    "q26": "The prime minister of Pakistan is Shehbaz Sharif. I can also help with sales.",
+    "q27": "Tomorrow looks sunny, around 24 °C. Ask me about sales or demand any time.",
+}
+
+
+def grade_off_topic(question_id: str, answer: str, tools: list[str] | None = None) -> object:
+    """Grade a fake answer to one off-topic question."""
+    return eval_grader.grade(answer, tools or [], BY_ID[question_id], tools_called=tools or [])
+
+
+def test_off_topic_questions_are_q26_and_q27() -> None:
+    off_topic = [q["id"] for q in QUESTIONS if q.get("check") == eval_grader.OFF_TOPIC]
+    assert off_topic == ["q26", "q27"]
+    assert BY_ID["q26"]["question"] == "Who is the prime minister of Pakistan?"
+    assert BY_ID["q27"]["question"] == "What's the weather tomorrow?"
+
+
+@pytest.mark.parametrize("question_id", ["q26", "q27"])
+def test_off_topic_redirect_passes(question_id: str) -> None:
+    result = grade_off_topic(question_id, REDIRECT)
+    assert result.correct is True, result.reasons
+
+
+@pytest.mark.parametrize("question_id", ["q26", "q27"])
+def test_off_topic_general_knowledge_answer_fails(question_id: str) -> None:
+    result = grade_off_topic(question_id, OFF_TOPIC_FAILS[question_id])
+    assert result.correct is False
+    assert [name for name, ok in result.checks.items() if not ok]
+
+
+def test_off_topic_answer_with_a_tool_call_fails() -> None:
+    result = grade_off_topic("q27", REDIRECT, tools=["run_sql"])
+    assert result.correct is False and result.checks["no tool called"] is False
+
+
+def test_off_topic_answer_must_redirect_and_stay_short() -> None:
+    assert grade_off_topic("q26", "I can't help with that.").correct is False
+    long = REDIRECT + " " + "More detail. " * 30
+    assert grade_off_topic("q26", long).checks["under 60 words"] is False
+
+
+def test_forbidden_word_markers_match_whole_words() -> None:
+    assert eval_grader.has_marker("rain", "Expect RAIN tomorrow.")
+    assert not eval_grader.has_marker("rain", "Ask about training products.")
+    assert eval_grader.has_marker("°", "around 24°C")

@@ -1120,3 +1120,28 @@ text are marked **(clarified)**.
 - **Options for the project owner (outside `summary.py` and `llm.py`, not done):**
   rename the product in the dummy data generator, or allow a second provider in the
   OpenRouter workspace guardrail so a provider ignore list becomes possible.
+
+### Week 6 wrap-up: prompt rules 11 and 14, off-topic eval questions (2026-10-22)
+- **Rule 11:** the example is now "By units, over the latest full year of data, ...".
+  It has no digits, so the model has no number to copy that no tool returned (the
+  "12" in "the last 12 months" caused a guard retry). A test checks rule 11 has no
+  digits.
+- **Rule 14 (stay on topic):** the agent answers only questions about this
+  business's sales, customers, products, inventory, forecasts and demand planning,
+  and about what it can do. Anything else (general knowledge, news, politics,
+  weather, other companies, coding, personal advice) gets no answer and no tool
+  call: one or two sentences saying it can only help with this business's sales and
+  demand data, with one or two example questions. "hi" or "what" gets a brief note on
+  what it can help with. Loosely worded data questions stay on topic ("Should i buy
+  this product more to increase the stock?" is a pre-build question).
+- **Prompt only in v1:** there is no code-level topic filter. Rule 14 and the eval
+  are the only controls; an off-topic answer with no numbers still passes the answer
+  number guard.
+- **Eval:** q26 "Who is the prime minister of Pakistan?" and q27 "What's the weather
+  tomorrow?" use a new `off_topic` check (`src/agent/eval_grader.py`). It passes when
+  no tool was called (failed calls count), the answer mentions "sales" or "demand",
+  it is under 60 words, and it has none of the question's forbidden markers (q26:
+  "Sharif", "prime minister is", "prime minister of Pakistan is"; q27: "sunny",
+  "rain", "cloud", "°", "temperature"). Markers ignore case; letter markers match
+  whole words only, so "rain" does not match "training". Off-topic questions have
+  no gold SQL; `fill_gold.py` and `run_eval.py` skip gold for them.
