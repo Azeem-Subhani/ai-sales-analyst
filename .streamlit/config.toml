@@ -1,0 +1,42 @@
+# Dashboard theme (Week 6 redesign): one indigo accent, a system font stack (nothing is
+# downloaded), rounded corners, and matching light and dark modes. The viewer picks
+# light or dark in the app menu; the default follows the operating system.
+
+[server]
+runOnSave = false
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+font = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif"
+headingFontWeights = [700, 650, 600]
+baseRadius = "0.75rem"
+buttonRadius = "full"
+showWidgetBorder = true
+
+[theme.light]
+primaryColor = "#4F46E5"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F4F5FB"
+textColor = "#1F2333"
+borderColor = "#E3E5EF"
+linkColor = "#4F46E5"
+dataframeHeaderBackgroundColor = "#EEF0FA"
+chartCategoricalColors = ["#4F46E5", "#0EA5E9", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#14B8A6", "#64748B"]
+
+[theme.dark]
+primaryColor = "#818CF8"
+backgroundColor = "#0F1117"
+secondaryBackgroundColor = "#1A1D29"
+textColor = "#E6E8F0"
+borderColor = "#2A2E3D"
+linkColor = "#A5B4FC"
+dataframeHeaderBackgroundColor = "#202436"
+chartCategoricalColors = ["#818CF8", "#38BDF8", "#34D399", "#FBBF24", "#F87171", "#A78BFA", "#2DD4BF", "#94A3B8"]
+
+[theme.light.sidebar]
+backgroundColor = "#F7F8FC"
+
+[theme.dark.sidebar]
+backgroundColor = "#141722"

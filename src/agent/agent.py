@@ -14,6 +14,11 @@ every number must come from a tool result. On a failure the model gets one retry
 if that fails too, the written answer is withheld and the tool results are shown
 instead. Every question, tool call and guard result is written to agent_log in
 data/audit.duckdb.
+
+An optional on_progress callback (the dashboard's chat page) hears about each step as
+it happens: model calls, tool calls, a fallback model, a guard retry. It only sees the
+final answer through ask()'s return value, after the guard, so unchecked text is
+never shown. A callback that fails is logged and ignored.
 """
 
 import dataclasses
@@ -58,6 +63,49 @@ TIME_LIMIT_ANSWER = (
 )
 
 ChatFunction = Callable[..., llm.LLMResult]
+
+# ProgressEvent kinds, in the order a question usually produces them.
+EVENT_THINKING = "thinking"  # a model call starts
+EVENT_THINKING_DONE = "thinking_done"
+EVENT_TOOL_START = "tool_start"
+EVENT_TOOL_DONE = "tool_done"
+EVENT_FALLBACK = "fallback"  # the main model failed; the fallback model answered
+EVENT_GUARD_RETRY = "guard_retry"  # the answer used numbers no tool returned; one retry
+EVENT_WITHHELD = "withheld"  # the retry failed too; tool results are shown instead
+THINKING_LABEL = "Thinking"
+GUARD_RETRY_LABEL = "Number check failed, asking the model again"
+WITHHELD_LABEL = "Number check failed again, showing the tool results instead"
+
+
+@dataclass(frozen=True)
+class ProgressEvent:
+    """One step of answering a question, for a live progress display."""
+
+    kind: str
+    label: str
+    tool: str | None = None
+    seconds: float | None = None  # for *_done events
+    success: bool | None = None  # for *_done events
+    arguments: str | None = None  # tool_start / tool_done: the JSON arguments
+    result: dict | None = None  # tool_done: the tool result
+
+
+ProgressCallback = Callable[[ProgressEvent], None]
+
+
+class _Progress:
+    """Sends events to the optional callback; a failing callback never stops the agent."""
+
+    def __init__(self, callback: ProgressCallback | None) -> None:
+        self.callback = callback
+
+    def emit(self, kind: str, label: str, **fields: Any) -> None:
+        if self.callback is None:
+            return
+        try:
+            self.callback(ProgressEvent(kind, label, **fields))
+        except Exception:
+            logger.exception("Progress callback failed on %s", kind)
 
 
 @dataclass
@@ -115,16 +163,21 @@ def ask(
     *,
     chat: ChatFunction | None = None,
     settings: llm.LLMSettings | None = None,
+    on_progress: ProgressCallback | None = None,
 ) -> AgentAnswer:
-    """Answer one question with tools. Never raises for model or tool problems."""
+    """Answer one question with tools. Never raises for model or tool problems.
+
+    on_progress, if given, is called with a ProgressEvent for each step.
+    """
     config = config or AgentConfig()
+    progress = _Progress(on_progress)
     chat = chat or llm.chat_with_tools
     started = config.clock()
     asked_at = datetime.now(UTC).replace(tzinfo=None)
     answer = AgentAnswer(question_id=uuid.uuid4().hex, question=question, answer="")
     try:
         settings = settings or llm.llm_settings()
-        _run_loop(question, config, chat, settings, started, answer)
+        _run_loop(question, config, chat, settings, started, answer, progress)
     except (llm.LLMAuthError, llm.LLMConfigError) as error:
         answer.answer, answer.error = str(error), str(error)
     except llm.LLMUnavailableError as error:
@@ -142,6 +195,7 @@ def _run_loop(
     settings: llm.LLMSettings,
     started: float,
     answer: AgentAnswer,
+    progress: _Progress,
 ) -> None:
     """The tool loop; fills answer in place."""
     session = tools.ToolSession(
@@ -172,7 +226,9 @@ def _run_loop(
                     "content": FINAL_ANSWER_REQUEST.format(limit=config.max_tool_calls),
                 }
             )
-        result = chat(
+        result = _model_call(
+            chat,
+            progress,
             messages,
             schemas,
             tool_choice="none" if at_limit else "auto",
@@ -184,7 +240,7 @@ def _run_loop(
         if at_limit or not result.tool_calls:
             messages.append(result.assistant_message())
             text = _guarded_text(
-                question, result.text, messages, config, chat, settings, started, answer
+                question, result.text, messages, config, chat, settings, started, answer, progress
             )
             if at_limit:
                 answer.stopped_early = "tool_limit"
@@ -198,8 +254,18 @@ def _run_loop(
             if len(answer.tool_calls) >= config.max_tool_calls:
                 content = json.dumps(LIMIT_REACHED_RESULT)
             else:
+                progress.emit(EVENT_TOOL_START, call.name, tool=call.name, arguments=call.arguments)
                 outcome = session.execute(call.name, call.arguments)
                 answer.tool_calls.append(outcome)
+                progress.emit(
+                    EVENT_TOOL_DONE,
+                    call.name,
+                    tool=call.name,
+                    seconds=outcome.duration_seconds,
+                    success=outcome.success,
+                    arguments=outcome.arguments,
+                    result=outcome.result,
+                )
                 content = outcome.content()
             messages.append({"role": "tool", "tool_call_id": call.id, "content": content})
 
@@ -213,6 +279,7 @@ def _guarded_text(
     settings: llm.LLMSettings,
     started: float,
     answer: AgentAnswer,
+    progress: _Progress,
 ) -> str:
     """The model's answer if its numbers pass the guard, after at most one retry.
 
@@ -229,13 +296,16 @@ def _guarded_text(
     logger.warning("Answer used numbers no tool returned: %s", ", ".join(failed))
     remaining = config.max_seconds - (config.clock() - started)
     if remaining >= MIN_CALL_SECONDS:
+        progress.emit(EVENT_GUARD_RETRY, GUARD_RETRY_LABEL)
         messages.append(
             {
                 "role": "user",
                 "content": answer_guard.RETRY_PROMPT.format(numbers=", ".join(failed)),
             }
         )
-        result = chat(
+        result = _model_call(
+            chat,
+            progress,
             messages,
             tools.tool_schemas(),
             tool_choice="none",
@@ -253,9 +323,32 @@ def _guarded_text(
         if retry_text:
             failed = failed_again
         logger.warning("Answer withheld after the retry: %s", ", ".join(failed))
+    progress.emit(EVENT_WITHHELD, WITHHELD_LABEL)
     answer.answer_guard = answer_guard.GUARD_WITHHELD
     answer.answer_guard_failed = failed
     return answer_guard.withheld_answer(failed, answer.tool_calls)
+
+
+def _model_call(
+    chat: ChatFunction, progress: _Progress, *args: Any, **kwargs: Any
+) -> llm.LLMResult:
+    """One model call, reported as a timed "Thinking" step (and a fallback, if used).
+
+    Timed with time.monotonic, not config.clock, so the time limits work exactly as before.
+    """
+    progress.emit(EVENT_THINKING, THINKING_LABEL)
+    started = time.monotonic()
+    try:
+        result = chat(*args, **kwargs)
+    except Exception:
+        seconds = time.monotonic() - started
+        progress.emit(EVENT_THINKING_DONE, THINKING_LABEL, seconds=seconds, success=False)
+        raise
+    seconds = time.monotonic() - started
+    progress.emit(EVENT_THINKING_DONE, THINKING_LABEL, seconds=seconds, success=True)
+    if result.fallback_used:
+        progress.emit(EVENT_FALLBACK, f"Main model failed, answered by {result.model}")
+    return result
 
 
 def _with_timeout(settings: llm.LLMSettings, remaining: float) -> llm.LLMSettings:

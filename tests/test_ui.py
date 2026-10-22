@@ -111,8 +111,8 @@ def test_reports_page_inlines_charts(
     at.radio[0].set_value("Dry runs").run()
     assert not at.exception
     assert at.get("download_button")
-    [page] = at.get("html")
-    assert 'src="data:image/png;base64,' in page.proto.body  # the saved chart, inlined
+    bodies = [h.proto.body for h in at.get("html")]
+    assert any('src="data:image/png;base64,' in body for body in bodies)  # chart inlined
 
 
 # ---------------------------------------------------------------- approvals
@@ -205,6 +205,8 @@ def test_a_failed_write_shows_a_clear_error(
 
 # ---------------------------------------------------------------- chat
 
+CHECKED = "Net revenue was 114,286.82."
+
 
 def fake_answer(question: str, guard: str = "ok") -> agent.AgentAnswer:
     """An answer like agent.ask returns, with one tool call."""
@@ -213,11 +215,14 @@ def fake_answer(question: str, guard: str = "ok") -> agent.AgentAnswer:
         arguments='{"period_type": "week"}',
         result={"kpis": [{"kpi": "net_revenue", "current": 114286.82}]},
         success=True,
+        duration_seconds=0.2,
     )
     return agent.AgentAnswer(
         question_id="q",
         question=question,
-        answer="Net revenue was 114,286.82.",
+        answer=CHECKED
+        if guard != "withheld"
+        else "(The written answer was withheld.) Net revenue: 114,286.82",
         model="test/model",
         tool_calls=[call],
         input_tokens=1200,
@@ -228,27 +233,132 @@ def fake_answer(question: str, guard: str = "ok") -> agent.AgentAnswer:
     )
 
 
-def test_chat_page_uses_agent_ask_one_question_at_a_time(
+class FakeAgent:
+    """Stands in for agent.ask: plays the progress events, then returns the answer."""
+
+    def __init__(self, config_check: object = None) -> None:
+        self.asked: list[str] = []
+        self.events_seen_before_answer: list[str] = []
+        self.config_check = config_check
+
+    def __call__(self, question: str, config: agent.AgentConfig, **kwargs: object):
+        self.asked.append(question)
+        if self.config_check:
+            self.config_check(config)
+        guard = "withheld" if "withhold" in question else "ok"
+        answer = fake_answer(question, guard)
+        emit = kwargs["on_progress"]
+        events = [
+            agent.ProgressEvent(agent.EVENT_THINKING, agent.THINKING_LABEL),
+            agent.ProgressEvent(
+                agent.EVENT_THINKING_DONE, agent.THINKING_LABEL, seconds=0.8, success=True
+            ),
+            agent.ProgressEvent(agent.EVENT_TOOL_START, "get_kpis", tool="get_kpis"),
+            agent.ProgressEvent(
+                agent.EVENT_TOOL_DONE,
+                "get_kpis",
+                tool="get_kpis",
+                seconds=0.2,
+                success=True,
+                arguments='{"period_type": "week"}',
+                result=answer.tool_calls[0].result,
+            ),
+            agent.ProgressEvent(agent.EVENT_THINKING, agent.THINKING_LABEL),
+            agent.ProgressEvent(
+                agent.EVENT_THINKING_DONE, agent.THINKING_LABEL, seconds=0.5, success=True
+            ),
+        ]
+        if guard == "withheld":
+            events += [
+                agent.ProgressEvent(agent.EVENT_GUARD_RETRY, agent.GUARD_RETRY_LABEL),
+                agent.ProgressEvent(agent.EVENT_WITHHELD, agent.WITHHELD_LABEL),
+            ]
+        for event in events:
+            emit(event)
+            self.events_seen_before_answer.append(event.kind)
+        return answer
+
+
+def chat_page(built: dict, planning: Path, tmp_path: Path) -> AppTest:
+    """The Chat page, empty."""
+    return app(built, planning, tmp_path).run().switch_page("app_pages/chat.py").run()
+
+
+def html_text(at: AppTest) -> str:
+    """Every st.html body on the page, joined."""
+    return " ".join(h.proto.body for h in at.get("html"))
+
+
+def test_chat_shows_live_steps_then_the_checked_answer(
     app_env: None, built: dict, planning: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    asked: list[str] = []
-
-    def ask(question: str, config: agent.AgentConfig, **kwargs: object) -> agent.AgentAnswer:
-        asked.append(question)
+    def check(config: agent.AgentConfig) -> None:
         assert config.data_end == AS_OF and config.db_path == built["db_path"]
-        return fake_answer(question, guard="withheld" if len(asked) == 2 else "ok")
 
-    monkeypatch.setattr(agent, "ask", ask)
-    at = app(built, planning, tmp_path).run().switch_page("app_pages/chat.py").run()
+    fake = FakeAgent(check)
+    monkeypatch.setattr(agent, "ask", fake)
+    at = chat_page(built, planning, tmp_path)
     at.chat_input[0].set_value("Net revenue last week?").run()
-    at.chat_input[0].set_value("And the week before?").run()
-    assert not at.exception
-    assert asked == ["Net revenue last week?", "And the week before?"]  # single-turn
-    assert len(at.session_state["chat_history"]) == 2
+    assert not at.exception, [e.value for e in at.exception]
+    assert fake.asked == ["Net revenue last week?"]
     markdown = " ".join(m.value for m in at.markdown)
-    assert "Net revenue was 114,286.82." in markdown and "get_kpis" in markdown
-    captions = " ".join(c.value for c in at.caption)
-    assert "model test/model" in captions and "1,280 total" in captions and "$0.0004" in captions
+    assert "Net revenue last week?" in markdown and CHECKED in markdown
+    html = html_text(at)
+    assert "Getting KPIs (get_kpis)" in html and "0.2 s" in html  # the tool step, ticked
+    assert html.count('class="step-ok"') == 3  # two model calls and one tool call
+    assert "test/model" in html and "1,280 tokens" in html and "$0.0004" in html
+    [status] = at.get("status")
+    assert status.proto.label == "Used 1 tool \u00b7 1.5 s"
+    assert len(at.session_state["chat_history"]) == 1
+
+
+def test_chat_withheld_answer_is_a_warning(
+    app_env: None, built: dict, planning: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(agent, "ask", FakeAgent())
+    at = chat_page(built, planning, tmp_path)
+    at.chat_input[0].set_value("Please withhold this").run()
+    assert not at.exception
     assert any("withheld" in w.value for w in at.warning)
-    at.button[0].click().run()  # Clear chat
+    assert "Number check failed" in html_text(at)
+    assert CHECKED not in " ".join(m.value for m in at.markdown)
+
+
+def test_chat_example_chip_sends_the_question(
+    app_env: None, built: dict, planning: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = FakeAgent()
+    monkeypatch.setattr(agent, "ask", fake)
+    at = chat_page(built, planning, tmp_path)
+    assert "Every number in an answer comes from a tool" in html_text(at)
+    chips = [b for b in at.button if (b.key or "").startswith("example-")]
+    assert len(chips) == 4
+    at.button(key="example-1").click().run()  # "Stockouts in September"
+    assert not at.exception
+    assert fake.asked == ["Which products ran out of stock in September 2026?"]
+    assert not [b for b in at.button if (b.key or "").startswith("example-")]  # no longer empty
+
+
+def test_chat_history_and_clear(
+    app_env: None, built: dict, planning: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = FakeAgent()
+    monkeypatch.setattr(agent, "ask", fake)
+    at = chat_page(built, planning, tmp_path)
+    at.chat_input[0].set_value("First?").run()
+    at.chat_input[0].set_value("Second?").run()
+    assert not at.exception
+    assert fake.asked == ["First?", "Second?"]  # single-turn: one call per question
+    assert len(at.get("status")) == 2  # one status block per answer, history included
+    next(b for b in at.button if b.label == "Clear chat").click().run()
     assert at.session_state["chat_history"] == []
+
+
+def test_chat_page_shows_the_data_end_instead_of_the_date_picker(
+    app_env: None, built: dict, planning: Path, tmp_path: Path
+) -> None:
+    at = chat_page(built, planning, tmp_path)
+    assert not at.sidebar.date_input
+    assert any("Answers use data up to **30 Sep 2026**" in m.value for m in at.sidebar.markdown)
+    at.switch_page("app_pages/sales.py").run()
+    assert at.sidebar.date_input[0].value == AS_OF
