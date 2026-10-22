@@ -40,35 +40,37 @@ class Turn(BaseModel):
 def paired(tool_messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Copies of the messages with every unmatched tool call or tool result dropped.
 
-    A result counts only if its call came earlier in the list. An assistant message
-    left with no calls and no text is dropped too.
+    A result counts only in the run of tool messages straight after the assistant
+    message that made its call, once per call. A call with no result there is removed
+    from its message; an assistant message left with no calls and no text is dropped.
     """
-    called: set[str] = set()
-    answered: set[str] = set()
-    for message in tool_messages:
-        if message.get("role") == "assistant":
-            called.update(call["id"] for call in message.get("tool_calls") or [])
-        elif message.get("role") == "tool" and message.get("tool_call_id") in called:
-            answered.add(message["tool_call_id"])
-
     kept: list[dict[str, Any]] = []
-    sent: set[str] = set()
-    for message in tool_messages:
-        if message.get("role") == "assistant":
-            message = dict(message)
-            calls = [call for call in message.get("tool_calls") or [] if call["id"] in answered]
-            if calls:
-                message["tool_calls"] = calls
-            else:
-                message.pop("tool_calls", None)
-                if not message.get("content"):
-                    continue
-            kept.append(message)
-        elif message.get("role") == "tool":
-            call_id = message.get("tool_call_id")
-            if call_id in answered and call_id not in sent:  # one result per call
-                sent.add(call_id)
-                kept.append(dict(message))
+    index = 0
+    while index < len(tool_messages):
+        message = tool_messages[index]
+        index += 1
+        if message.get("role") != "assistant":
+            continue  # a tool result with no call just before it
+        block: list[dict[str, Any]] = []  # the tool results that follow this message
+        while index < len(tool_messages) and tool_messages[index].get("role") == "tool":
+            block.append(tool_messages[index])
+            index += 1
+        call_ids = {call["id"] for call in message.get("tool_calls") or []}
+        results: dict[str, dict[str, Any]] = {}
+        for result in block:
+            call_id = result.get("tool_call_id")
+            if call_id in call_ids and call_id not in results:
+                results[call_id] = dict(result)
+        assistant = dict(message)
+        calls = [call for call in message.get("tool_calls") or [] if call["id"] in results]
+        if calls:
+            assistant["tool_calls"] = calls
+        else:
+            assistant.pop("tool_calls", None)
+            if not assistant.get("content"):
+                continue
+        kept.append(assistant)
+        kept.extend(results[call["id"]] for call in calls)  # in the order of the calls
     return kept
 
 

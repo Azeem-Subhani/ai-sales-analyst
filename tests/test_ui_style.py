@@ -154,3 +154,29 @@ def test_reports_page_never_shows_ok_after_retry(
     assert "Day 14" in html  # the ok_after_retry report is listed
     assert "ok_after_retry" not in html
     assert html.count("Summary unavailable") == 1  # guard_failed only
+
+
+# ---------------------------------------------------------------- Week 8 chat limit
+
+WEEK8_RULES = (".chat-turns-left", ".st-key-chat-limit", ".chat-limit-text")
+
+
+def test_chat_counter_and_limit_notice_use_tokens_only() -> None:
+    """The counter line and the limit notice add no colours, emoji or gradients."""
+    css = CSS_PATH.read_text(encoding="utf-8")
+    for selector in WEEK8_RULES:
+        rule = css[css.index(selector + " {") :].split("}", 1)[0]
+        assert not re.search(r"#[0-9A-Fa-f]{3,8}\b|rgba?\(|hsla?\(|gradient", rule), selector
+        assert "color" not in rule or "var(--" in rule, selector
+
+
+def test_chat_counter_and_limit_notice_escape_text() -> None:
+    from src.ui import chat_session
+
+    for html in (
+        style.turns_left(chat_session.turns_left_text([])),
+        style.limit_notice(chat_session.LIMIT_TEXT),
+    ):
+        assert not EMOJI.findall(html)
+    assert style.turns_left("<b>hi</b>") == '<p class="chat-turns-left">&lt;b&gt;hi&lt;/b&gt;</p>'
+    assert "&lt;b&gt;hi&lt;/b&gt;" in style.limit_notice("<b>hi</b>")
