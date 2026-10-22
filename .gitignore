@@ -23,3 +23,6 @@ outputs/
 Thumbs.db
 .vscode/
 .idea/
+
+# Session handoff notes (kept outside the repo)
+summary-injection*.txt
