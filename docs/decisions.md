@@ -860,7 +860,8 @@ text are marked **(clarified)**.
 - **Chat page:**
   - It calls `agent.ask`, the same function the CLI uses; no refactor was needed,
     since the CLI's `main()` only parses arguments.
-  - Each question is single-turn and history is display only.
+  - Each question is single-turn and history is display only. (Replaced in Week 8:
+    the dashboard chat is multi-turn; see "Week 8: multi-turn chat".)
   - Answers are measured from `DATA_END_DATE`, not the sidebar date, as in the
     CLI and the eval.
   - The details expander shows the tool calls and results, and the CLI footer plus
@@ -1323,3 +1324,84 @@ Original items:
   "Customer list"). Only the headings changed; the guard, the rows shown and the
   numbers are the same. The titles live in `src/agent` (not the UI labels), because
   the agent must not import from `src/ui`; the CLI and the agent log get the same text.
+
+## Week 8: multi-turn chat
+
+### Week 8: the dashboard chat carries earlier turns (2026-10-22)
+- **Decision:** `agent.ask` takes an optional `history`: a list of
+  `history.Turn` (pydantic) with `question`, `answer`, `withheld` and
+  `tool_messages`. The tool messages are the exact assistant tool-call messages
+  and tool result messages from that turn, in order (`AgentAnswer.tool_messages`;
+  `agent.turn_from(answer)` builds the Turn).
+- **Messages sent:** the system prompt, then for each earlier turn its question,
+  its tool messages, and its answer, then the new question. A withheld answer is
+  sent as "[answer withheld: it failed the number check]". A tool call without a
+  matching result, or a result without its call, is never sent: `history.paired()`
+  keeps only results in the run of tool messages straight after their call.
+- **Why:** follow-ups like "what did they order?" got a clarifying question. Sending
+  the earlier tool results (not just the answers) lets the model reuse rows it
+  already has, and lets the number guard check them.
+- **No history** (`None`, the default, or `[]`) sends exactly the Week 7 messages.
+  The CLI (`python -m src.agent.chat`) and the eval stay single-turn.
+
+### Week 8: size limits for carried tool results (2026-10-22)
+- All in `src/agent/history.py`:
+  - each carried tool result is cut to 4,000 characters, then " [truncated]";
+  - carried tool-result text is capped at 40,000 characters in total; over that,
+    results are replaced by "[earlier result trimmed]", oldest turn first, and the
+    call/result pairs stay valid.
+- Questions and answers are never trimmed. The current question's own tool results
+  are not touched by these limits.
+- The Turn keeps the untrimmed results; trimming only changes what is sent.
+
+### Week 8: number guard with history (2026-10-22)
+- A number in the answer is allowed if it comes from this turn's tool results, any
+  carried tool result (the original, untrimmed text in the Turn), the current
+  question, an earlier question, a date, or is a count from 1 to 10.
+- A number that appears only in an earlier answer is **not** allowed: answers are
+  not sources.
+- Unchanged: one retry, then the written answer is withheld and this turn's tool
+  results are shown.
+
+### Week 8: prompt rule 15 (2026-10-22)
+- Earlier questions, answers and tool results are for working out what the person
+  means (who "they" is, which product, which period) and may be reused when they
+  already answer the follow-up. The model calls a tool when they do not cover the new
+  question, or when the period or measure changes. If the follow-up does not change
+  the measure or period, it keeps the earlier choice and says so in its first
+  sentence. If it is still unclear, it asks one short question. Relative periods are
+  still measured from `DATA_END_DATE`. Rules 11 to 14 are unchanged.
+
+### Week 8: 20 answered turns per chat, no persistence (2026-10-22)
+- `MAX_TURNS = 20` in `src/ui/chat_session.py` (pure helpers: `can_ask`,
+  `add_turn`, `questions_left`, `show_counter`, `agent_history`, `clear`).
+- An answer or a withheld answer counts. A question that failed (`answer.error`:
+  model unavailable, bad key or settings) is shown once, not stored and not
+  counted. A time-limit answer counts.
+- From question 16 a muted line says "N questions left in this chat". At 20 the
+  input is disabled and a notice says "This chat has reached 20 questions. Start a
+  new chat to keep going." with a **Start new chat** button. The chat is never
+  cleared automatically. Start new chat and Clear chat do the same reset.
+- History lives in `st.session_state` only, never on disk; a new browser session
+  starts empty.
+- Placeholder: "Ask a question, or follow up on the last answer."
+
+### Week 8: agent_log history columns (2026-10-22)
+- `agent_log.history_turns` and `agent_log.history_chars` (nullable INTEGER): how many
+  earlier turns were sent, and how many characters of carried tool results (after
+  trimming, markers included). NULL when no history was passed (the CLI, the eval,
+  rows logged before Week 8); 0 for the first question of a dashboard chat.
+- Added by two `ADD COLUMN IF NOT EXISTS` migrations, so an existing
+  `audit.duckdb` keeps working; no other table changed.
+
+### Week 8: live check and eval (2026-10-22)
+- Three scripted conversations (8 questions) on `openai/gpt-5.6-luna`, fallback
+  off, through `agent.ask(history=...)`: every answer passed the guard first time.
+  "which of them ordered most recently?" was answered from the earlier results with
+  no tool call. The other follow-ups called a tool, as rule 15 asks when the data
+  needed is new. Carried tool-result text reached 12,036 characters on the
+  wholesale follow-up (three `get_customer_alerts` results).
+- 27-question eval with empty history: 26/27. q19 failed on an API timeout (no
+  answer) and was correct on a rerun; q18, the known failure, was correct this run.
+- Spend by the key balance: 9.6887 before, 9.6586 after, 9.6580 about 3 minutes
+  later: $0.0307 for the live check and the eval.

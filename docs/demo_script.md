@@ -30,7 +30,7 @@ only writes the summary and the chat wording, and a number guard checks both.
   so the first (slower) loads are done before the audience arrives.
 - [ ] OpenRouter balance is above $1:
   `python -c "from dotenv import load_dotenv; load_dotenv(); from src.agent import llm; print(round(llm.key_limit_remaining(llm.llm_settings()), 4))"`.
-  The 5 chat questions below cost about $0.005 together.
+  The 5 chat questions and the follow-up pair below cost about $0.01 together.
 - [ ] Close other programs that may hold `data/planning.duckdb` open, such as a
   DuckDB shell. The approval write needs it.
 
@@ -139,6 +139,22 @@ emails sent.
 - Point out the collapsed steps line above the answer: open it to show each step's
   time, the SQL for `run_sql`, and the **Data** view with the tool result. The grey
   line under the answer gives model, tokens and latency.
+
+#### Follow-up questions (1 min, Week 8)
+
+The chat keeps earlier turns, so a follow-up can say "they". In one chat:
+
+1. "Give me 4 customers who ordered only once."
+2. "what did they order?"
+3. "which of them ordered most recently?"
+
+- In the live check on 2026-10-22, question 1 listed Abdul Palmer, Alexandra Hunt,
+  Billy Reynolds-Price and Carole Lowe-Sykes. Question 2 listed each one's single
+  order, and question 3 answered Billy Reynolds-Price (5 Sep 2026) **without a
+  tool call**, from the earlier results. Model wording can differ on the day.
+- Point out that numbers in a follow-up still come only from tool results (this
+  question's or an earlier one's), never from an earlier answer.
+- A chat takes 20 questions; then **Start new chat**.
 
 ### 4. Approve SB-1042 (3 min)
 
