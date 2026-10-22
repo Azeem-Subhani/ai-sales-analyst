@@ -156,6 +156,55 @@ def test_retry_then_drop(weekly_numbers: dict) -> None:
     assert len(fake.calls) == 2
 
 
+# The reply seen on 6 of 14 backfilled daily snapshots (Week 6).
+REFUSAL = "I'm sorry, but I cannot assist with that request."
+NO_NUMBERS = "Sales were broadly steady this week, with Electronics still the top category."
+
+
+@pytest.mark.parametrize("text", [REFUSAL, NO_NUMBERS, "I can\u2019t help with that.", ""])
+def test_a_reply_that_is_not_a_summary_is_retried_then_dropped(
+    weekly_numbers: dict, text: str
+) -> None:
+    fake = FakeLLM(text, text)
+    outcome = summary.write_summary(weekly_numbers, complete=fake)
+    assert (outcome.status, outcome.text, outcome.attempts) == ("guard_failed", None, 2)
+    assert outcome.failed_numbers == []  # no wrong number: the reply itself is the problem
+    retry = fake.calls[1]
+    assert retry[-2] == {"role": "assistant", "content": text}
+    assert retry[-1]["content"] == summary.NOT_A_SUMMARY_PROMPT
+
+
+def test_a_refusal_then_a_good_summary_is_ok(weekly_numbers: dict) -> None:
+    outcome = summary.write_summary(weekly_numbers, complete=FakeLLM(REFUSAL, GOOD))
+    assert (outcome.status, outcome.text, outcome.attempts) == ("ok", GOOD, 2)
+
+
+def test_only_small_counts_is_not_enough() -> None:
+    # 1 to 10 are allowed as counts, but the summary must use a number from the data.
+    lines = ["Net revenue: 114,286.82 (+2.5% vs previous week)"]
+    text = "Three categories grew and 5 products stood out."
+    assert summary.check_numbers(text, summary.allowed_numbers(lines)) == []
+    assert summary.not_a_summary(text, summary.input_numbers(lines)) == "no number from the data"
+    assert summary.not_a_summary("Net revenue rose 2.5%.", summary.input_numbers(lines)) is None
+
+
+def test_ordinary_wording_is_not_a_refusal(weekly_numbers: dict) -> None:
+    lines = summary.summary_inputs(weekly_numbers)
+    text = "Net revenue reached 114,286.82; we are unable to compare it with a forecast."
+    assert summary.not_a_summary(text, summary.input_numbers(lines)) is None
+    assert summary.not_a_summary(GOOD, summary.input_numbers(lines)) is None
+
+
+def test_refused_report_still_sends_with_placeholder(
+    built: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(llm, "complete", FakeLLM(REFUSAL, REFUSAL))
+    report = build(built, tmp_path)
+    assert report.summary_status == "guard_failed"
+    assert "Summary unavailable for this run" in report.html
+    assert "sorry" not in report.html.lower()
+
+
 def test_cut_off_summary_is_retried_even_when_its_numbers_pass(weekly_numbers: dict) -> None:
     assert (
         summary.check_numbers(

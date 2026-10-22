@@ -68,8 +68,8 @@ counts, the date range and total revenue.
 
 ```bash
 python -m src.data.generate              # rebuild the database
-pytest                                   # fast tests (about 45 s: 480 pass, 13 slow skipped)
-pytest --runslow                         # everything, incl. forecast fits (about 2.5 min: 493 pass)
+pytest                                   # fast tests (about 45 s: 488 pass, 13 slow skipped)
+pytest --runslow                         # everything, incl. forecast fits (about 2.5 min: 501 pass)
 pytest -m slow                           # only the slow tests
 ruff format . && ruff check --fix .      # format and lint
 python -m src.demand.run --as-of 2026-09-30   # demand-planning snapshot (about 100 s)
@@ -220,6 +220,8 @@ and never the database.
 
 - **Number guard:** every number in the summary must be one of the numbers
   sent, possibly rounded to fewer decimals, or a count from 1 to 10.
+- **Not a summary:** a refusal ("I'm sorry, I cannot assist...") or a reply that
+  uses no number from the data is rejected too.
 - **Retry:** if the guard fails, or the summary is cut off at the output token
   cap, the model gets one retry. If that fails too, the summary is dropped.
 - **Never blocks a report:** a dropped or unavailable summary is replaced by

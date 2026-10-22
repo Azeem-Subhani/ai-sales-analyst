@@ -160,12 +160,10 @@ decision is kept either way.
 
 ## If something goes wrong
 
-- **Avoid the daily snapshots in the Reports page.** Some backfilled daily
-  summaries are a model refusal ("I'm sorry, but I cannot assist with that
-  request."). This is an open issue in `docs/decisions.md`; the monthly review is
-  not affected. If asked, explain that the guard checks numbers only and that a
-  fix is planned.
-
+- **Avoid the daily snapshots in the Reports page** unless the backfill has been
+  rerun since 2026-10-22. Six of the first backfill's daily summaries were a model
+  refusal. The summary guard now rejects these and shows the placeholder instead.
+  The monthly review was never affected.
 - **"There is no demand-planning snapshot":** run the command the page shows, then
   reload.
 - **"Not saved: ... is in use by another process":** close the other program that

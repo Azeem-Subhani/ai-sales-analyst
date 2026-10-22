@@ -894,19 +894,24 @@ text are marked **(clarified)**.
 - The name checks use the code's AST (names, attributes, imports), so comments and
   docstrings that mention these words do not trip them.
 
-### Open: 6 of 14 backfilled daily summaries are refusals
-- **Finding (2026-10-22), not fixed:** 6 of the 14 backfilled daily snapshots have
-  the summary "I'm sorry, but I cannot assist with that request.": those as of 13,
-  17, 20, 22, 27 and 28 Sep. Their `summary_status` is `ok`, because the summary
-  number guard only checks numbers and a refusal has none.
-- **Not affected:** the weekly and monthly summaries, including the September
-  monthly review used in the demo. They are all normal.
-- **Possible fix, for the project owner to decide:**
-  - make the guard also reject a summary that uses none of the input numbers, or
-    one that matches a refusal pattern, so it gets the one retry and then the
-    placeholder;
-  - then look at why the daily input draws refusals.
+### The summary guard rejects refusals and number-free summaries
+- **Finding (2026-10-22):** 6 of the 14 backfilled daily snapshots had the summary
+  "I'm sorry, but I cannot assist with that request.": those as of 13, 17, 20, 22,
+  27 and 28 Sep. Their `summary_status` was `ok`, because the number guard only
+  checks numbers and a refusal has none. The weekly and monthly summaries were
+  normal.
+- **Decision (project owner, 2026-10-22):** `summary.not_a_summary()` rejects two
+  kinds of reply:
+  - a refusal (narrow `REFUSAL` pattern: "I'm sorry", "I cannot assist/help",
+    "I am unable to", "as an AI");
+  - a reply that uses no number from the input. The 1 to 10 count allowance does
+    not count as using one.
 
-  Both need live calls to verify.
-- Meanwhile the dashboard's Reports page lists backfilled reports newest first, so
-  it opens on the September monthly review.
+  Either gets the one retry, with `NOT_A_SUMMARY_PROMPT`. If the retry fails too,
+  the summary is dropped: status `guard_failed`, the placeholder in the email, and
+  the report still sends.
+- Ordinary wording such as "unable to compare" is not a refusal (tested).
+- Why the daily input draws refusals is not yet known; the guard stops them
+  reaching an email either way.
+- The Reports page lists backfilled reports newest first, so it opens on the
+  September monthly review.
