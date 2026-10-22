@@ -967,3 +967,73 @@ text are marked **(clarified)**.
   They found the churned wholesale customers, the September stockouts, AP-1150 at
   +27.3% bias, and SB-1042 at 327 units. Each passed the guard on the first
   attempt. No page scrolls horizontally at 375 px width.
+
+### Week 6 polish: look, chat steps, input lock, rounding (2026-10-22)
+- **UI stack (project owner):** the v1 dashboard stays Streamlit. React with FastAPI
+  comes in Phase 3. No new packages and no Streamlit version change for this polish.
+- **Accent:** a blue-to-cyan gradient (`#2563EB` to `#06B6D4`) replaces the indigo
+  accent of the redesign above.
+  - `primaryColor` is `#2563EB` in light mode and `#3B82F6` in dark mode, where it
+    reads better. The gradient is the same in both.
+  - The gradient is used in four places only: the logo mark, the active sidebar
+    item, user chat bubbles and the send button. Never on cards, headings, text or
+    page backgrounds.
+  - Green and red stay only for up/down comparisons on the KPI cards. Severity and
+    priority tags keep their meaning colours. Email charts and report HTML are
+    unchanged; the restyle is UI only.
+  - `toolbarMode = "minimal"` hides the developer toolbar and the Deploy button.
+- **Custom HTML and CSS for the chat steps and the sidebar:**
+  - The tool steps are our own HTML (`src/ui/chat_steps.py`) instead of
+    `st.status`, which drew spinners and could not show muted, borderless lines. One
+    `STEP_LABELS` mapping covers the 7 tools, present tense while running and past
+    tense when done.
+  - The finished steps collapse to one `<details>` line ("Checked forecast accuracy ·
+    7.3 s" or "3 steps · 9.1 s"). Opened, each step shows its duration, the SQL for
+    `run_sql`, and a nested "Data" view of the escaped tool result. That view is the
+    proof in the demo that the numbers come from SQL or Python.
+  - The sidebar is built in `app.py` (`st.navigation(position="hidden")` plus
+    `st.page_link`), because Streamlit's own menu cannot have a brand block above it.
+    It is deep navy (`#0B1220`) in both modes, with status chips for the data end and
+    the main model.
+  - `st.html` strips inline `<svg>` and SVG data URIs, so the sidebar logo mark is
+    drawn in CSS; `src/ui/logo.svg` is the same mark as a file, used as the assistant
+    avatar.
+- **CSS rules:**
+  - All dashboard CSS is in one file, `src/ui/style.css`, loaded once from `app.py`.
+  - It hooks into `data-testid` attributes, not Streamlit's generated class names.
+    One exception: the active menu item is found by the `st-key-nav-active-...` class
+    that its container's key creates, because Streamlit marks the active link only
+    with a generated class.
+  - `style.css` must not contain `<`, even in a comment: Streamlit then drops the
+    whole stylesheet. A test checks this.
+- **Escaping:** every dynamic string placed into HTML (the question, labels, notes,
+  SQL, tool results, the model name) goes through `html.escape`. Tests check that a
+  question with `<script>` or `<img onerror=...>` is shown as text.
+- **Input lock:** the chat input is disabled while a question is answered. The lock
+  is released in a `finally` block, so an exception or a timeout never leaves it
+  disabled. `LLMUnavailableError` shows "The AI service isn't responding right now.
+  Please try again in a minute."; other errors show a generic message.
+- **Meta line:** the cost is left out when it is missing or zero (OpenRouter reports
+  $0; spend is measured from the key balance).
+- **Exception to "the UI computes no numbers":** the UI may count rows it displays
+  (`len`, and the rows it hides, as in "3 steps" or "… 10 more rows" in the Data
+  view). It never calculates business figures. Step durations come from the agent's
+  progress events and the total from `latency_seconds`.
+- **Forecast units to one decimal (display only):**
+  - Finding: the most-biased answer paired 500 forecast units with +27.3% bias for
+    AP-1150. The stored forecast is 500.1 against 393 actual units, so the bias
+    (+27.25%) was right; `get_forecast_accuracy` showed the forecast with `fmt_count`,
+    with no decimals.
+  - The chat tool (`forecast_units_shown`) and the dashboard's Demand page
+    forecast-accuracy table now show forecast units with one decimal. Actual units
+    stay whole. The bias calculation is unchanged.
+  - Reports keep whole numbers: their product table shows no forecast units, and the
+    overall and category bias figures already agree with the whole numbers.
+- **Round once in the demand tools:** `record()`, the helper behind every demand
+  tool's `*_shown` text, formatted the value after it was cut to 4 decimals for the
+  model. The text now comes from the unrounded value (0.27249996 shows +27.2%, not
+  +27.3%); the raw number for the model keeps 4 decimals.
+- **System prompt rules 11 and 12:** when a question does not say which measure
+  (units or revenue) or which period, the first sentence says what was chosen. Bold
+  only key numbers and names, never a whole line. Not yet checked live; the live eval
+  rerun goes in `docs/eval_results_week6_polish.md`.

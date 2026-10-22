@@ -136,8 +136,9 @@ emails sent.
   - Expected, in order: Smart Bottle Pro **327**, Deluxe Bluetooth Speaker **135**,
     Essential Cotton T-Shirt **95**.
   - The answer says a planner must approve; the agent cannot. This is eval q24.
-- Point out the chat **Details** expander: the tool call, its result, model,
-  tokens, cost and latency.
+- Point out the collapsed steps line above the answer: open it to show each step's
+  time, the SQL for `run_sql`, and the **Data** view with the tool result. The grey
+  line under the answer gives model, tokens and latency.
 
 ### 4. Approve SB-1042 (3 min)
 

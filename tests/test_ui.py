@@ -455,3 +455,43 @@ def test_chat_input_is_unlocked_when_answering_fails(
     at.chat_input[0].set_value("Second try?").run()
     assert not at.exception
     assert len(at.session_state["chat_history"]) == 1
+
+
+# ---------------------------------------------------------------- escaping and the meta line
+
+
+def test_chat_question_with_markup_is_shown_as_text(
+    app_env: None, built: dict, planning: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(agent, "ask", FakeAgent())
+    at = chat_page(built, planning, tmp_path)
+    at.chat_input[0].set_value('Hi <script>alert(1)</script> <img src=x onerror="x()">').run()
+    assert not at.exception
+    html = html_text(at)
+    assert "<script>" not in html and "<img" not in html  # never placed as markup
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
+    assert "&lt;img src=x onerror=&quot;x()&quot;&gt;" in html
+
+
+@pytest.mark.parametrize("cost", [None, 0.0])
+def test_chat_meta_line_hides_a_missing_or_zero_cost(
+    app_env: None,
+    built: dict,
+    planning: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    cost: float | None,
+) -> None:
+    fake = FakeAgent()
+
+    def ask(question: str, config: agent.AgentConfig, **kwargs: object) -> agent.AgentAnswer:
+        answer = fake(question, config, **kwargs)
+        answer.cost_usd = cost
+        return answer
+
+    monkeypatch.setattr(agent, "ask", ask)
+    at = chat_page(built, planning, tmp_path)
+    at.chat_input[0].set_value("Net revenue last week?").run()
+    meta = next(h.proto.body for h in at.get("html") if 'class="chat-meta"' in h.proto.body)
+    assert "test/model" in meta and "1,280 tokens" in meta and "1.5 s" in meta
+    assert "$" not in meta and "cost" not in meta
