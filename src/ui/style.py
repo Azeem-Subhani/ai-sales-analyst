@@ -175,6 +175,16 @@ def user_message(question: str) -> str:
     return f'<div class="user-row"><div class="user-bubble">{escape(question)}</div></div>'
 
 
+def turns_left(text: str) -> str:
+    """The muted 'N questions left in this chat' line under the chat."""
+    return f'<p class="chat-turns-left">{escape(text)}</p>'
+
+
+def limit_notice(text: str) -> str:
+    """The notice text when a chat has reached its question limit."""
+    return f'<p class="chat-limit-text">{escape(text)}</p>'
+
+
 def suggestion_card(icon_name: str, title: str, question: str) -> str:
     """An example-question card: an icon tile, a title, the question and a hover arrow."""
     return (

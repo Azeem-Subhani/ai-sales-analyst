@@ -225,6 +225,11 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; bo
 .trust-pill { display: inline-flex; align-items: center; gap: 8px; margin-top: 14px;
   padding: 8px 14px; font-size: 13.5px; color: var(--accent-strong);
   background: var(--accent-soft); border-radius: 999px; text-align: left; }
+/* Week 8: questions left, and the notice at the 20-question limit (tokens only). */
+.chat-turns-left { margin: 4px 0 0; font-size: 13px; color: var(--muted); text-align: center; }
+.st-key-chat-limit { padding: 18px; border-radius: var(--radius-card);
+  background: var(--surface); box-shadow: var(--shadow-card); align-items: center; }
+.chat-limit-text { margin: 0; font-size: 14.5px; color: var(--text); text-align: center; }
 .suggest-label { margin: 0 0 10px 4px; font-size: 13px; font-weight: 500; color: var(--muted); }
 [class*="st-key-suggestion-"] { position: relative; gap: 0; height: 100%; }
 /* The two cards of a row share one height: stretch every level from the column down. */
