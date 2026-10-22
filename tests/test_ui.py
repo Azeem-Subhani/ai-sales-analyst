@@ -374,11 +374,12 @@ def test_chat_history_and_clear(
     assert at.session_state["chat_history"] == []
 
 
-def test_chat_page_shows_the_data_end_instead_of_the_date_picker(
+def test_chat_page_shows_the_data_end_chip_instead_of_the_date_picker(
     app_env: None, built: dict, planning: Path, tmp_path: Path
 ) -> None:
     at = chat_page(built, planning, tmp_path)
     assert not at.sidebar.date_input
-    assert any("Answers use data up to **30 Sep 2026**" in m.value for m in at.sidebar.markdown)
+    assert "Data up to 30 Sep 2026" in html_text(at)  # the sidebar status chip
+    assert not any("Answers use data" in m.value for m in at.sidebar.markdown)
     at.switch_page("app_pages/sales.py").run()
     assert at.sidebar.date_input[0].value == AS_OF

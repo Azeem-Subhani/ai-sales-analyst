@@ -14,6 +14,9 @@ from pathlib import Path
 import streamlit as st
 
 CSS_PATH = Path(__file__).with_name("style.css")
+LOGO_PATH = Path(__file__).with_name("logo.svg")  # gradient square with rising bars
+BRAND_NAME = "Sales Analyst"
+BRAND_TAGLINE = "Proof of concept"
 ACCENT = "#2563EB"  # blue, the start of the accent gradient
 ACCENT_FILL = "rgba(37,99,235,.12)"  # the accent, faint, for chart fills
 GOOD = "#16A34A"
@@ -78,3 +81,29 @@ def step_line(icon: str, label: str, seconds_shown: str = "", state: str = "runn
     }[state]
     time_text = f'<span class="step-time">{escape(seconds_shown)}</span>' if seconds_shown else ""
     return f'<div class="step">{mark}<span>{escape(icon)}</span><span>{escape(label)}</span>{time_text}</div>'
+
+
+def logo_mark() -> str:
+    """The logo mark in HTML and CSS: a gradient square with three rising bars.
+
+    st.html strips inline <svg> and SVG data URIs, so the sidebar draws the mark with
+    CSS. logo.svg is the same mark as a file, for places that take an image.
+    """
+    bars = "".join(f'<span class="logo-bar logo-bar-{n}"></span>' for n in (1, 2, 3))
+    return f'<div class="logo-mark" aria-hidden="true">{bars}</div>'
+
+
+def brand_block() -> str:
+    """The sidebar header: logo mark, product name and tagline."""
+    return (
+        f'<div class="brand">{logo_mark()}<div><div class="brand-name">{escape(BRAND_NAME)}</div>'
+        f'<div class="brand-tagline">{escape(BRAND_TAGLINE)}</div></div></div>'
+    )
+
+
+def status_chips(data_end_shown: str, model: str | None) -> str:
+    """The sidebar footer: a green-dot data-date chip and, if known, the main model chip."""
+    chips = [f'<span class="chip"><span class="chip-dot"></span>{escape(data_end_shown)}</span>']
+    if model:
+        chips.append(f'<span class="chip chip-model">{escape(model)}</span>')
+    return f'<div class="sidebar-status">{"".join(chips)}</div>'

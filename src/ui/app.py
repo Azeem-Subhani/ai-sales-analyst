@@ -2,11 +2,13 @@
 
     streamlit run src/ui/app.py
 
-Pages: Sales, Demand (with pre-build approvals), Chat and Reports. The sidebar date
-picker sets the as_of every page uses, except Chat: the agent always answers from
-DATA_END_DATE, so that page shows the data end instead of a picker. The dashboard never
-calculates a number itself: it shows what the functions in src/reports, src/demand and
-src/agent return. The look comes from .streamlit/config.toml and src/ui/style.py.
+Pages: Sales, Demand (with pre-build approvals), Chat and Reports. The sidebar is built
+here rather than by Streamlit's own menu, so the brand block can sit above the links:
+brand, page links, the as_of date picker (every page except Chat, which always answers
+from DATA_END_DATE), then status chips with the data end and the main model. The
+dashboard never calculates a number itself: it shows what the functions in src/reports,
+src/demand and src/agent return. The look comes from .streamlit/config.toml,
+src/ui/style.css and src/ui/style.py.
 """
 
 import sys
@@ -20,6 +22,7 @@ if str(PROJECT_ROOT) not in sys.path:
 import streamlit as st
 from dotenv import load_dotenv
 
+from src.agent import llm
 from src.ui import common, style
 
 PAGES_DIR = Path(__file__).resolve().with_name("app_pages")
@@ -32,22 +35,36 @@ PAGES = [  # (file, title, icon)
 ]
 
 
-def sidebar_as_of(page_title: str) -> None:
-    """The shared as_of date picker (default DATA_END_DATE), or the chat's data end.
+def main_model() -> str | None:
+    """The main model name from the LLM settings (.env), or None when it is not set."""
+    try:
+        return llm.llm_settings().model  # reads the environment only; no API call
+    except llm.LLMConfigError:
+        return None
+
+
+def sidebar(pages: list, page_title: str) -> None:
+    """Brand block, page links, the as_of picker and the status chips.
 
     The picked date is kept in session state rather than in the widget, so it survives
     a visit to the Chat page, which shows no picker.
     """
     default = common.default_as_of(str(common.path(common.SALES_DB_KEY)))
     st.session_state.setdefault(common.AS_OF_KEY, default)
-    if page_title == CHAT_TITLE:
-        st.sidebar.markdown(f":material/event: Answers use data up to **{default:%d %b %Y}**.")
-        return
-    picked = st.sidebar.date_input(
-        "As of", value=st.session_state[common.AS_OF_KEY], max_value=default
-    )
-    st.session_state[common.AS_OF_KEY] = picked
-    st.sidebar.caption(f"Data ends {default:%d %b %Y}.")
+    with st.sidebar:
+        st.html(style.brand_block())
+        for page in pages:
+            # The key becomes a stable CSS class (st-key-nav-active-...), so style.css can
+            # draw the current page as a gradient pill.
+            state = "active" if page.title == page_title else "idle"
+            with st.container(key=f"nav-{state}-{page.url_path or 'home'}"):
+                st.page_link(page)
+        if page_title != CHAT_TITLE:
+            picked = st.date_input(
+                "As of", value=st.session_state[common.AS_OF_KEY], max_value=default
+            )
+            st.session_state[common.AS_OF_KEY] = picked
+        st.html(style.status_chips(f"Data up to {default:%d %b %Y}", main_model()))
 
 
 def main() -> None:
@@ -59,8 +76,8 @@ def main() -> None:
         st.Page(PAGES_DIR / file, title=title, icon=icon, default=index == 0)
         for index, (file, title, icon) in enumerate(PAGES)
     ]
-    page = st.navigation(pages)
-    sidebar_as_of(page.title)
+    page = st.navigation(pages, position="hidden")  # the sidebar draws its own links
+    sidebar(pages, page.title)
     page.run()
 
 

@@ -40,8 +40,15 @@ linkColor = "#60A5FA"
 dataframeHeaderBackgroundColor = "#202436"
 chartCategoricalColors = ["#3B82F6", "#38BDF8", "#34D399", "#FBBF24", "#F87171", "#A78BFA", "#2DD4BF", "#94A3B8"]
 
+# The sidebar is deep navy in both modes, with muted white text.
 [theme.light.sidebar]
-backgroundColor = "#F7F8FC"
+backgroundColor = "#0B1220"
+secondaryBackgroundColor = "#162033"
+textColor = "#CBD5E1"
+borderColor = "#1E293B"
 
 [theme.dark.sidebar]
-backgroundColor = "#141722"
+backgroundColor = "#0B1220"
+secondaryBackgroundColor = "#162033"
+textColor = "#CBD5E1"
+borderColor = "#1E293B"
