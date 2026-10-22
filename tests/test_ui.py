@@ -6,6 +6,7 @@ approval tests write to their own copy of planning.duckdb. The chat agent is moc
 and load_dotenv is replaced, so no test reads .env or reaches OpenRouter.
 """
 
+import re
 import shutil
 from datetime import date
 from pathlib import Path
@@ -492,9 +493,23 @@ def test_chat_meta_line_hides_a_missing_or_zero_cost(
     monkeypatch.setattr(agent, "ask", ask)
     at = chat_page(built, planning, tmp_path)
     at.chat_input[0].set_value("Net revenue last week?").run()
-    meta = next(h.proto.body for h in at.get("html") if 'class="chat-meta"' in h.proto.body)
+    body = next(h.proto.body for h in at.get("html") if 'class="chat-meta"' in h.proto.body)
+    # The model and tokens line is inside the collapsed steps view only (Week 7).
+    assert body.startswith('<details class="steps steps-done">')
+    meta = re.search(r'<div class="chat-meta">(.*?)</div>', body).group(1)
     assert "test/model" in meta and "1,280 tokens" in meta and "1.5 s" in meta
     assert "$" not in meta and "cost" not in meta
+
+
+def test_chat_empty_state_shows_four_suggestion_cards(
+    app_env: None, built: dict, planning: Path, tmp_path: Path
+) -> None:
+    at = chat_page(built, planning, tmp_path)
+    html = html_text(at)
+    assert "Ask about sales and demand" in html
+    assert html.count('<div class="suggestion">') == 4
+    assert "Which wholesale customers have stopped ordering?" in html  # the full question
+    assert not at.get("chat_message")  # no avatars: answers are plain text
 
 
 def test_ok_after_retry_summary_card_is_green_like_ok(tmp_path: Path) -> None:

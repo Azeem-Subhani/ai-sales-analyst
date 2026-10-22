@@ -73,6 +73,8 @@ WIDGET_ICONS = {
     '[class*="st-key-view-"] button': "eye",
     ".st-key-excel-download button": "download",
     '[data-testid="stChatInputSubmitButton"]': "arrow-up",
+    ".steps-done > summary": "chevron-right",
+    ".step-data > summary": "chevron-right",
 }
 SIGN_ARROWS = {"+": "arrow-up", "-": "arrow-down"}
 # Shorter comparison names for the KPI cards (builder.COMPARISON_LABELS values).
@@ -159,6 +161,20 @@ def card_grid(cards: list[str], compact: bool = False) -> str:
     return f'<div class="{kind}">{"".join(cards)}</div>'
 
 
+def user_message(question: str) -> str:
+    """The user's question as a right-aligned bubble (escaped, so markup shows as text)."""
+    return f'<div class="user-row"><div class="user-bubble">{escape(question)}</div></div>'
+
+
+def suggestion_card(icon_name: str, title: str, question: str) -> str:
+    """An example-question card: an icon in a tinted square, a title and the question."""
+    return (
+        f'<div class="suggestion"><span class="suggestion-icon">{icons.icon(icon_name)}</span>'
+        f'<div class="suggestion-body"><div class="suggestion-title">{escape(title)}</div>'
+        f'<div class="suggestion-text">{escape(question)}</div></div></div>'
+    )
+
+
 # ---- Helpers the pages still use until their own redesign step (Week 7 steps 3-5).
 
 TAG_TONES = {"red": "bad", "amber": "warn", "green": "good", "blue": "accent", "grey": "muted"}
@@ -167,8 +183,3 @@ TAG_TONES = {"red": "bad", "amber": "warn", "green": "good", "blue": "accent", "
 def tag(text: str, colour: str = "grey") -> str:
     """A small label in a tone colour."""
     return f'<span class="tag tag-{TAG_TONES.get(colour, "muted")}">{escape(text)}</span>'
-
-
-def user_message(question: str) -> str:
-    """The user's question as a right-aligned bubble (escaped, so markup shows as text)."""
-    return f'<div class="user-row"><div class="user-bubble">{escape(question)}</div></div>'

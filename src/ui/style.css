@@ -102,8 +102,19 @@ button:focus-visible { box-shadow: 0 0 0 2px var(--focus); outline: none; }
 /* ---- Alerts and toasts in the token colours, flat. */
 [data-testid="stAlert"] [data-testid="stAlertContainer"] { border-radius: var(--radius-card);
   border: 1px solid var(--border); background: var(--surface); color: var(--text); }
-[data-testid="stAlertContentError"] { color: var(--bad); }
-[data-testid="stAlertContentWarning"] { color: var(--warn); }
+/* Warning (e.g. the withheld answer) and error (e.g. the AI service is down): a tinted
+   card with a 3px tone bar on the left; the text stays in the body colour. */
+[data-testid="stAlertContainer"]:has([data-testid="stAlertContentWarning"]) {
+  border-color: color-mix(in srgb, var(--warn) 45%, transparent);
+  background: color-mix(in srgb, var(--warn) 7%, var(--surface));
+  box-shadow: inset 3px 0 0 var(--warn); }
+[data-testid="stAlertContainer"]:has([data-testid="stAlertContentError"]) {
+  border-color: color-mix(in srgb, var(--bad) 45%, transparent);
+  background: color-mix(in srgb, var(--bad) 7%, var(--surface));
+  box-shadow: inset 3px 0 0 var(--bad); }
+[data-testid="stAlertContentWarning"], [data-testid="stAlertContentError"],
+[data-testid="stAlertContentWarning"] *, [data-testid="stAlertContentError"] * {
+  color: var(--text); }
 [data-testid="stToast"] { border-radius: var(--radius-card); border: 1px solid var(--border);
   box-shadow: none; }
 [data-testid="stExpander"] details { border-color: var(--border); border-radius: var(--radius-card); }
@@ -135,32 +146,109 @@ button:focus-visible { box-shadow: 0 0 0 2px var(--focus); outline: none; }
 .tone-good { color: var(--good); } .tone-bad { color: var(--bad); }
 .tone-flat { color: var(--muted); }
 
-/* ---- Chat (restyled in full in step 4) */
-.user-row { display: flex; justify-content: flex-end; padding: .35rem 0; }
+/* ---- Chat: no avatars. The question is a subtle bubble on the right; the answer is
+   plain text on the page (st-key-chat-answer-N), with the tool steps above it. */
+.user-row { display: flex; justify-content: flex-end; padding: .75rem 0 .25rem; }
 .user-bubble { background: var(--subtle); color: var(--text); border-radius: 16px;
-  padding: .6rem .95rem; max-width: 75%; min-width: 0; overflow-wrap: anywhere;
-  white-space: pre-wrap; line-height: 1.5; }
-.chat-meta { font-size: 12px; color: var(--muted); margin-top: .35rem; }
-.chat-welcome { font-size: 15px; color: var(--muted); margin: .6rem 0 .8rem; }
-.steps { font-size: 13px; color: var(--muted); margin: 0 0 .45rem; }
-.step-row { display: flex; align-items: center; gap: .5rem; padding: .08rem 0; min-width: 0; }
+  padding: .6rem 1rem; max-width: 75%; min-width: 0; overflow-wrap: anywhere;
+  white-space: pre-wrap; line-height: 1.5; font-size: 15px; }
+[class*="st-key-chat-answer-"] { padding: .25rem 0 .75rem; }
+[class*="st-key-chat-answer-"] [data-testid="stMarkdownContainer"] p,
+[class*="st-key-chat-answer-"] [data-testid="stMarkdownContainer"] li {
+  font-size: 15px; line-height: 1.6; }
+[class*="st-key-chat-answer-"] table { border-collapse: collapse; font-size: 13px;
+  display: block; max-width: 100%; overflow-x: auto; margin: .4rem 0; }
+[class*="st-key-chat-answer-"] th, [class*="st-key-chat-answer-"] td {
+  padding: .35rem .7rem; border-bottom: 1px solid var(--border); text-align: left; }
+[class*="st-key-chat-answer-"] th { background: var(--subtle); font-weight: 500; }
+.chat-meta { font-size: 12px; color: var(--muted); padding-top: .35rem; }
+
+/* Empty state: a centred heading and the example questions as cards. Each card is HTML
+   with the real st.button stretched invisibly over it (see chat.empty_state). */
+.chat-welcome { text-align: center; margin: 3.5rem 0 1.75rem; }
+.chat-welcome-title { font-size: 24px; font-weight: 600; letter-spacing: -0.01em;
+  color: var(--text); }
+.chat-welcome-text { font-size: 14px; color: var(--muted); margin-top: .35rem; }
+[class*="st-key-suggestion-"] { position: relative; gap: 0; }
+.suggestion { display: flex; gap: .75rem; align-items: flex-start; min-height: 84px;
+  padding: .85rem 1rem; border: 1px solid var(--border); border-radius: var(--radius-card);
+  background: var(--surface); transition: border-color .15s, background-color .15s; }
+.suggestion-icon { display: grid; place-items: center; flex: none; width: 32px; height: 32px;
+  border-radius: var(--radius-control); background: var(--subtle); color: var(--accent-text); }
+.suggestion-body { min-width: 0; }
+.suggestion-title { font-size: 14px; font-weight: 500; color: var(--text); }
+.suggestion-text { font-size: 13px; color: var(--muted); margin-top: .15rem; line-height: 1.45; }
+[class*="st-key-suggestion-"]:hover .suggestion { border-color: var(--accent);
+  background: color-mix(in srgb, var(--subtle) 45%, var(--surface)); }
+[class*="st-key-suggestion-"]:has(button:focus-visible) .suggestion {
+  border-color: var(--accent); box-shadow: 0 0 0 2px var(--focus); }
+/* The real button covers the card; its own look is hidden, the card shows instead. */
+[class*="st-key-suggestion-"] [data-testid="stElementContainer"]:has(.stButton) {
+  position: absolute; inset: 0; z-index: 1; margin: 0; }
+[class*="st-key-suggestion-"] .stButton, [class*="st-key-suggestion-"] .stButton > div,
+[class*="st-key-suggestion-"] .stButton span, [class*="st-key-suggestion-"] button {
+  height: 100%; width: 100%; }
+[class*="st-key-suggestion-"] button { opacity: 0; cursor: pointer; }
+/* While a clicked example is answered, the old empty state is not shown faded. */
+[class*="st-key-suggestion-"]:has([data-stale="true"]),
+[data-testid="stElementContainer"][data-stale="true"]:has(.chat-welcome) { display: none; }
+[class*="st-key-suggestion-"] button:disabled { cursor: default; }
+
+/* Composer: 1px border, radius 12, surface; a round primary send button. The hint under
+   it is CSS content set by chat.composer_hint. */
+[data-testid="stChatInput"] { position: relative; border: 1px solid var(--border);
+  border-radius: 12px; background: var(--surface); box-shadow: none; min-height: 56px;
+  padding: .35rem .35rem .35rem .5rem; margin-bottom: 1.4rem; }
+[data-testid="stChatInput"]:focus-within { border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--focus); }
+[data-testid="stChatInput"] > div { background: transparent; border: none; box-shadow: none; }
+[data-testid="stChatInputTextArea"] { font-size: 15px; background: transparent; }
+[data-testid="stChatInput"]::after { position: absolute; left: .25rem; top: calc(100% + .4rem);
+  font-size: 12px; color: var(--muted); white-space: nowrap; }
+[data-testid="stChatInputSubmitButton"] { width: 32px; height: 32px; min-width: 32px;
+  border-radius: 50%; background: var(--button); color: var(--button-text); border: none;
+  display: grid; place-items: center; align-self: flex-end; }
+[data-testid="stChatInputSubmitButton"]:hover:not(:disabled) { background: var(--button-hover); }
+[data-testid="stChatInputSubmitButton"] svg, [data-testid="stChatInputSubmitButton"] > span {
+  display: none; }
+[data-testid="stChatInputSubmitButton"]::before { content: ""; width: 16px; height: 16px;
+  background-color: currentColor; -webkit-mask-position: center; mask-position: center;
+  -webkit-mask-size: contain; mask-size: contain; -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat; }
+[data-testid="stChatInputSubmitButton"]:disabled { background: var(--subtle);
+  color: var(--muted); opacity: 1; cursor: not-allowed; }
+[data-testid="stChatInput"]:has(textarea:disabled) { background: var(--subtle); }
+
+/* Tool steps (src/ui/chat_steps.py): muted 13px lines above the answer. Live: the
+   active label shimmers. Done: one line with a chevron that opens the details. */
+.steps { font-size: 13px; color: var(--muted); margin: 0 0 .5rem; }
+.step-row { display: flex; align-items: center; gap: .5rem; padding: .1rem 0; min-width: 0; }
 .step-label { min-width: 0; overflow-wrap: anywhere; }
 .step-time { margin-left: auto; padding-left: .75rem; white-space: nowrap; }
-.step-dot { width: .4rem; height: .4rem; border-radius: 50%; flex: none;
-  background: currentColor; opacity: .5; }
-.step-row.is-note .step-dot { background: transparent; border: 1px solid currentColor; }
-.step-row.is-active .step-dot { opacity: 1; }
+.step-row.is-active .step-label { animation: shimmer 1.6s ease-in-out infinite; }
+@keyframes shimmer { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .step-row.is-active .step-label { animation: none; } }
 .steps-done > summary { cursor: pointer; list-style: none; display: inline-flex;
-  align-items: center; gap: .35rem; }
-.steps-done > summary::-webkit-details-marker { display: none; }
-.steps-body { margin: .35rem 0 .2rem .2rem; padding-left: .7rem;
+  align-items: center; gap: .3rem; border-radius: 4px; }
+.steps-done > summary:hover { color: var(--text); }
+.steps-done > summary::-webkit-details-marker,
+.step-data > summary::-webkit-details-marker { display: none; }
+.steps-done > summary::before, .step-data > summary::before { content: ""; order: 2; width: 14px; height: 14px;
+  background-color: currentColor; -webkit-mask-position: center; mask-position: center;
+  -webkit-mask-size: contain; mask-size: contain; -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat; transition: transform .15s; }
+.steps-done[open] > summary::before, .step-data[open] > summary::before {
+  transform: rotate(90deg); }
+.steps-body { margin: .4rem 0 .25rem .15rem; padding-left: .75rem;
   border-left: 1px solid var(--border); }
 .step-detail { padding: .15rem 0; }
 .step-sql, .step-json { font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px; line-height: 1.5; background: var(--subtle); border-radius: var(--radius-control);
-  padding: .5rem .65rem; margin: .25rem 0 .3rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+  font-size: 12px; line-height: 1.5; background: var(--subtle); color: var(--text);
+  border-radius: var(--radius-control); padding: .5rem .65rem; margin: .25rem 0 .3rem;
+  white-space: pre-wrap; overflow-wrap: anywhere; }
 .step-json { max-height: 260px; overflow: auto; white-space: pre; }
-.step-data > summary { cursor: pointer; font-size: 12px; margin-top: .15rem; }
+.step-data > summary { cursor: pointer; font-size: 12px; margin-top: .15rem; list-style: none;
+  display: inline-flex; align-items: center; gap: .25rem; }
 
 /* ---- Sidebar: tinted, 1px right border (config.toml), brand on top, links, footer. */
 [data-testid="stSidebar"] { border-right: 1px solid var(--border); }
@@ -205,4 +293,5 @@ button:focus-visible { box-shadow: 0 0 0 2px var(--focus); outline: none; }
   [data-testid="stMainBlockContainer"] { padding: 3.75rem 1rem 1rem; }
   .card-value { font-size: 24px; }
   .user-bubble { max-width: 85%; }
+  .chat-welcome { margin-top: 1.5rem; }
 }

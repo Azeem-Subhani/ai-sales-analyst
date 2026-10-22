@@ -2,7 +2,8 @@
 
 The chat page feeds agent.ask's progress events into Step objects and draws them with
 the functions here. Everything is plain HTML and CSS (style.css): no spinners, no
-JavaScript; the collapsed view opens with <details>/<summary>.
+JavaScript; the active step's label shimmers, and the collapsed view opens with
+<details>/<summary>. The model, tokens and cost line sits inside the opened view only.
 
 The UI calculates nothing: durations come from the agent's progress events and the
 total from AgentAnswer.latency_seconds; this module only formats them. Every dynamic
@@ -59,14 +60,14 @@ def seconds_text(seconds: float | None) -> str:
 
 
 def row_html(step: Step, active: bool = False) -> str:
-    """One step line: a dot (pulsing when active), the label, the duration on the right."""
+    """One step line: the label (shimmering when active) and the duration on the right."""
     if active:
         kind = "is-active"
     else:
         kind = "is-note" if step.tool is None else "is-done"
     time_text = seconds_text(step.seconds)
     return (
-        f'<div class="step-row {kind}"><span class="step-dot"></span>'
+        f'<div class="step-row {kind}">'
         f'<span class="step-label">{escape(step.label())}</span>'
         f'<span class="step-time">{escape(time_text)}</span></div>'
     )
@@ -75,8 +76,8 @@ def row_html(step: Step, active: bool = False) -> str:
 def live_html(steps: list[Step], thinking: bool) -> str:
     """The steps while the answer is being worked out.
 
-    A running tool gets the pulsing dot. While the model itself is working (before the
-    first tool, and between tools), a "Thinking" line carries the dot instead.
+    A running tool's label shimmers. While the model itself is working (before the
+    first tool, and between tools), a "Thinking" line shimmers instead.
     """
     rows = [row_html(s, active=s.state == "running") for s in steps]
     if thinking and not any(s.state == "running" for s in steps):
@@ -141,12 +142,17 @@ def detail_html(step: Step) -> str:
     return f'<div class="step-detail">{"".join(parts)}</div>'
 
 
-def collapsed_html(steps: list[Step], total_seconds: float) -> str:
-    """The finished steps as one line that opens to show each step (no JavaScript)."""
+def collapsed_html(steps: list[Step], total_seconds: float, meta: str = "") -> str:
+    """The finished steps as one line that opens to show each step (no JavaScript).
+
+    meta (model, tokens, cost, time) is shown at the end of the opened view only.
+    """
     summary = escape(summary_text(steps, total_seconds))
-    if not steps:
+    if not steps and not meta:
         return f'<div class="steps steps-plain">{summary}</div>'
     body = "".join(detail_html(s) for s in steps)
+    if meta:
+        body += f'<div class="chat-meta">{escape(meta)}</div>'
     return (
         f'<details class="steps steps-done"><summary>{summary}</summary>'
         f'<div class="steps-body">{body}</div></details>'
