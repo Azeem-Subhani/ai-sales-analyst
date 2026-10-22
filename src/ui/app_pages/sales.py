@@ -81,9 +81,8 @@ def category_chart(categories: object) -> go.Figure:
 
 def main() -> None:
     """Render the page."""
-    head, controls = st.columns([3, 2], vertical_alignment="bottom")
-    head.html(style.page_header("Sales", "Revenue, orders and margin, as in the reports."))
-    with controls, st.container(horizontal=True, horizontal_alignment="right"):
+    controls = common.header("Sales", "Revenue, orders and margin, as in the reports.")
+    with controls:
         choice = st.segmented_control(
             "Period",
             list(PERIOD_LABELS),
@@ -105,22 +104,22 @@ def main() -> None:
     )
 
     trend_box, category_box = st.columns([3, 2], gap="medium")
-    with trend_box, st.container(border=True):
+    with trend_box, common.card("trend"):
         st.html(style.section_title(TREND_TITLES[kind]))
         st.plotly_chart(trend_chart(view["trend"].frame), theme="streamlit")
-    with category_box, st.container(border=True):
+    with category_box, common.card("category-chart"):
         st.html(style.section_title("Net revenue by category"))
         st.plotly_chart(category_chart(view["categories"].frame), theme="streamlit")
 
-    with st.container(border=True):
+    with common.card("category-table"):
         st.html(style.section_title("Net revenue and gross margin by category"))
         common.show_table(view["categories"])
 
     left, right = st.columns(2, gap="medium")
-    with left, st.container(border=True):
+    with left, common.card("top-products"):
         st.html(style.section_title("Top 10 products"))
         common.show_table(view["top_products"])
-    with right, st.container(border=True):
+    with right, common.card("top-customers"):
         st.html(style.section_title("Top 10 customers"))
         common.show_table(view["top_customers"])
 

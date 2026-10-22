@@ -1,7 +1,8 @@
-# Dashboard theme (Week 7 redesign): a quiet emerald palette, Geist (self-hosted in
-# src/ui/static/fonts, OFL), 1px borders and no shadows or gradients. The colours are the
-# tokens in src/ui/style.py (TOKENS); tests/test_ui.py checks that they match. The viewer
-# picks light or dark in the app menu; the default follows the operating system.
+# Dashboard theme (Week 7 redesign, built to the owner's HTML chat mock-up): a soft
+# green-grey page, white cards with gentle shadows (style.css), a deep emerald accent and
+# Inter (self-hosted in src/ui/static/fonts, OFL). The colours are the tokens in
+# src/ui/style.py (TOKENS); tests/test_ui.py checks that they match. The viewer picks
+# light or dark in the app menu; the default follows the operating system.
 
 [server]
 runOnSave = false
@@ -19,8 +20,8 @@ toolbarMode = "minimal"
 gatherUsageStats = false
 
 [[theme.fontFaces]]
-family = "Geist"
-url = "app/static/fonts/Geist-Variable.woff2"
+family = "Inter"
+url = "app/static/fonts/Inter-Variable.woff2"
 weight = "100 900"
 style = "normal"
 
@@ -31,48 +32,47 @@ weight = "100 900"
 style = "normal"
 
 [theme]
-font = "Geist, system-ui, -apple-system, 'Segoe UI', sans-serif"
+font = "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
 codeFont = "'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace"
 baseFontSize = 14
 headingFontWeights = 600
-baseRadius = "8px"
-buttonRadius = "6px"
+baseRadius = "12px"
+buttonRadius = "10px"
 showWidgetBorder = true
 showSidebarBorder = true
 
-# primaryColor is the accent (focus rings, active tab, selected controls); the primary
-# button fill is darker (#166534) in light mode for contrast with white text, set in
-# style.css. Chart series: accent first, muted second (comparisons).
+# primaryColor is the accent (primary buttons, focus, active tab, selected controls).
+# Chart series: accent first, muted second (comparisons).
 [theme.light]
-primaryColor = "#059669"
-backgroundColor = "#F8FAF9"
-secondaryBackgroundColor = "#ECFDF5"
-textColor = "#14251B"
-borderColor = "#D1FAE5"
-linkColor = "#047857"
-codeBackgroundColor = "#ECFDF5"
-dataframeHeaderBackgroundColor = "#ECFDF5"
-chartCategoricalColors = ["#059669", "#64756A", "#B45309", "#B91C1C", "#166534"]
+primaryColor = "#0B7A54"
+backgroundColor = "#EFF3F1"
+secondaryBackgroundColor = "#E3F5EC"
+textColor = "#0F1A15"
+borderColor = "rgba(15, 26, 21, 0.09)"
+linkColor = "#095F42"
+codeBackgroundColor = "#E3F5EC"
+dataframeHeaderBackgroundColor = "#E3F5EC"
+chartCategoricalColors = ["#0B7A54", "#5B6862", "#B45309", "#B91C1C", "#166534"]
 
 [theme.dark]
-primaryColor = "#34D399"
-backgroundColor = "#07130F"
-secondaryBackgroundColor = "#173326"
-textColor = "#ECFDF5"
-borderColor = "#28513C"
-linkColor = "#34D399"
-codeBackgroundColor = "#173326"
-dataframeHeaderBackgroundColor = "#173326"
-chartCategoricalColors = ["#34D399", "#9AB7A5", "#FBBF24", "#F87171", "#86EFAC"]
+primaryColor = "#3DD69B"
+backgroundColor = "#0E1411"
+secondaryBackgroundColor = "#1D2823"
+textColor = "#EEF4F0"
+borderColor = "rgba(255, 255, 255, 0.09)"
+linkColor = "#62E3B2"
+codeBackgroundColor = "#1D2823"
+dataframeHeaderBackgroundColor = "#1D2823"
+chartCategoricalColors = ["#3DD69B", "#9AA9A1", "#FBBF24", "#F87171", "#86EFAC"]
 
 [theme.light.sidebar]
-backgroundColor = "#F0FDF4"
-secondaryBackgroundColor = "#ECFDF5"
-textColor = "#14251B"
-borderColor = "#D1FAE5"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#E3F5EC"
+textColor = "#0F1A15"
+borderColor = "rgba(15, 26, 21, 0.09)"
 
 [theme.dark.sidebar]
-backgroundColor = "#0A1C15"
-secondaryBackgroundColor = "#173326"
-textColor = "#ECFDF5"
-borderColor = "#28513C"
+backgroundColor = "#161E1A"
+secondaryBackgroundColor = "#1D2823"
+textColor = "#EEF4F0"
+borderColor = "rgba(255, 255, 255, 0.09)"

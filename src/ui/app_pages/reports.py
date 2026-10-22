@@ -77,7 +77,7 @@ def show_report(report: saved.SavedReport) -> None:
 
 def main() -> None:
     """Render the page."""
-    st.html(style.page_header("Reports", "Saved dry-run and backfilled reports."))
+    common.header("Reports", "Saved dry-run and backfilled reports.")
     dry_runs = saved.dry_run_reports(common.path(common.REPORTS_ROOT_KEY))
     backfill_root = common.path(common.BACKFILL_ROOT_KEY)
     manifest = saved.backfill_manifest(backfill_root)

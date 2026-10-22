@@ -85,8 +85,8 @@ def customer_alerts_tab(view: dict) -> None:
         "Overdue: ranked by 365-day revenue. Declining: ranked by revenue lost "
         "(prior 90 days minus last 90 days), largest first."
     )
-    for label, table in view["customer_alerts"].items():
-        with st.container(border=True):
+    for index, (label, table) in enumerate(view["customer_alerts"].items()):
+        with common.card(f"alerts-{index}"):
             st.html(style.section_title(label, view["counts"][label]))
             show(table)
 
@@ -94,10 +94,10 @@ def customer_alerts_tab(view: dict) -> None:
 def category_stock_tab(view: dict) -> None:
     """Category alerts (all categories, flagged marked) and stock alerts."""
     counts = view["counts"]
-    with st.container(border=True):
+    with common.card("category-alerts"):
         st.html(style.section_title("Category alerts", f"{counts['category_flagged']} flagged"))
         show(view["category_alerts"])
-    with st.container(border=True):
+    with common.card("stock-alerts"):
         st.html(style.section_title("Stock alerts", counts["stock_alerts"]))
         show(view["stock_alerts"])
 
@@ -105,10 +105,10 @@ def category_stock_tab(view: dict) -> None:
 def accuracy_tab(view: dict) -> None:
     """Forecast accuracy overall, by category and for every product."""
     counts = view["counts"]
-    with st.container(border=True):
+    with common.card("accuracy-totals"):
         st.html(style.section_title("Overall and by category"))
         show(view["accuracy_totals"])
-    with st.container(border=True):
+    with common.card("accuracy-products"):
         st.html(
             style.section_title(
                 "Products",
@@ -167,7 +167,7 @@ def row_html(row: dict) -> str:
 
 def pending_row(row: dict) -> None:
     """One pending recommendation with Approve / Reject, each needing a confirm click."""
-    with st.container(border=True):
+    with st.container(border=True, key=f"row-{row['rec_id']}"):
         text, *buttons = st.columns([5, 1.4, 1.4], vertical_alignment="center")
         text.html(row_html(row))
         waiting = st.session_state.get(CONFIRM_KEY)
@@ -201,7 +201,7 @@ def prebuild_tab(view: dict) -> None:
     message = st.session_state.pop(MESSAGE_KEY, None)
     if message and message[0] == "success":
         st.toast(message[1])
-    with st.container(border=True):
+    with common.card("approvals"):
         st.html(
             style.section_title(
                 "Approvals",
@@ -217,7 +217,7 @@ def prebuild_tab(view: dict) -> None:
         with st.container(height=440, border=False):
             for row in view["pending"]:
                 pending_row(row)
-    with st.container(border=True):
+    with common.card("decided"):
         st.html(style.section_title("Decided", counts["decided"]))
         if view["decided"]:
             decided = pd.DataFrame(view["decided"])[
@@ -227,7 +227,7 @@ def prebuild_tab(view: dict) -> None:
             st.dataframe(decided.style.map(tone_css, subset=["status"]), hide_index=True)
         else:
             st.caption("No decisions yet for this snapshot.")
-    with st.container(border=True):
+    with common.card("prebuild"):
         st.html(
             style.section_title(
                 "Pre-build recommendations",
@@ -236,7 +236,7 @@ def prebuild_tab(view: dict) -> None:
             )
         )
         show(view["prebuild"], height=320)
-    with st.container(border=True):
+    with common.card("planner-review"):
         st.html(style.section_title("Needs planner review", counts["planner_review"]))
         show(view["planner_review"])
 
@@ -244,7 +244,7 @@ def prebuild_tab(view: dict) -> None:
 def main() -> None:
     """Render the page."""
     day = common.as_of()
-    st.html(style.page_header("Demand", f"Demand-planning snapshot as of {day:%d %b %Y}."))
+    common.header("Demand", f"Demand-planning snapshot as of {day:%d %b %Y}.")
     view = common.demand_view(day, str(common.path(common.PLANNING_DB_KEY)))
     if view is None:
         no_snapshot(day)

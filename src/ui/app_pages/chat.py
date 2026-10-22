@@ -23,7 +23,6 @@ import logging
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from datetime import date
 
 import streamlit as st
 
@@ -42,6 +41,8 @@ FAILED_MESSAGE = (
     "Please ask again. The details are in the dashboard log."
 )
 UNAVAILABLE_MESSAGE = "The AI service isn't responding right now. Please try again in a minute."
+PLACEHOLDER = "Ask about sales or demand. One question at a time."
+TRUST_TEXT = "Every number in an answer comes from a tool, never from the model."
 STREAM_DELAY_SECONDS = 0.012  # per word of the typewriter effect
 EXAMPLES = [  # (Lucide icon, card title, the question it sends)
     ("users", "Lapsed wholesale customers", "Which wholesale customers have stopped ordering?"),
@@ -173,32 +174,24 @@ def ask_live(question: str, index: int) -> Turn:
 
 
 def empty_state() -> None:
-    """A centred heading and the example questions as cards; a click sends one.
+    """The hero, the trust pill and the example questions as cards; a click sends one.
 
     Each card is drawn in HTML; a real button (key example-N) is stretched over it by
     style.css, so the click, keyboard focus and the busy lock work as for any button.
     """
     st.html(
-        '<div class="chat-welcome"><div class="chat-welcome-title">Ask about sales and demand'
-        '</div><div class="chat-welcome-text">Every number in an answer comes from a tool, '
-        "never from the model.</div></div>"
+        '<div class="chat-welcome"><h2 class="chat-welcome-title">Ask about sales and demand'
+        f"</h2>{style.trust_pill(TRUST_TEXT)}</div>"
     )
-    columns = st.columns(2)
-    for index, (icon, title, example) in enumerate(EXAMPLES):
-        with columns[index % 2], st.container(key=f"suggestion-{index}"):
-            st.html(style.suggestion_card(icon, title, example))
-            if st.button(title, key=f"example-{index}", help=example, width="stretch"):
-                start(example)
-
-
-def composer_hint(data_end: date) -> None:
-    """The muted line under the chat input, as CSS content.
-
-    The text is our own (a formatted date), never user input; st.chat_input is pinned
-    to the bottom of the page, so nothing else can sit under it.
-    """
-    hint = f"Data through {data_end:%d %b %Y} \u00b7 one question at a time"
-    st.html(f'<style>[data-testid="stChatInput"]::after{{content:"{hint}"}}</style>')
+    st.html('<p class="suggest-label">Suggested questions</p>')
+    # Row by row, so the two cards of a row stretch to the same height (style.css).
+    for row in range(0, len(EXAMPLES), 2):
+        for column, index in zip(st.columns(2), range(row, row + 2), strict=True):
+            icon, title, example = EXAMPLES[index]
+            with column, st.container(key=f"suggestion-{index}"):
+                st.html(style.suggestion_card(icon, title, example))
+                if st.button(title, key=f"example-{index}", help=example, width="stretch"):
+                    start(example)
 
 
 def start(question: str) -> None:
@@ -230,14 +223,19 @@ def main() -> None:
     busy = st.session_state.get(BUSY_KEY, False)
     if busy and QUESTION_KEY not in st.session_state:  # a lock with nothing to answer
         busy = st.session_state[BUSY_KEY] = False
-    title, clear = st.columns([5, 1], vertical_alignment="bottom")
-    title.html(style.page_header("Chat", "Answers from the sales and demand data."))
-    with clear, st.container(horizontal=True, horizontal_alignment="right"):
-        if st.button("Clear chat", disabled=busy or not history):
-            history.clear()
-            st.rerun()
-    submitted = st.chat_input("Ask about sales or demand…", disabled=busy)
-    composer_hint(common.default_as_of(str(common.path(common.SALES_DB_KEY))))
+    # The narrow 760px chat column (CSS marker chat-page) needs room for the pill and
+    # Clear chat on the right.
+    controls = common.header(
+        "Chat",
+        "Answers from the sales and demand data.",
+        split=(1, 1),
+        page_class="chat-page",
+        wrap=False,
+    )
+    if history and controls.button("Clear chat", key="clear-chat", disabled=busy):
+        history.clear()
+        st.rerun()
+    submitted = st.chat_input(PLACEHOLDER, disabled=busy)
     if submitted and not busy:
         start(submitted)
     question = st.session_state.get(QUESTION_KEY) if busy else None

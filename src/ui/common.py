@@ -13,6 +13,7 @@ import streamlit as st
 from src.analytics import kpis
 from src.demand import store
 from src.reports import backfill, builder, views
+from src.ui import style
 
 # Session keys. Tests set the *_PATH keys to temporary copies before the first run.
 SALES_DB_KEY = "sales_db_path"
@@ -42,6 +43,37 @@ def as_of() -> date:
 def default_as_of(sales_db: str) -> date:
     """DATA_END_DATE, or the last order date."""
     return views.default_as_of(Path(sales_db))
+
+
+def card(name: str) -> object:
+    """A bordered container drawn as a surface card (style.css: st-key-card-*).
+
+    Streamlit gives bordered containers no class of their own, so the key carries one.
+    name must be unique on the page.
+    """
+    return st.container(border=True, key=f"card-{name}")
+
+
+def header(
+    title: str,
+    description: str,
+    split: tuple[int, int] = (3, 2),
+    page_class: str = "",
+    wrap: bool = True,
+) -> object:
+    """The page header: title and description on the left; on the right the 'Data
+    through' status pill, then a row the page fills with its own controls (returned).
+    split is the width ratio of the two sides; page_class marks the page for CSS; wrap
+    False keeps the pill and the controls on one line.
+    """
+    left, right = st.columns(list(split), vertical_alignment="center")
+    left.html(style.page_header(title, description, page_class))
+    controls = right.container(
+        horizontal=True, horizontal_alignment="right", vertical_alignment="center", wrap=wrap
+    )
+    data_end = default_as_of(str(path(SALES_DB_KEY)))
+    controls.html(style.status_pill(f"Data through {data_end:%d %b %Y}"), width="content")
+    return controls
 
 
 @st.cache_data(show_spinner="Loading sales numbers...")

@@ -1,15 +1,16 @@
 """Look and feel of the dashboard: colour tokens, the CSS file and small HTML pieces.
 
-Week 7 redesign: a quiet emerald palette. TOKENS is the one list of colours; the same
-values are in .streamlit/config.toml (Streamlit's own widgets and the charts) and in
-style.css (as light-dark() pairs, which follow the theme picked in the app menu without
-a rerun). tests/test_ui.py checks that the three agree.
+Week 7 redesign, built to the owner's HTML chat mock-up: a soft green-grey page, white
+surface cards with gentle shadows, a deep emerald accent, pill badges and rounded
+inputs. TOKENS is the one list of colours; the same values are in .streamlit/config.toml
+(Streamlit's own widgets and the charts) and in style.css (as light-dark() pairs, which
+follow the theme picked in the app menu without a rerun). tests/test_ui.py checks that
+the three agree.
 
 The HTML helpers only lay out text that src/reports already formatted; they never do
 arithmetic. Every value is escaped.
 """
 
-from datetime import date
 from html import escape
 from pathlib import Path
 
@@ -20,41 +21,37 @@ from src.ui import icons
 CSS_PATH = Path(__file__).with_name("style.css")
 LOGO_PATH = Path(__file__).with_name("logo.svg")  # the brand mark as a file (favicon)
 BRAND_NAME = "Sales Analyst"
-# Colour tokens, light and dark. accent: fills, chart main series, active nav marker,
-# focus ring. accent_text: links and the active nav label (#047857 reads better than
-# #059669 on white). good is a darker green than the accent, so a positive delta does
-# not look like brand colour; it always carries an arrow too.
+# Colour tokens, light and dark, from the owner's HTML. accent: fills, the chart main
+# series, focus rings; accent_strong: hover and text on accent_soft; on_accent: text on
+# accent fills. good, bad and warn are separate from the accent, so a positive delta does
+# not look like brand colour (it always carries an arrow too).
 TOKENS = {
     "light": {
-        "bg": "#F8FAF9",
-        "sidebar": "#F0FDF4",
+        "bg": "#EFF3F1",
+        "sidebar": "#FFFFFF",
         "surface": "#FFFFFF",
-        "subtle": "#ECFDF5",
-        "border": "#D1FAE5",
-        "text": "#14251B",
-        "muted": "#64756A",
-        "accent": "#059669",
-        "accent_text": "#047857",
-        "button": "#166534",
-        "button_hover": "#14532D",
-        "button_text": "#FFFFFF",
+        "text": "#0F1A15",
+        "muted": "#5B6862",
+        "border": "rgba(15, 26, 21, 0.09)",
+        "accent": "#0B7A54",
+        "accent_strong": "#095F42",
+        "accent_soft": "#E3F5EC",
+        "on_accent": "#FFFFFF",
         "good": "#166534",
         "bad": "#B91C1C",
         "warn": "#B45309",
     },
     "dark": {
-        "bg": "#07130F",
-        "sidebar": "#0A1C15",
-        "surface": "#10231A",
-        "subtle": "#173326",
-        "border": "#28513C",
-        "text": "#ECFDF5",
-        "muted": "#9AB7A5",
-        "accent": "#34D399",
-        "accent_text": "#34D399",
-        "button": "#34D399",
-        "button_hover": "#6EE7B7",
-        "button_text": "#07130F",
+        "bg": "#0E1411",
+        "sidebar": "#161E1A",
+        "surface": "#161E1A",
+        "text": "#EEF4F0",
+        "muted": "#9AA9A1",
+        "border": "rgba(255, 255, 255, 0.09)",
+        "accent": "#3DD69B",
+        "accent_strong": "#62E3B2",
+        "accent_soft": "rgba(61, 214, 155, 0.14)",
+        "on_accent": "#04140D",
         "good": "#86EFAC",
         "bad": "#F87171",
         "warn": "#FBBF24",
@@ -75,6 +72,7 @@ WIDGET_ICONS = {
     '[data-testid="stChatInputSubmitButton"]': "arrow-up",
     ".steps-done > summary": "chevron-right",
     ".step-data > summary": "chevron-right",
+    ".st-key-clear-chat button": "trash-2",
 }
 SIGN_ARROWS = {"+": "arrow-up", "-": "arrow-down"}
 # Shorter comparison names for the KPI cards (builder.COMPARISON_LABELS values).
@@ -103,15 +101,24 @@ def brand_block() -> str:
     return f'<div class="brand">{mark}<div class="brand-name">{escape(BRAND_NAME)}</div></div>'
 
 
-def sidebar_footer(data_end: date) -> str:
-    """The sidebar footer: the last day of data, as plain muted text."""
-    return f'<div class="sidebar-footer">Data through {data_end:%d %b %Y}</div>'
+def status_pill(text: str) -> str:
+    """A rounded status badge with an accent dot, e.g. 'Data through 30 Sep 2026'."""
+    return f'<span class="status-pill">{escape(text)}</span>'
 
 
-def page_header(title: str, description: str = "") -> str:
-    """The page title (no icon, no anchor link) and a one-line muted description."""
+def trust_pill(text: str) -> str:
+    """The accent-tinted pill with a shield icon under the chat heading."""
+    return f'<div class="trust-pill">{icons.icon("shield-check")}{escape(text)}</div>'
+
+
+def page_header(title: str, description: str = "", page_class: str = "") -> str:
+    """The page title (no icon, no anchor link) and a one-line muted description.
+
+    page_class is an extra class on the header, for page-wide CSS (e.g. 'chat-page').
+    """
     text = f'<p class="page-description">{escape(description)}</p>' if description else ""
-    return f'<div class="page-header"><h1 class="page-title">{escape(title)}</h1>{text}</div>'
+    classes = f"page-header {escape(page_class)}".strip()
+    return f'<div class="{classes}"><h1 class="page-title">{escape(title)}</h1>{text}</div>'
 
 
 def section_title(text: str, count: object = None, note: str = "") -> str:
@@ -167,19 +174,18 @@ def user_message(question: str) -> str:
 
 
 def suggestion_card(icon_name: str, title: str, question: str) -> str:
-    """An example-question card: an icon in a tinted square, a title and the question."""
+    """An example-question card: an icon tile, a title, the question and a hover arrow."""
     return (
         f'<div class="suggestion"><span class="suggestion-icon">{icons.icon(icon_name)}</span>'
         f'<div class="suggestion-body"><div class="suggestion-title">{escape(title)}</div>'
-        f'<div class="suggestion-text">{escape(question)}</div></div></div>'
+        f'<div class="suggestion-text">{escape(question)}</div></div>'
+        f"{icons.icon('arrow-right', 'suggestion-go')}</div>"
     )
 
-
-# ---- Helpers the pages still use until their own redesign step (Week 7 steps 3-5).
 
 TAG_TONES = {"red": "bad", "amber": "warn", "green": "good", "blue": "accent", "grey": "muted"}
 
 
 def tag(text: str, colour: str = "grey") -> str:
-    """A small label in a tone colour."""
+    """A small pill label tinted in a tone colour."""
     return f'<span class="tag tag-{TAG_TONES.get(colour, "muted")}">{escape(text)}</span>'

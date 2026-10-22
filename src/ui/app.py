@@ -5,8 +5,8 @@
 Pages: Sales, Demand (with pre-build approvals), Chat and Reports. The sidebar is built
 here rather than by Streamlit's own menu, so the brand block can sit above the links:
 brand, page links, the as_of date picker (every page except Chat, which always answers
-from DATA_END_DATE), then the last day of data. The model name is shown in each chat
-answer's details, not here. The dashboard never calculates a number itself: it shows
+from DATA_END_DATE). The last day of data is a status pill in each page header
+(common.header); the model name is in each chat answer's details. The dashboard never calculates a number itself: it shows
 what the functions in src/reports, src/demand and src/agent return. The look comes from
 .streamlit/config.toml, src/ui/style.css and src/ui/style.py (Week 7 redesign).
 """
@@ -35,7 +35,7 @@ PAGES = [  # (file, title); the Lucide nav icons come from CSS (style.NAV_ICONS)
 
 
 def sidebar(pages: list, page_title: str) -> None:
-    """Brand block, page links, the as_of picker and the data-end footer.
+    """Brand block, page links and the as_of picker.
 
     The picked date is kept in session state rather than in the widget, so it survives
     a visit to the Chat page, which shows no picker.
@@ -54,7 +54,6 @@ def sidebar(pages: list, page_title: str) -> None:
                 "As of", value=st.session_state[common.AS_OF_KEY], max_value=default
             )
             st.session_state[common.AS_OF_KEY] = picked
-        st.html(style.sidebar_footer(default))
 
 
 def main() -> None:
