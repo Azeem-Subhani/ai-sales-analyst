@@ -1153,3 +1153,39 @@ text are marked **(clarified)**.
   path, host or secret. The one platform detail is the POSIX venv layout
   (`.venv/bin`); on Windows the entry would need `.venv/Scripts/streamlit.exe`.
   Anyone with a different setup can override it locally.
+
+### Week 6 wrap-up: the unexplained $0.0073 (2026-10-22)
+- **No documented pair of readings differs by exactly $0.0073.** On the project
+  owner's instruction I checked every gap between documented key-balance readings
+  on 22 Oct (times PKT; `agent_log` is UTC + 5 h).
+- **Cost estimate:** a flat $0.078 per million tokens (input plus output), from the
+  three measured evals: $0.0492 for 633,238 tokens (Week 6 eval $0.0160, polish runs
+  $0.0157 and $0.0175). That is about $0.0006 per eval question. Estimates are
+  rough: late billing moves cost across reading boundaries.
+
+  | Window | Measured | Logged activity (`agent_log`) | Estimate | Not explained |
+  | --- | --- | --- | --- | --- |
+  | A: 9.8419 (after Week 6 eval, about 12:27) to 9.8282 (backfill rerun, 12:56) | $0.0137 | first backfill $0.0079; 1 question at 12:36 (stockouts, guard retry) | $0.0088 | about $0.005 |
+  | B: 9.8208 (13:00) to 9.8026 (polish Step 0, before 15:20) | $0.0182 | 19 questions 13:04 to 14:25 (the redesign's browser checks and loosely worded dashboard questions) | $0.012 to $0.014 | about $0.004 to $0.006 |
+  | C: 9.8026 to 9.7935 (15:47:30) | $0.0091 | 6 example-chip questions 15:22 to 15:31 | $0.004 to $0.005 | about $0.004 to $0.005 |
+  | D: 9.7778 (15:51:21) to 9.7708 (15:57:03) | $0.0070 | q21 x3 at 15:56; "Who is the prime minister of pakistan" 15:53; "what" 15:56; late billing of run 1 (about $0.001) | $0.004 | about $0.003 |
+  | After 9.7500 (16:04) to 9.7498 (16:42, this session) | $0.0002 | "Who is the prime minister of pakistan" twice, 16:15 and 16:21 | $0.0006 | none |
+
+- **Verdict: partly explained.** The window closest to $0.0073 is D ($0.0070), and the
+  logged questions plus late billing explain about half of it. A, B and C each
+  leave a similar $0.003 to $0.006 gap, so this is a steady unlogged spend, not one
+  event.
+- **Most likely cause (not verified):** report-summary calls outside the scheduler
+  are not logged anywhere. `report_runs` has no rows on 21 or 22 Oct, because
+  backfill, `builder` CLI and test runs are dry runs by design, and `agent_log` holds
+  chat questions only. So any report built with a summary on 22 Oct, by hand or
+  by a Claude Code session, left no record of its calls.
+- **Questions not asked by the project owner or a Claude Code session:** `agent_log`
+  records no source (CLI, dashboard, eval) or session, so this cannot be decided
+  from the log. Already known outside questions: the 6 chips 15:22 to 15:31 and the
+  15:53 and 15:56 questions. Also flagged: the two "Who is the prime minister of
+  pakistan" questions at 16:15 and 16:21, after the polish session ended and before
+  this one started. The dashboard is bound to localhost since the polish, so these
+  came from this machine.
+- **Follow-up (not done):** log every summary call (report, as_of, tokens, provider)
+  and add a source column to `agent_log`, so spend can be reconciled per caller.
