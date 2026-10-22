@@ -1,9 +1,14 @@
-# Dashboard theme (Week 6 redesign): one indigo accent, a system font stack (nothing is
+# Dashboard theme (Week 6 redesign): a blue accent (#2563EB light, #3B82F6 dark; the
+# blue-to-cyan gradient lives in src/ui/style.css), a system font stack (nothing is
 # downloaded), rounded corners, and matching light and dark modes. The viewer picks
 # light or dark in the app menu; the default follows the operating system.
 
 [server]
 runOnSave = false
+
+[client]
+# Hide the developer toolbar and the Deploy button.
+toolbarMode = "minimal"
 
 [browser]
 gatherUsageStats = false
@@ -16,24 +21,24 @@ buttonRadius = "full"
 showWidgetBorder = true
 
 [theme.light]
-primaryColor = "#4F46E5"
+primaryColor = "#2563EB"
 backgroundColor = "#FFFFFF"
 secondaryBackgroundColor = "#F4F5FB"
 textColor = "#1F2333"
 borderColor = "#E3E5EF"
-linkColor = "#4F46E5"
+linkColor = "#2563EB"
 dataframeHeaderBackgroundColor = "#EEF0FA"
-chartCategoricalColors = ["#4F46E5", "#0EA5E9", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#14B8A6", "#64748B"]
+chartCategoricalColors = ["#2563EB", "#0EA5E9", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#14B8A6", "#64748B"]
 
 [theme.dark]
-primaryColor = "#818CF8"
+primaryColor = "#3B82F6"
 backgroundColor = "#0F1117"
 secondaryBackgroundColor = "#1A1D29"
 textColor = "#E6E8F0"
 borderColor = "#2A2E3D"
-linkColor = "#A5B4FC"
+linkColor = "#60A5FA"
 dataframeHeaderBackgroundColor = "#202436"
-chartCategoricalColors = ["#818CF8", "#38BDF8", "#34D399", "#FBBF24", "#F87171", "#A78BFA", "#2DD4BF", "#94A3B8"]
+chartCategoricalColors = ["#3B82F6", "#38BDF8", "#34D399", "#FBBF24", "#F87171", "#A78BFA", "#2DD4BF", "#94A3B8"]
 
 [theme.light.sidebar]
 backgroundColor = "#F7F8FC"

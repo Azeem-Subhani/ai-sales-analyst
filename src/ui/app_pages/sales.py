@@ -37,7 +37,7 @@ def trend_chart(trend: object) -> go.Figure:
     figure = px.area(trend, x="Period start", y="Net revenue", markers=True)
     figure.update_traces(
         line={"color": style.ACCENT, "width": 2.5},
-        fillcolor="rgba(79,70,229,.12)",
+        fillcolor=style.ACCENT_FILL,
         hovertemplate="%{x|%d %b %Y}<br>Net revenue %{y:,.2f}<extra></extra>",
     )
     return styled(figure)

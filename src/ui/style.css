@@ -1,0 +1,82 @@
+/* Dashboard CSS (Week 6). The theme colours, font and corner radius are in
+   .streamlit/config.toml; this file adds only what the theme cannot. Loaded once per run
+   by style.inject() from app.py. Selectors use data-testid attributes, not Streamlit's
+   generated class names, which change between builds. Colours are semi-transparent where
+   possible, so the same rules work in light and dark mode. */
+
+:root {
+  /* The blue-to-cyan accent. Used only on the logo mark, the active sidebar item,
+     user chat bubbles and the send button. */
+  --accent-gradient: linear-gradient(135deg, #2563EB 0%, #06B6D4 100%);
+  --good: #16A34A;
+  --bad: #E5484D;
+}
+
+/* Page: comfortable width, never a horizontal scrollbar. */
+[data-testid="stMainBlockContainer"] { max-width: 1180px; padding-top: 2.2rem; }
+[data-testid="stAppViewContainer"] { overflow-x: hidden; }
+h1 { letter-spacing: -0.02em; }
+
+/* Cards (KPIs, reports) in a grid that wraps on small screens. */
+.card-grid { display: grid; gap: .8rem; margin: .4rem 0 1.2rem;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+.card { border: 1px solid rgba(127,127,160,.22); border-radius: 14px;
+  padding: .85rem 1rem; background: rgba(127,127,160,.05); min-width: 0; }
+.card-label { font-size: .8rem; opacity: .72; text-transform: uppercase;
+  letter-spacing: .04em; margin-bottom: .2rem; }
+.card-value { font-size: 1.55rem; font-weight: 700; line-height: 1.25;
+  overflow-wrap: anywhere; }
+.card-delta { font-size: .86rem; font-weight: 600; margin-top: .3rem; }
+.card-sub { font-size: .78rem; opacity: .7; margin-top: .15rem; }
+/* Green and red only for up/down comparisons on the KPI cards. */
+.tone-good { color: var(--good); } .tone-bad { color: var(--bad); } .tone-flat { opacity: .7; }
+
+/* Tags */
+.tag { display: inline-block; padding: .1rem .55rem; border-radius: 999px;
+  font-size: .75rem; font-weight: 600; white-space: nowrap; }
+
+/* Chat: assistant on a subtle card, user right-aligned in a gradient bubble. */
+[data-testid="stChatMessage"] { background: transparent; padding: .35rem 0; gap: .65rem; }
+[data-testid="stChatMessageContent"] { background: rgba(127,127,160,.07);
+  border: 1px solid rgba(127,127,160,.18); border-radius: 18px 18px 18px 6px;
+  padding: .7rem 1rem; min-width: 0; overflow-wrap: anywhere; }
+[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
+  flex-direction: row-reverse; }
+[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"])
+  [data-testid="stChatMessageContent"] {
+  background: var(--accent-gradient); border-color: transparent; color: #FFFFFF;
+  border-radius: 18px 18px 6px 18px; flex: 0 1 auto; max-width: min(78%, 620px);
+  margin-left: auto; }
+[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"])
+  [data-testid="stChatMessageContent"] * { color: #FFFFFF; }
+[data-testid="stChatMessageContent"] table { border-collapse: collapse; font-size: .9rem;
+  display: block; max-width: 100%; overflow-x: auto; margin: .4rem 0; }
+[data-testid="stChatMessageContent"] th, [data-testid="stChatMessageContent"] td {
+  padding: .35rem .7rem; border-bottom: 1px solid rgba(127,127,160,.25); }
+[data-testid="stChatMessageContent"] th { background: rgba(37,99,235,.08); }
+.chat-meta { font-size: .75rem; opacity: .6; margin-top: .35rem; }
+.chat-welcome { font-size: 1.05rem; opacity: .8; margin: .6rem 0 .8rem; }
+
+/* Live progress steps */
+.step { display: flex; align-items: center; gap: .5rem; font-size: .9rem; padding: .12rem 0; }
+.step-time { opacity: .6; font-size: .8rem; margin-left: auto; }
+.step-ok { color: var(--good); } .step-fail { color: var(--bad); }
+.spinner { width: .85rem; height: .85rem; border-radius: 50%; flex: none;
+  border: 2px solid rgba(127,127,160,.3); border-top-color: #2563EB;
+  animation: spin .8s linear infinite; }
+@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+/* Pill-shaped chat input, fixed at the bottom by Streamlit; gradient send button. */
+[data-testid="stChatInput"] { border-radius: 999px; padding-left: .4rem;
+  box-shadow: 0 2px 10px rgba(20,20,60,.08); }
+[data-testid="stChatInputSubmitButton"] { border-radius: 999px;
+  background: var(--accent-gradient); color: #FFFFFF; border: none; }
+[data-testid="stChatInputSubmitButton"] svg { color: #FFFFFF; fill: #FFFFFF; }
+[data-testid="stChatInputSubmitButton"]:disabled { opacity: .45; }
+
+@media (max-width: 640px) {
+  [data-testid="stMainBlockContainer"] { padding-left: 1rem; padding-right: 1rem; }
+  .card-value { font-size: 1.3rem; }
+  [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"])
+    [data-testid="stChatMessageContent"] { max-width: 88%; }
+}
