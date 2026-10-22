@@ -61,14 +61,15 @@ def backfill_manifest(root: Path = backfill.BACKFILL_ROOT) -> list[dict]:
 
 
 def backfill_reports(root: Path = backfill.BACKFILL_ROOT) -> list[SavedReport]:
-    """Successful backfilled reports from the manifest, in run order."""
-    return [
+    """Successful backfilled reports from the manifest, newest run first."""
+    found = [
         SavedReport(
             f"backfill {row['run_date']}", row["report"], row["as_of"], root / row["output_folder"]
         )
         for row in backfill_manifest(root)
         if row["status"] == "ok" and row["output_folder"]
     ]
+    return found[::-1]  # the manifest is in run order
 
 
 def inline_images(html: str, folder: Path) -> str:

@@ -120,29 +120,28 @@ def test_saved_reports_and_backfill_manifest(tmp_path: Path) -> None:
     ]
     root = tmp_path / "backfill"
     root.mkdir()
+    rows = [
+        ("2026-09-28", "daily_sales_snapshot", "2026-09-27", "ok"),
+        ("2026-09-28", "weekly_sales_review", "2026-09-27", "failed"),
+        ("2026-10-01", "monthly_business_review", "2026-09-30", "ok"),
+    ]
     with (root / backfill.MANIFEST_NAME).open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=backfill.MANIFEST_COLUMNS)
         writer.writeheader()
-        writer.writerow(
-            {
-                "run_date": "2026-10-01",
-                "report": "monthly_business_review",
-                "as_of": "2026-09-30",
-                "status": "ok",
-                "output_folder": "2026-10-01/monthly_business_review_2026-09-30",
-            }
-        )
-        writer.writerow(
-            {
-                "run_date": "2026-09-28",
-                "report": "weekly_sales_review",
-                "as_of": "2026-09-27",
-                "status": "failed",
-                "output_folder": "",
-            }
-        )
-    assert len(saved.backfill_manifest(root)) == 2
-    [ok] = saved.backfill_reports(root)
-    assert ok.folder == root / "2026-10-01" / "monthly_business_review_2026-09-30"
-    assert ok.source == "backfill 2026-10-01" and ok.excel_path is None
+        for run_date, report, as_of, status in rows:
+            folder = f"{run_date}/{report}_{as_of}" if status == "ok" else ""
+            writer.writerow(
+                {
+                    "run_date": run_date,
+                    "report": report,
+                    "as_of": as_of,
+                    "status": status,
+                    "output_folder": folder,
+                }
+            )
+    assert len(saved.backfill_manifest(root)) == 3
+    newest, oldest = saved.backfill_reports(root)  # newest run first; failed runs left out
+    assert newest.folder == root / "2026-10-01" / "monthly_business_review_2026-09-30"
+    assert newest.source == "backfill 2026-10-01" and newest.excel_path is None
+    assert oldest.report == "daily_sales_snapshot"
     assert saved.backfill_manifest(tmp_path / "none") == []
