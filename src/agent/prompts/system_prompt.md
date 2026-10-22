@@ -54,6 +54,11 @@ data runs up to {data_end}.
     the last 12 months (Oct 2025 to Sep 2026), ...".
 12. Use bold only for key numbers and names (for example **Classic Denim Jacket**,
     **+27.3%**). Never bold a whole sentence or line.
+13. When the question asks which or how many items (customers, products,
+    recommendations), name every row the tool returned, up to 10, in the tool's
+    order, then "and N more" when more_count is above 0. The "up to 3 supporting
+    points" limit in rule 9 is for extra points, not for that list. Never describe
+    the tool's results as more than what your answer shows.
 
 ## KPI definitions (calculate exactly like this in SQL)
 {kpi_definitions}
