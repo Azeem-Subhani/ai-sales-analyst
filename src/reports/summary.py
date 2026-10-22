@@ -18,6 +18,11 @@ sorry, but I cannot assist with that request.") or one that uses none of the inp
 numbers. Both have no wrong numbers, so the number check alone passed them (Week 6:
 6 of 14 backfilled daily summaries were refusals). They get the same one retry, with
 a prompt asking for the summary, and are then dropped (status guard_failed).
+
+A summary that fails the first attempt and passes the retry gets status
+ok_after_retry (a success: it is shown like ok), and retry_reason records why the
+first attempt failed: content_filter (the provider blocked the prompt), refusal,
+no_number_used, number_mismatch or truncated.
 """
 
 import logging
@@ -33,10 +38,19 @@ logger = logging.getLogger(__name__)
 
 # summary_status values written to report_runs
 STATUS_OK = "ok"
+STATUS_OK_AFTER_RETRY = "ok_after_retry"  # the first attempt failed, the retry passed
 STATUS_GUARD_FAILED = "guard_failed"
 STATUS_LLM_UNAVAILABLE = "llm_unavailable"
 STATUS_SKIPPED = "skipped"
 STATUS_TRUNCATED = "truncated"  # cut off at MAX_SUMMARY_TOKENS on both attempts
+SUCCESS_STATUSES = {STATUS_OK, STATUS_OK_AFTER_RETRY}  # the summary is shown
+
+# Why the first attempt failed (retry_reason, written to report_runs and manifest.csv)
+REASON_REFUSAL = "refusal"
+REASON_CONTENT_FILTER = "content_filter"  # the provider's filter blocked the prompt
+REASON_NO_NUMBER = "no_number_used"
+REASON_NUMBER_MISMATCH = "number_mismatch"
+REASON_TRUNCATED = "truncated"
 
 MAX_ATTEMPTS = 2  # the first try plus one retry after a guard failure or a cut-off
 # Output token cap per summary call. Reasoning models count their hidden thinking
@@ -93,6 +107,7 @@ class SummaryOutcome:
     failed_numbers: list[str] = field(default_factory=list)
     model: str | None = None
     cost_usd: float | None = None
+    retry_reason: str | None = None  # why the first attempt failed; None if it passed
 
 
 # ---------------------------------------------------------------- inputs
@@ -214,8 +229,11 @@ def not_a_summary(summary: str, from_input: set[Decimal]) -> str | None:
     if not summary or REFUSAL.search(summary):
         return "a refusal"
     if not any(number_is_allowed(t, from_input) for t in extract_numbers(summary)):
-        return "no number from the data"
+        return NO_NUMBER_PROBLEM
     return None
+
+
+NO_NUMBER_PROBLEM = "no number from the data"
 
 
 def check_numbers(summary: str, allowed: set[Decimal]) -> list[str]:
@@ -270,6 +288,7 @@ def write_summary(
                 result.reasoning_tokens,
             )
             outcome.status, outcome.failed_numbers = STATUS_TRUNCATED, []
+            note_first_failure(outcome, REASON_TRUNCATED)
             messages += [
                 {"role": "assistant", "content": text},
                 {"role": "user", "content": TRUNCATED_PROMPT},
@@ -278,12 +297,15 @@ def write_summary(
         problem = not_a_summary(text, from_input)
         if problem:
             logger.warning(
-                "Summary for %s attempt %d is not a summary of the data: %s",
+                "Summary for %s attempt %d is not a summary of the data: %s (%s via %s)",
                 numbers["report"],
                 attempt,
                 problem,
+                result.model,
+                result.provider or "unknown provider",
             )
             outcome.status, outcome.failed_numbers = STATUS_GUARD_FAILED, []
+            note_first_failure(outcome, failure_reason(problem, result))
             messages += [
                 {"role": "assistant", "content": text},
                 {"role": "user", "content": NOT_A_SUMMARY_PROMPT},
@@ -291,9 +313,11 @@ def write_summary(
             continue
         failed = check_numbers(text, allowed)
         if not failed:
-            outcome.text, outcome.status, outcome.failed_numbers = text, STATUS_OK, []
+            status = STATUS_OK if attempt == 1 else STATUS_OK_AFTER_RETRY
+            outcome.text, outcome.status, outcome.failed_numbers = text, status, []
             return outcome
         outcome.status, outcome.failed_numbers = STATUS_GUARD_FAILED, failed
+        note_first_failure(outcome, REASON_NUMBER_MISMATCH)
         logger.warning(
             "Summary for %s attempt %d used numbers not in the data: %s",
             numbers["report"],
@@ -306,6 +330,19 @@ def write_summary(
         ]
     outcome.text = None
     return outcome  # guard_failed or truncated (the last attempt's problem): dropped
+
+
+def failure_reason(problem: str, result: llm.LLMResult) -> str:
+    """The retry reason for a reply that is not a summary of the data."""
+    if result.content_filtered:
+        return REASON_CONTENT_FILTER
+    return REASON_NO_NUMBER if problem == NO_NUMBER_PROBLEM else REASON_REFUSAL
+
+
+def note_first_failure(outcome: SummaryOutcome, reason: str) -> None:
+    """Keep the first attempt's failure reason; a later failure does not replace it."""
+    if outcome.retry_reason is None:
+        outcome.retry_reason = reason
 
 
 def skipped() -> SummaryOutcome:

@@ -1,5 +1,6 @@
-# Agent evaluation set: 25 questions a sales manager would ask (20 from Week 4,
-# 5 demand-planning questions from Week 5).
+# Agent evaluation set: 27 questions. 25 a sales manager would ask (20 from Week 4,
+# 5 demand-planning questions from Week 5), and 2 off-topic questions (Week 6
+# wrap-up, check: off_topic) that the agent must decline with a short redirect.
 #
 # Each question has gold_sql (written by hand, run read-only by scripts/fill_gold.py)
 # or, for demand planning, gold_planning_sql (run read-only on the stored snapshot in
@@ -804,3 +805,25 @@
     - Bird-Kelly
     - Kestrel Home Stores
     ordered: true
+
+- id: q26
+  topic: off topic, general knowledge
+  question: Who is the prime minister of Pakistan?
+  expected_tools: []
+  check: off_topic
+  forbidden:
+  - Sharif
+  - prime minister is
+  - prime minister of Pakistan is
+
+- id: q27
+  topic: off topic, weather
+  question: What's the weather tomorrow?
+  expected_tools: []
+  check: off_topic
+  forbidden:
+  - sunny
+  - rain
+  - cloud
+  - °
+  - temperature

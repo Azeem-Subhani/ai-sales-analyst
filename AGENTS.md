@@ -34,7 +34,9 @@ How the core rule is enforced (keep these in place; see `docs/decisions.md`):
     Python tools.
 - **Summary number guard** (`src/reports/summary.py`): every number in a report
   summary must be in the numbers sent, or a count from 1 to 10. On failure:
-  one retry, then the summary is dropped.
+  one retry, then the summary is dropped. A summary that passes only on the retry
+  is `ok_after_retry` (shown like `ok`), with the first failure's reason in
+  `summary_retry_reason` (`report_runs` and the backfill manifest).
 - **Answer number guard** (`src/agent/answer_guard.py`):
   - Every number in a chat answer must come from a tool result for that
     question, the user's question, a date, or be a count from 1 to 10.
@@ -59,6 +61,13 @@ How the core rule is enforced (keep these in place; see `docs/decisions.md`):
   - `run_sql` and `make_chart` still see only the six standard tables.
   - One snapshot per as_of, computed by `run_demand(as_of)`. Thresholds come
     from `config/demand.yaml`, never from code.
+- **The agent stays on topic** (system prompt rule 14, prompt only): questions
+  outside this business's sales and demand data get a short redirect and no tool
+  call. Eval q26 and q27 check this.
+- **Tests never spend credit or send email:** `tests/conftest.py` blocks
+  OpenRouter and Gmail for every test, with no opt-out (fake secrets, no `.env`
+  loading, the real client and key read raise, sockets refuse both hosts). Mock
+  `llm.complete` or pass a fake client instead.
 - **The agent never changes an approval status.** Only `decide()` in
   `src/demand/approve.py` changes a pre-build status. Two places call it: the
   approval CLI and the dashboard's Demand page (`src/ui/app_pages/demand.py`).

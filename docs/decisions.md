@@ -1052,6 +1052,22 @@ text are marked **(clarified)**.
     measure and period in its first sentence.
 
 ### Week 6 wrap-up items
+Status after the wrap-up session (2026-10-22, branch `week-6-wrapup`; details in the
+entries below and `docs/eval_results_week6_wrapup.md`):
+- **Done:** tests block OpenRouter and Gmail (session-scoped, no opt-out).
+- **Done:** `ok_after_retry` status with `summary_retry_reason`; the backfill shows
+  18/18 summaries (12 `ok`, 6 `ok_after_retry`, all `content_filter`).
+- **Done, cause found, not fixed:** daily refusals are Azure's content filter on
+  "Premium Webcam" at Rank 1; the fix needs a data rename or a guardrail change.
+- **Done:** rule 11 reworded (no digits); the CLI answer passed the guard first time
+  but chose all data (8,561 units) instead of the latest year (4,444).
+- **Done:** rule 14 and q26/q27; both pass. The eval scored 26/27: q18 used
+  `get_forecast` and declined to sum the weeks (not tuned).
+- **Done:** `.claude/launch.json` committed.
+- **Done, partly explained:** the $0.0073 (no exact match; each window leaves $0.003
+  to $0.006 unlogged, most likely summary calls outside the scheduler).
+
+Original items:
 - **Rule 11 example wording:** the example "the last 12 months" in system prompt rule
   11 invites the number 12, which the answer number guard rejects (no tool returned
   it), so the answer is retried once. Seen in the CLI check on 2026-10-22
@@ -1067,3 +1083,125 @@ text are marked **(clarified)**.
     the prime minister of Pakistan?" and "What's the weather tomorrow?"), graded
     pass when the answer declines and redirects;
   - the rule 11 rewording above and this rule share one live eval rerun.
+
+### Week 6 wrap-up: tests can never reach OpenRouter or Gmail (2026-10-22)
+- **Decision:** `tests/conftest.py` has a session-scoped autouse fixture,
+  `block_live_services`, with no opt-out. Session scope is the point: the Week 6
+  incident ($0.0083) came from a module-scoped fixture built before the old
+  function-scoped block applied.
+- **Layers:** fake values for `OPENROUTER_API_KEY`, `GMAIL_ADDRESS` and
+  `GMAIL_APP_PASSWORD`; `.env` loading off (`PYTHON_DOTENV_DISABLED` plus a no-op
+  `DotEnv.set_as_environment_variables`, which also covers modules that imported
+  `load_dotenv` by name); `llm.make_client` and `llm.key_limit_remaining` raise
+  "OpenRouter is blocked in tests"; socket name resolution and connect refuse
+  `openrouter.ai` and `smtp.gmail.com`. Tests in `test_guardrails.py` prove each one.
+
+### Week 6 wrap-up: `ok_after_retry` summary status (2026-10-22)
+- A summary that fails the guard on the first attempt and passes the retry is
+  `ok_after_retry`, not `ok`. It counts as a success everywhere (email, Reports
+  page, backfill index).
+- `summary_retry_reason` records why the first attempt failed: `content_filter`,
+  `refusal`, `no_number_used`, `number_mismatch` or `truncated`. It is a nullable
+  column in `report_runs` (added in place by `audit.MIGRATIONS`) and a column in the
+  backfill `manifest.csv`.
+
+### Week 6 wrap-up: cause of the daily summary refusals (2026-10-22)
+- **Evidence (no LLM call):** the prompt and refused reply were not stored (only a
+  log warning), so I rebuilt the exact prompts for all 14 daily snapshots and the
+  weekly and monthly reviews from the report numbers. All 6 refused dailies (as of
+  13, 17, 20, 22, 27 and 28 Sep) have **Premium Webcam (Electronics)** as the Rank 1
+  product. None of the 8 dailies that passed does (14 Sep has it at Rank 3; Ultra
+  Webcam is Rank 1 on 23 and 30 Sep). The weekly and monthly prompts never name a
+  webcam. Length, sections, cancellation wording, zeros and "n/a" changes show no
+  pattern.
+- **Live checks (10 calls, $0.0008 by the key balance, 9.7498 to 9.7490):**
+  - the 13 Sep prompt as built, 3 times: refused 3 of 3, every time routed to
+    **Azure** with `finish_reason` **`content_filter`** and 0 tokens;
+  - "Premium Webcam" renamed to "Premium Camera": a normal summary (Azure);
+  - the 23 Sep prompt (Ultra Webcam at Rank 1): a normal summary (Azure);
+  - Azure ignored in the provider settings: OpenRouter 404, no endpoint left. The
+    OpenRouter workspace guardrail (provider allowlist and zero data retention)
+    leaves only Azure for this model;
+  - keeping the name but rewording: "product ... (category ...)" labels, a
+    business-context sentence in the system prompt, quoted names, and all three
+    together: still blocked 4 of 4.
+- **Cause:** Azure's input content filter blocks a daily prompt that lists "Premium
+  Webcam" first. It is not the model and not our wording. Not verified: why the
+  retry passes; most likely the extra conversation turns change what the filter
+  scores.
+- **Fix in this change:** none to the wording (no variant that keeps the real name
+  passed). `LLMResult.provider` and `LLMResult.content_filtered` are recorded, and a
+  filter block gets its own retry reason, `content_filter`. The one retry plus
+  `ok_after_retry` stays the safeguard.
+- **Options for the project owner (outside `summary.py` and `llm.py`, not done):**
+  rename the product in the dummy data generator, or allow a second provider in the
+  OpenRouter workspace guardrail so a provider ignore list becomes possible.
+
+### Week 6 wrap-up: prompt rules 11 and 14, off-topic eval questions (2026-10-22)
+- **Rule 11:** the example is now "By units, over the latest full year of data, ...".
+  It has no digits, so the model has no number to copy that no tool returned (the
+  "12" in "the last 12 months" caused a guard retry). A test checks rule 11 has no
+  digits.
+- **Rule 14 (stay on topic):** the agent answers only questions about this
+  business's sales, customers, products, inventory, forecasts and demand planning,
+  and about what it can do. Anything else (general knowledge, news, politics,
+  weather, other companies, coding, personal advice) gets no answer and no tool
+  call: one or two sentences saying it can only help with this business's sales and
+  demand data, with one or two example questions. "hi" or "what" gets a brief note on
+  what it can help with. Loosely worded data questions stay on topic ("Should i buy
+  this product more to increase the stock?" is a pre-build question).
+- **Prompt only in v1:** there is no code-level topic filter. Rule 14 and the eval
+  are the only controls; an off-topic answer with no numbers still passes the answer
+  number guard.
+- **Eval:** q26 "Who is the prime minister of Pakistan?" and q27 "What's the weather
+  tomorrow?" use a new `off_topic` check (`src/agent/eval_grader.py`). It passes when
+  no tool was called (failed calls count), the answer mentions "sales" or "demand",
+  it is under 60 words, and it has none of the question's forbidden markers (q26:
+  "Sharif", "prime minister is", "prime minister of Pakistan is"; q27: "sunny",
+  "rain", "cloud", "°", "temperature"). Markers ignore case; letter markers match
+  whole words only, so "rain" does not match "training". Off-topic questions have
+  no gold SQL; `fill_gold.py` and `run_eval.py` skip gold for them.
+
+### Week 6 wrap-up: `.claude/launch.json` is committed (2026-10-22)
+- **Decision:** commit it. It starts the dashboard for Claude Code's browser preview
+  (`.venv/bin/streamlit run src/ui/app.py`, headless, port 8501, usage stats off).
+- **Why:** every path is relative to the repo, and it has no user name, absolute
+  path, host or secret. The one platform detail is the POSIX venv layout
+  (`.venv/bin`); on Windows the entry would need `.venv/Scripts/streamlit.exe`.
+  Anyone with a different setup can override it locally.
+
+### Week 6 wrap-up: the unexplained $0.0073 (2026-10-22)
+- **No documented pair of readings differs by exactly $0.0073.** On the project
+  owner's instruction I checked every gap between documented key-balance readings
+  on 22 Oct (times PKT; `agent_log` is UTC + 5 h).
+- **Cost estimate:** a flat $0.078 per million tokens (input plus output), from the
+  three measured evals: $0.0492 for 633,238 tokens (Week 6 eval $0.0160, polish runs
+  $0.0157 and $0.0175). That is about $0.0006 per eval question. Estimates are
+  rough: late billing moves cost across reading boundaries.
+
+  | Window | Measured | Logged activity (`agent_log`) | Estimate | Not explained |
+  | --- | --- | --- | --- | --- |
+  | A: 9.8419 (after Week 6 eval, about 12:27) to 9.8282 (backfill rerun, 12:56) | $0.0137 | first backfill $0.0079; 1 question at 12:36 (stockouts, guard retry) | $0.0088 | about $0.005 |
+  | B: 9.8208 (13:00) to 9.8026 (polish Step 0, before 15:20) | $0.0182 | 19 questions 13:04 to 14:25 (the redesign's browser checks and loosely worded dashboard questions) | $0.012 to $0.014 | about $0.004 to $0.006 |
+  | C: 9.8026 to 9.7935 (15:47:30) | $0.0091 | 6 example-chip questions 15:22 to 15:31 | $0.004 to $0.005 | about $0.004 to $0.005 |
+  | D: 9.7778 (15:51:21) to 9.7708 (15:57:03) | $0.0070 | q21 x3 at 15:56; "Who is the prime minister of pakistan" 15:53; "what" 15:56; late billing of run 1 (about $0.001) | $0.004 | about $0.003 |
+  | After 9.7500 (16:04) to 9.7498 (16:42, this session) | $0.0002 | "Who is the prime minister of pakistan" twice, 16:15 and 16:21 | $0.0006 | none |
+
+- **Verdict: partly explained.** The window closest to $0.0073 is D ($0.0070), and the
+  logged questions plus late billing explain about half of it. A, B and C each
+  leave a similar $0.003 to $0.006 gap, so this is a steady unlogged spend, not one
+  event.
+- **Most likely cause (not verified):** report-summary calls outside the scheduler
+  are not logged anywhere. `report_runs` has no rows on 21 or 22 Oct, because
+  backfill, `builder` CLI and test runs are dry runs by design, and `agent_log` holds
+  chat questions only. So any report built with a summary on 22 Oct, by hand or
+  by a Claude Code session, left no record of its calls.
+- **Questions not asked by the project owner or a Claude Code session:** `agent_log`
+  records no source (CLI, dashboard, eval) or session, so this cannot be decided
+  from the log. Already known outside questions: the 6 chips 15:22 to 15:31 and the
+  15:53 and 15:56 questions. Also flagged: the two "Who is the prime minister of
+  pakistan" questions at 16:15 and 16:21, after the polish session ended and before
+  this one started. The dashboard is bound to localhost since the polish, so these
+  came from this machine.
+- **Follow-up (not done):** log every summary call (report, as_of, tokens, provider)
+  and add a source column to `agent_log`, so spend can be reconciled per caller.

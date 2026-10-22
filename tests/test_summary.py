@@ -4,6 +4,7 @@ No test reaches OpenRouter: the fake replaces llm.complete, and the autouse fixt
 conftest.py blocks the host anyway.
 """
 
+import re
 from datetime import date
 from email import message_from_bytes, policy
 from pathlib import Path
@@ -133,6 +134,7 @@ def test_summary_ok(weekly_numbers: dict) -> None:
     fake = FakeLLM(GOOD)
     outcome = summary.write_summary(weekly_numbers, complete=fake)
     assert (outcome.status, outcome.text, outcome.attempts) == ("ok", GOOD, 1)
+    assert outcome.retry_reason is None
     prompt = fake.calls[0]
     for rule in ("Use only the numbers", "Do not do any arithmetic", "No greeting"):
         assert rule in prompt[0]["content"]
@@ -142,7 +144,8 @@ def test_summary_ok(weekly_numbers: dict) -> None:
 def test_retry_points_out_failing_numbers_then_succeeds(weekly_numbers: dict) -> None:
     fake = FakeLLM(INVENTED, GOOD)
     outcome = summary.write_summary(weekly_numbers, complete=fake)
-    assert (outcome.status, outcome.text, outcome.attempts) == ("ok", GOOD, 2)
+    assert (outcome.status, outcome.text, outcome.attempts) == ("ok_after_retry", GOOD, 2)
+    assert outcome.retry_reason == "number_mismatch"
     retry_message = fake.calls[1][-1]["content"]
     assert "700" in retry_message and "not in the data" in retry_message
     assert outcome.cost_usd == pytest.approx(0.002)
@@ -153,6 +156,7 @@ def test_retry_then_drop(weekly_numbers: dict) -> None:
     outcome = summary.write_summary(weekly_numbers, complete=fake)
     assert (outcome.status, outcome.text, outcome.attempts) == ("guard_failed", None, 2)
     assert outcome.failed_numbers == ["700"]
+    assert outcome.retry_reason == "number_mismatch"
     assert len(fake.calls) == 2
 
 
@@ -176,7 +180,22 @@ def test_a_reply_that_is_not_a_summary_is_retried_then_dropped(
 
 def test_a_refusal_then_a_good_summary_is_ok(weekly_numbers: dict) -> None:
     outcome = summary.write_summary(weekly_numbers, complete=FakeLLM(REFUSAL, GOOD))
-    assert (outcome.status, outcome.text, outcome.attempts) == ("ok", GOOD, 2)
+    assert (outcome.status, outcome.text, outcome.attempts) == ("ok_after_retry", GOOD, 2)
+    assert outcome.retry_reason == "refusal"
+
+
+def test_a_number_free_reply_then_a_good_summary_is_ok_after_retry(
+    weekly_numbers: dict,
+) -> None:
+    outcome = summary.write_summary(weekly_numbers, complete=FakeLLM(NO_NUMBERS, GOOD))
+    assert (outcome.status, outcome.retry_reason) == ("ok_after_retry", "no_number_used")
+
+
+def test_first_failure_reason_is_kept_when_the_retry_fails_differently(
+    weekly_numbers: dict,
+) -> None:
+    outcome = summary.write_summary(weekly_numbers, complete=FakeLLM(REFUSAL, INVENTED))
+    assert (outcome.status, outcome.retry_reason) == ("guard_failed", "refusal")
 
 
 def test_only_small_counts_is_not_enough() -> None:
@@ -214,7 +233,8 @@ def test_cut_off_summary_is_retried_even_when_its_numbers_pass(weekly_numbers: d
     )  # the guard alone would have let it through
     fake = FakeLLM(cut_off(), GOOD)
     outcome = summary.write_summary(weekly_numbers, complete=fake)
-    assert (outcome.status, outcome.text, outcome.attempts) == ("ok", GOOD, 2)
+    assert (outcome.status, outcome.text, outcome.attempts) == ("ok_after_retry", GOOD, 2)
+    assert outcome.retry_reason == "truncated"
     retry = fake.calls[1]
     assert retry[-2] == {"role": "assistant", "content": CUT_OFF_TEXT}
     assert "cut off" in retry[-1]["content"]
@@ -347,7 +367,7 @@ def test_summary_status_logged_ok(
     assert scheduler.run_report(WEEKLY, send_settings, "run_now", today=TODAY)
     assert GOOD in sent_text(smtp)
     row = audit.read_runs(send_settings.audit_path).iloc[0]
-    assert row["summary_status"] == "ok"
+    assert row["summary_status"] == "ok" and row["summary_retry_reason"] is None
 
 
 def test_summary_status_logged_skipped(
@@ -361,12 +381,10 @@ def test_summary_status_logged_skipped(
 def test_old_audit_table_is_migrated(tmp_path: Path) -> None:
     """A Week 3 audit.duckdb (no summary_status column) keeps working."""
     path = tmp_path / "audit.duckdb"
-    week3_ddl = audit.CREATE_REPORT_RUNS.replace(
-        ",\n    summary_status    VARCHAR             -- ok | guard_failed | llm_unavailable"
-        " | skipped (Week 4)",
-        "",
+    week3_ddl = re.sub(
+        r",\n    summary_status .*?(?=\n\))", "", audit.CREATE_REPORT_RUNS, flags=re.DOTALL
     )
-    assert "summary_status" not in week3_ddl
+    assert "summary_status" not in week3_ddl and "summary_retry_reason" not in week3_ddl
     with duckdb.connect(str(path)) as con:
         con.execute(week3_ddl)
     record = audit.RunRecord(
@@ -387,4 +405,58 @@ def test_old_audit_table_is_migrated(tmp_path: Path) -> None:
         summary_status="ok",
     )
     audit.record_run(record, path)
-    assert audit.read_runs(path).iloc[0]["summary_status"] == "ok"
+    row = audit.read_runs(path).iloc[0]
+    assert row["summary_status"] == "ok" and row["summary_retry_reason"] is None
+
+
+def test_week6_audit_table_gets_the_retry_reason_column(tmp_path: Path) -> None:
+    """A Week 6 audit.duckdb (summary_status, no retry reason) is migrated in place."""
+    path = tmp_path / "audit.duckdb"
+    week6_ddl = re.sub(
+        r"\n    summary_retry_reason [^\n]*",
+        "",
+        audit.CREATE_REPORT_RUNS.replace("summary_status    VARCHAR,", "summary_status    VARCHAR"),
+        flags=re.DOTALL,
+    )
+    assert "summary_retry_reason" not in week6_ddl
+    with duckdb.connect(str(path)) as con:
+        con.execute(week6_ddl)
+    now = builder.pd.Timestamp("2026-10-22 08:00").to_pydatetime()
+    record = audit.RunRecord(
+        run_id="r2",
+        report=WEEKLY,
+        attempt=1,
+        triggered_by="test",
+        mode="dry_run",
+        as_of=WEEKLY_AS_OF,
+        period_start=None,
+        period_end=None,
+        recipients="",
+        status="success",
+        error=None,
+        duration_seconds=0.1,
+        started_at_utc=now,
+        finished_at_utc=now,
+        summary_status="ok_after_retry",
+        summary_retry_reason="refusal",
+    )
+    audit.record_run(record, path)
+    row = audit.read_runs(path).iloc[0]
+    assert (row["summary_status"], row["summary_retry_reason"]) == ("ok_after_retry", "refusal")
+
+
+def test_summary_retry_logged_and_sent(
+    smtp: type[FakeSMTP], send_settings: scheduler.Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(llm, "complete", FakeLLM(REFUSAL, GOOD))
+    assert scheduler.run_report(WEEKLY, send_settings, "run_now", today=TODAY)
+    assert GOOD in sent_text(smtp)  # ok_after_retry is shown like ok
+    row = audit.read_runs(send_settings.audit_path).iloc[0]
+    assert (row["summary_status"], row["summary_retry_reason"]) == ("ok_after_retry", "refusal")
+
+
+def test_a_content_filter_block_is_its_own_retry_reason(weekly_numbers: dict) -> None:
+    """Azure's filter blocked daily prompts listing "Premium Webcam" first (Week 6)."""
+    blocked = llm.LLMResult(text=REFUSAL, model="fake/model", finish_reason="content_filter")
+    outcome = summary.write_summary(weekly_numbers, complete=FakeLLM(blocked, GOOD))
+    assert (outcome.status, outcome.retry_reason) == ("ok_after_retry", "content_filter")

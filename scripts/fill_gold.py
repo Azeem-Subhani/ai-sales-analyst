@@ -57,6 +57,8 @@ def plain(value: object) -> object:
 def fill(questions: list[dict], db_path: Path) -> list[dict]:
     """Every question (and alternative) with its gold block recomputed."""
     for question in questions:
+        if question.get("check") == eval_grader.OFF_TOPIC:
+            continue  # no gold SQL: graded by the off-topic rules
         for item in question.get("alternatives") or [question]:
             item["gold"] = gold_for(item, db_path)
     return questions

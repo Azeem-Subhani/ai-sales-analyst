@@ -13,7 +13,7 @@ CARDS_PER_ROW = 3
 CARDS_HEIGHT = 360  # pixels: about two rows of cards, the rest scroll
 SELECTED_KEY = "report_selected"  # folder of the report being viewed
 SOURCES = {"Backfill": ":material/history:", "Dry runs": ":material/draft:"}
-SUMMARY_TAGS = {"ok": "green", "guard_failed": "amber", "truncated": "amber",
+SUMMARY_TAGS = {"ok": "green", "ok_after_retry": "green", "guard_failed": "amber", "truncated": "amber",
                 "llm_unavailable": "red", "skipped": "grey"}  # fmt: skip
 REPORT_ICONS = {
     "daily_sales_snapshot": "\U0001f4c5",

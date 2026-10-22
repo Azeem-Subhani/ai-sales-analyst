@@ -42,6 +42,7 @@ MANIFEST_COLUMNS = [
     "period",
     "status",
     "summary_status",
+    "summary_retry_reason",
     "summary_cost_usd",
     "output_folder",
     "error",
@@ -106,6 +107,7 @@ def build_run(run: PlannedRun, settings: scheduler.Settings, root: Path) -> dict
         "period": run.period.label,
         "status": "ok",
         "summary_status": "",
+        "summary_retry_reason": "",
         "summary_cost_usd": "",
         "output_folder": "",
         "error": "",
@@ -118,6 +120,7 @@ def build_run(run: PlannedRun, settings: scheduler.Settings, root: Path) -> dict
         return row
     row.update(
         summary_status=report.summary_status or "",
+        summary_retry_reason=report.summary_retry_reason or "",
         summary_cost_usd="" if report.summary_cost_usd is None else report.summary_cost_usd,
         output_folder=report.output_dir.relative_to(root).as_posix(),
     )
@@ -196,7 +199,18 @@ def print_summary(rows: list[dict], root: Path) -> None:
     print(f"  failed: {len(failed)}")
     for row in failed:
         print(f"    {row['run_date']} {row['report']}: {row['error']}")
+    print(f"  summaries: {status_counts(rows, 'summary_status')}")
+    print(f"  first-attempt failures: {status_counts(rows, 'summary_retry_reason')}")
     print(f"  summary cost reported by OpenRouter: ${spend:.4f}")
+
+
+def status_counts(rows: list[dict], column: str) -> str:
+    """'ok 12, ok_after_retry 6' for the non-empty values of one manifest column."""
+    counts: dict[str, int] = {}
+    for row in rows:
+        if row[column]:
+            counts[row[column]] = counts.get(row[column], 0) + 1
+    return ", ".join(f"{value} {count}" for value, count in counts.items()) or "none"
 
 
 def main(argv: list[str] | None = None) -> int:

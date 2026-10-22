@@ -202,3 +202,70 @@ def test_demand_tools_never_return_more_than_10_rows(built: dict, demand_runs: d
             assert item["more_count"] == max(0, item["total_count"] - tools.DEMAND_LIST_CAP)
             big += item["total_count"] > tools.DEMAND_LIST_CAP
     assert big, "the fixture has no list longer than 10, so the cap was not exercised"
+
+
+# ---------------------------------------------------------------- Week 6 wrap-up: no live calls
+
+
+def set_fake_model_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Model settings so llm_settings() passes and the call reaches the client."""
+    monkeypatch.setenv("LLM_MODEL", "fake/main")
+    monkeypatch.setenv("LLM_FALLBACK_MODEL", "fake/fallback")
+
+
+def test_unmocked_llm_call_is_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An llm.complete() with no fake client fails before anything is sent."""
+    from src.agent import llm
+
+    set_fake_model_env(monkeypatch)
+    # pytest loads conftest.py as its own module, so match the message, not the class.
+    with pytest.raises(RuntimeError, match="OpenRouter is blocked in tests"):
+        llm.complete([{"role": "user", "content": "hi"}])
+
+
+def test_key_balance_read_is_blocked() -> None:
+    from src.agent import llm
+
+    with pytest.raises(RuntimeError, match="OpenRouter is blocked in tests"):
+        llm.key_limit_remaining()
+
+
+@pytest.mark.parametrize(
+    "address", [("openrouter.ai", 443), ("api.openrouter.ai", 443), ("smtp.gmail.com", 587)]
+)
+def test_raw_connections_to_openrouter_and_gmail_fail(address: tuple[str, int]) -> None:
+    import socket
+
+    with pytest.raises(OSError, match="Tests may not call"):
+        socket.create_connection(address, timeout=1)
+    with pytest.raises(OSError, match="Tests may not call"):
+        socket.getaddrinfo(address[0], address[1])
+
+
+def test_load_dotenv_does_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Neither dotenv.load_dotenv nor a name imported from it earlier loads a file."""
+    import os
+
+    import dotenv
+
+    from src.reports import backfill
+
+    env_file = tmp_path / ".env"
+    env_file.write_text("WRAPUP_DOTENV_PROBE=loaded\nOPENROUTER_API_KEY=sk-real\n")
+    monkeypatch.delenv("WRAPUP_DOTENV_PROBE", raising=False)
+    before = os.environ["OPENROUTER_API_KEY"]
+    dotenv.load_dotenv(env_file, override=True)
+    backfill.load_dotenv(env_file, override=True)  # bound by `from dotenv import load_dotenv`
+    monkeypatch.delenv("PYTHON_DOTENV_DISABLED")  # the method patch alone still holds
+    dotenv.load_dotenv(env_file, override=True)
+    assert "WRAPUP_DOTENV_PROBE" not in os.environ
+    assert os.environ["OPENROUTER_API_KEY"] == before
+
+
+def test_secrets_are_fakes() -> None:
+    import os
+
+    from tests.conftest import FAKE_ENV
+
+    for name, value in FAKE_ENV.items():
+        assert os.environ[name] == value and "fake" in value

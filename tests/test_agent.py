@@ -4,6 +4,7 @@ The fake replaces llm.chat_with_tools, so no test reaches OpenRouter.
 """
 
 import json
+import re
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -305,6 +306,28 @@ def test_system_prompt_contents(built: dict) -> None:
     assert "{" not in prompt.split("## KPI definitions")[0]  # template fully filled
 
 
+def rule_text(prompt: str, number: int) -> str:
+    """One numbered rule of the system prompt, up to the next rule or section."""
+    match = re.search(rf"^{number}\. (.*?)(?=^\d+\. |^## )", prompt, re.MULTILINE | re.DOTALL)
+    assert match, f"rule {number} not found"
+    return match.group(1)
+
+
+def test_rule_11_example_has_no_digits(built: dict) -> None:
+    """A number in the example ("the last 12 months") was copied and tripped the guard."""
+    rule = rule_text(prompts.build_system_prompt(built["db_path"], DATA_END), 11)
+    assert "say so in your first sentence" in rule
+    assert not re.search(r"\d", rule)
+
+
+def test_rule_14_keeps_the_agent_on_topic(built: dict) -> None:
+    rule = rule_text(prompts.build_system_prompt(built["db_path"], DATA_END), 14)
+    assert rule.startswith("Stay on topic.")
+    for words in ("do not call any", "sales and demand data", "example questions", '"hi"'):
+        assert words in " ".join(rule.split())
+    assert "is a pre-build" in rule  # loosely worded data questions stay on topic
+
+
 def test_prompt_last_month_and_last_week_at_data_end(built: dict) -> None:
     # Eval-style: DATA_END_DATE 2026-09-30 -> last month September, last week 21-27 Sep.
     prompt = prompts.build_system_prompt(built["db_path"], DATA_END)
@@ -340,6 +363,7 @@ def test_prompt_examples_run_and_match(built: dict, example: dict) -> None:
 
 def test_chat_cli_missing_key_is_one_line(capsys: pytest.CaptureFixture, monkeypatch) -> None:
     monkeypatch.setattr(chat, "load_dotenv", lambda: None)
+    monkeypatch.delenv("OPENROUTER_API_KEY")  # conftest sets a fake one for every test
     assert chat.main(["--question", "hi"]) == 1
     err = capsys.readouterr().err.strip()
     assert err.startswith("Error: OPENROUTER_API_KEY")

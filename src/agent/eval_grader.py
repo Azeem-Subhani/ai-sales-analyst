@@ -18,6 +18,12 @@ Checks for one question:
   rounding; whole numbers 1 to 10 are allowed as counts. This catches numbers the
   model worked out itself (an average, a gap, a fraction turned into a percentage).
 
+Off-topic questions (check: off_topic, Week 6 wrap-up) have no gold values. They pass
+when no tool was called, the answer mentions "sales" or "demand", it is under
+OFF_TOPIC_MAX_WORDS words, and it contains none of the question's forbidden markers
+(case ignored; a marker made of letters must match whole words, so "rain" does not
+match "training").
+
 Result: correct (True) when every check passes; wrong (False) when fewer than half
 pass, or the agent errored; undecided (None) otherwise, for a human to review.
 Questions with alternatives (none in the current set) are graded against each
@@ -42,6 +48,9 @@ ASSUMPTION_WORDS = re.compile(
 NON_WORD = re.compile(r"[^a-z0-9]+")
 INLINE_CODE = re.compile(r"`[^`]*`")
 SMALL_COUNTS = {Decimal(n) for n in range(1, 11)}
+OFF_TOPIC = "off_topic"  # the check value for questions outside the business data
+OFF_TOPIC_MAX_WORDS = 60  # the redirect is one or two sentences plus example questions
+OFF_TOPIC_REDIRECT = re.compile(r"\b(sales|demand)\b", re.IGNORECASE)
 
 
 @dataclass
@@ -175,6 +184,28 @@ def grade_against(
     return result
 
 
+def has_marker(marker: str, answer: str) -> bool:
+    """True if the forbidden marker is in the answer (whole words for letter markers)."""
+    start = r"\b" if marker[:1].isalnum() else ""
+    end = r"\b" if marker[-1:].isalnum() else ""
+    return re.search(start + re.escape(marker) + end, answer, re.IGNORECASE) is not None
+
+
+def grade_off_topic(answer: str, tools_called: list[str], forbidden: list[str]) -> Grade:
+    """An off-topic question must get a short redirect to the business data, no tools."""
+    checks = {
+        "no tool called": not tools_called,
+        "mentions sales or demand": OFF_TOPIC_REDIRECT.search(answer) is not None,
+        f"under {OFF_TOPIC_MAX_WORDS} words": len(answer.split()) < OFF_TOPIC_MAX_WORDS,
+    }
+    for marker in forbidden:
+        checks[f"no {marker!r}"] = not has_marker(marker, answer)
+    result = verdict(checks)
+    if result.correct is None:  # every off-topic check is a hard rule, so no review
+        result.correct = False
+    return result
+
+
 def verdict(checks: dict[str, bool]) -> Grade:
     """True if all checks pass, False if fewer than half do, else undecided."""
     if not checks:
@@ -194,14 +225,20 @@ def grade(
     question: dict,
     error: str | None = None,
     evidence: list[str] | None = None,
+    tools_called: list[str] | None = None,
 ) -> Grade:
     """Grade an agent answer for one eval question (with gold values filled in).
 
     evidence: the question, tool arguments and tool results as text; when given,
-    numbers in the answer that none of it supports fail the check.
+    numbers in the answer that none of it supports fail the check. tools_called: every
+    tool the agent called, failed calls included (default: tools_used), for the
+    off-topic check.
     """
     if error:
         return Grade(False, {}, [f"agent error: {error}"])
+    if question.get("check") == OFF_TOPIC:
+        called = tools_used if tools_called is None else tools_called
+        return grade_off_topic(answer, called, question.get("forbidden", []))
     require_assumption = bool(question.get("require_assumption"))
     unsupported = None if evidence is None else unsupported_numbers(answer, evidence)
     alternatives = question.get("alternatives")

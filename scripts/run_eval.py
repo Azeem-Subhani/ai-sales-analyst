@@ -144,6 +144,8 @@ def load_questions(path: Path = QUESTIONS_PATH, ids: list[str] | None = None) ->
     if ids:
         questions = [q for q in questions if q["id"] in ids]
     for question in questions:
+        if question.get("check") == eval_grader.OFF_TOPIC:
+            continue  # graded by rules, not gold values
         for item in question.get("alternatives") or [question]:
             if "gold" not in item:
                 raise ValueError(f"{question['id']} has no gold values; run scripts/fill_gold.py")
@@ -156,7 +158,12 @@ def grade_answer(question: dict, answer: agent.AgentAnswer) -> QuestionResult:
     evidence = [question["question"]]
     evidence += [text for o in answer.tool_calls for text in (o.arguments, o.content())]
     grade = eval_grader.grade(
-        answer.answer, tools_used, question, error=answer.error, evidence=evidence
+        answer.answer,
+        tools_used,
+        question,
+        error=answer.error,
+        evidence=evidence,
+        tools_called=[o.name for o in answer.tool_calls],
     )
     return QuestionResult(
         id=question["id"],

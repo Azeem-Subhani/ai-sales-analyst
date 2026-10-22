@@ -116,11 +116,13 @@ def run_report(name: str, settings: Settings, triggered_by: str, today: date | N
         started, clock = datetime.now(UTC), time.perf_counter()
         recipients = list(block.get("recipients") or [])  # unexpanded until send mode needs them
         summary_status: str | None = None
+        summary_retry_reason: str | None = None
         try:
             if settings.mode == "send":
                 recipients = report_recipients(block)
             report = build_once(name, as_of, settings)
             summary_status = report.summary_status  # kept even if the send below fails
+            summary_retry_reason = report.summary_retry_reason
             deliver_once(report, recipients, settings)
             error = None
         except Exception as exc:  # noqa: BLE001 - every failure is audited and reported
@@ -142,6 +144,7 @@ def run_report(name: str, settings: Settings, triggered_by: str, today: date | N
                 started_at_utc=started.replace(tzinfo=None),
                 finished_at_utc=datetime.now(UTC).replace(tzinfo=None),
                 summary_status=summary_status,
+                summary_retry_reason=summary_retry_reason,
             ),
             settings.audit_path,
         )

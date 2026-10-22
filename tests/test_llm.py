@@ -195,7 +195,8 @@ def test_cost_is_none_without_usage_cost_or_price() -> None:
     assert call(FakeClient(response(cost=None))).cost_usd is None
 
 
-def test_missing_key_message() -> None:
+def test_missing_key_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OPENROUTER_API_KEY")  # conftest sets a fake one for every test
     with pytest.raises(llm.LLMConfigError) as caught:
         llm.llm_settings()
     message = str(caught.value)
@@ -223,8 +224,8 @@ def test_network_guard_blocks_openrouter() -> None:
 
 
 def test_real_client_cannot_reach_openrouter() -> None:
-    """Even the real SDK client fails fast inside tests, so no credit is ever spent."""
-    with pytest.raises(llm.LLMUnavailableError):
+    """Even the real SDK client cannot be created inside tests, so no credit is ever spent."""
+    with pytest.raises(RuntimeError, match="OpenRouter is blocked in tests"):
         llm.complete(MESSAGES, settings=SETTINGS)
 
 
@@ -256,3 +257,15 @@ def test_missing_finish_reason_is_not_truncated() -> None:
     )
     result = llm.complete(MESSAGES, client=FakeClient(bare), settings=SETTINGS)
     assert (result.finish_reason, result.truncated) == (None, False)
+
+
+def test_provider_is_recorded_when_openrouter_reports_it() -> None:
+    reply = response()
+    reply.provider = "SomeProvider"
+    assert call(FakeClient(reply)).provider == "SomeProvider"
+    assert call(FakeClient(response())).provider is None
+
+
+def test_content_filter_finish_is_flagged() -> None:
+    result = call(FakeClient(response("I'm sorry", finish_reason="content_filter")))
+    assert result.content_filtered and not result.truncated
