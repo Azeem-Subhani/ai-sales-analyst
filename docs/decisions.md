@@ -1110,8 +1110,9 @@ text are marked **(clarified)**.
     business-context sentence in the system prompt, quoted names, and all three
     together: still blocked 4 of 4.
 - **Cause:** Azure's input content filter blocks a daily prompt that lists "Premium
-  Webcam" first. It is not the model and not our wording. The retry passes because
-  the extra conversation turns change what the filter scores.
+  Webcam" first. It is not the model and not our wording. Not verified: why the
+  retry passes; most likely the extra conversation turns change what the filter
+  scores.
 - **Fix in this change:** none to the wording (no variant that keeps the real name
   passed). `LLMResult.provider` and `LLMResult.content_filtered` are recorded, and a
   filter block gets its own retry reason, `content_filter`. The one retry plus
