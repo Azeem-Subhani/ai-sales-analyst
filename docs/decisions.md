@@ -1205,3 +1205,121 @@ Original items:
   came from this machine.
 - **Follow-up (not done):** log every summary call (report, as_of, tokens, provider)
   and add a source column to `agent_log`, so spend can be reconciled per caller.
+
+## Week 7: dashboard redesign (UI only)
+
+### Week 7: two passes, the owner's HTML design wins (2026-10-22)
+- **First pass (Steps 1 to 4, superseded in look):** a flat emerald design from the
+  brief: background `#F8FAF9`, accent `#059669`, 8px radius, no shadows, Geist.
+- **Revision (owner):** the project owner supplied an HTML chat mock-up and asked for
+  the whole app to follow it. It replaces the brief's "flat, no shadows, 8px" rules
+  and token values. Behaviour did not change.
+- **Tokens** (`style.TOKENS`; the same values in `.streamlit/config.toml` and as
+  `light-dark()` pairs in `src/ui/style.css`; `tests/test_ui_style.py` checks all three):
+
+  | token | light | dark |
+  | --- | --- | --- |
+  | bg | `#EFF3F1` | `#0E1411` |
+  | surface, sidebar | `#FFFFFF` | `#161E1A` |
+  | text | `#0F1A15` | `#EEF4F0` |
+  | muted | `#5B6862` | `#9AA9A1` |
+  | border | `rgba(15, 26, 21, 0.09)` | `rgba(255, 255, 255, 0.09)` |
+  | accent | `#0B7A54` | `#3DD69B` |
+  | accent_strong | `#095F42` | `#62E3B2` |
+  | accent_soft | `#E3F5EC` | `rgba(61, 214, 155, 0.14)` |
+  | on_accent | `#FFFFFF` | `#04140D` |
+  | good / bad / warn | `#166534` / `#B91C1C` / `#B45309` | `#86EFAC` / `#F87171` / `#FBBF24` |
+
+  - Dark `secondaryBackgroundColor` in config is `#1D2823`, an opaque version of
+    accent_soft on the surface, because Streamlit widgets look wrong on a
+    see-through fill.
+- **Contrast choices:**
+  - Primary buttons and the user's chat bubble use the accent with `on_accent` text:
+    white on `#0B7A54` in light mode, near-black on `#3DD69B` in dark mode.
+  - Links and text on the soft accent tint use `accent_strong`, which reads better
+    than the accent on white.
+  - The good-delta green (`#166534` / `#86EFAC`) is kept separate from the accent,
+    and every delta has an up or down arrow, so a positive change does not read as
+    brand colour and colour is never the only signal.
+- **Look:**
+  - soft shadows (`--shadow-sm`, `--shadow-card`, `--shadow-md` from the HTML);
+  - 16px cards, 10px buttons and inputs, a 28px chat composer, pill badges;
+  - Inter for the UI and Geist Mono for SQL and the data view. Both are self-hosted
+    in `src/ui/static/fonts` (OFL, licence files next to them), served by
+    `enableStaticServing`; Streamlit only serves a `static/` folder next to the main
+    script.
+- **Icons:** Lucide (lucide-static 1.52.0, ISC, noted in `src/ui/icons.py`).
+  - `st.html` strips inline SVG (its sanitiser allows HTML only), so each icon is a
+    CSS mask (`.icon.i-<name>`), percent-encoded so `style.css` holds no `<`.
+  - Widget icons come from `::before` rules on `st-key-*` containers; every Material
+    icon and emoji in our code is gone.
+  - Streamlit's own icons inside its widgets (expander chevron, date picker,
+    dataframe toolbar) are unchanged.
+- **One gradient:** the fade above the chat composer, as in the HTML (owner's
+  choice). Nothing else uses a gradient; a test allows exactly that one rule.
+- **Theme switching:** Streamlit sets `color-scheme` on `.stApp`, so the
+  `light-dark()` pairs follow the theme picked in the top-right ⋮ menu (System,
+  Light, Dark) at once.
+  - `toolbarMode` is now `"viewer"` (was `"minimal"` since the Week 6 polish).
+    `"minimal"` hides the whole menu when Streamlit adds no items of its own, so the
+    theme switch was gone and the app only followed the operating system.
+    `"viewer"` keeps the theme switch, Print and Record screen, and still hides
+    Deploy, Rerun and Clear cache. `tests/test_ui_style.py` checks the setting.
+  - `st.context.theme` does not rerun the app on a switch, so it could not drive
+    the CSS.
+  - The one place that still uses it is the coloured severity words in Demand
+    tables. Those tables are drawn on a canvas, so after a theme switch their colours
+    update on the next interaction.
+- **Layout:**
+  - Every page header shows the title, a description, a "Data through" status pill
+    and the page controls (`common.header`). The model chip left the sidebar: the
+    model, tokens and cost are inside each chat answer's opened steps view only.
+  - Bordered containers are drawn as cards through `common.card(name)`, because
+    Streamlit 1.66 gives them no class of their own.
+- **Chat (from the HTML):**
+  - a 760px column, a hero with a trust pill, and "Suggested questions" cards
+    (equal height per row);
+  - the user's question as an accent bubble, the answer in a surface bubble with the
+    steps line at the top; no avatars.
+  - A card click still sends the question, as before: `st.chat_input` has no
+    `value` argument in 1.66, so it cannot be pre-filled as in the HTML. There is no
+    Dark/Light button either: Streamlit has no API to switch the theme from code.
+- **Reports, `ok_after_retry` display fix:**
+  - The Reports page showed "summary ok_after_retry". It now shows nothing for `ok`
+    and `ok_after_retry`, as the Week 6 wrap-up entry says, and a "Summary
+    unavailable" badge for `guard_failed`, `llm_unavailable`, `truncated` and
+    `skipped`.
+  - The backfill manifest table in the expander still lists the raw statuses, since
+    it is the audit file as written.
+- **Not changed:** email templates, report builder, agent, analytics, demand code,
+  `views.py`, `saved.py`, package versions. Chat was checked in the browser only on
+  a scratchpad mock page with a fake agent; no model calls were made this week.
+
+### Week 7: chat step icons and readable tool names (2026-10-22)
+- **States with icons** (`chat_steps.STATE_ICONS`, drawn as CSS masks like the
+  other icons):
+  - a brain while the model thinks;
+  - a wrench while a tool runs;
+  - a green check when a tool is done, a red cross (and red label) when it failed;
+  - a muted info icon for notes (fallback model, number-check retry).
+- **Animation:** the brain pulses and the wrench rocks while active, both in the
+  accent colour, and the label shimmers. All motion stops under
+  `prefers-reduced-motion`. No completion animation: the live steps are redrawn on
+  every progress event, so a "pop" would replay on every finished row.
+- **Finished line:** the collapsed steps line starts with a green check, or a red
+  cross when any tool failed (`steps-failed`).
+- **Brain icon:** our own drawing (not Lucide), in the same 24px, stroke-1.5 style.
+  The wrench, check, cross and info icons are Lucide (ISC).
+- **Readable tool names:** the 7 agent tools keep their hand-written labels
+  (`STEP_LABELS`). Any other tool name is turned into words from its verb
+  (`get_customer_list` -> "Getting customer list" / "Got customer list"), and only a
+  name with no known verb falls back to "Using a tool" / "Used a tool". A raw tool
+  name never appears in a step line.
+- **Withheld answers (agent code, changed at the owner's request):** when an answer
+  is withheld, `answer_guard.withheld_answer` now heads each tool result with a
+  readable title (`RESULT_TITLES`: "Sales data", "Customer alerts", "Forecast
+  accuracy", ...) instead of the raw tool name ("run_sql:"). A tool without a title
+  is named from its words without the leading verb ("get_customer_list" ->
+  "Customer list"). Only the headings changed; the guard, the rows shown and the
+  numbers are the same. The titles live in `src/agent` (not the UI labels), because
+  the agent must not import from `src/ui`; the CLI and the agent log get the same text.

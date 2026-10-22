@@ -70,3 +70,42 @@ def test_data_view_shows_at_most_20_rows_then_a_count() -> None:
 def test_style_css_has_no_angle_brackets() -> None:
     """Streamlit drops the whole stylesheet when the CSS contains '<' (even in a comment)."""
     assert "<" not in STYLE_CSS.read_text(encoding="utf-8")
+
+
+def test_every_tool_gets_a_readable_label_never_the_raw_name() -> None:
+    """Known tools use STEP_LABELS; any other tool name is turned into words."""
+    for name in tools.TOOLS:
+        running, done = chat_steps.readable_labels(name)
+        assert "_" not in running and "_" not in done, name
+    assert chat_steps.readable_labels("get_customer_list") == (
+        "Getting customer list",
+        "Got customer list",
+    )
+    step = chat_steps.Step(tool="get_customer_list", state="ok")
+    assert step.label() == "Got customer list"
+    assert chat_steps.readable_labels("frobnicate") == chat_steps.UNKNOWN_TOOL_LABELS
+
+
+def test_step_rows_show_one_icon_per_state() -> None:
+    """Brain while thinking, wrench while a tool runs, check, cross, info for notes."""
+    thinking = chat_steps.row_html(chat_steps.Step(note=chat_steps.THINKING_LABEL), True)
+    running = chat_steps.row_html(chat_steps.Step(tool="run_sql"), True)
+    done = chat_steps.row_html(chat_steps.Step(tool="run_sql", state="ok"))
+    failed = chat_steps.row_html(chat_steps.Step(tool="run_sql", state="fail"))
+    note = chat_steps.row_html(chat_steps.Step(note="Fallback model", state="ok"))
+    assert "i-brain" in thinking and "is-active step-thinking" in thinking
+    assert "i-wrench" in running and "is-active step-running" in running
+    assert "i-circle-check" in done and "step-ok" in done
+    assert "i-circle-x" in failed and "step-fail" in failed
+    assert "i-info" in note and "step-note" in note
+    live = chat_steps.live_html([chat_steps.Step(tool="run_sql", state="ok")], thinking=True)
+    assert live.count("i-brain") == 1  # the model works again after the tool
+
+
+def test_collapsed_line_marks_a_failed_tool() -> None:
+    ok = chat_steps.Step(tool="run_sql", state="ok")
+    failed = chat_steps.Step(tool="get_kpis", state="fail")
+    assert "steps-failed" not in chat_steps.collapsed_html([ok], 1.0)
+    assert '<details class="steps steps-done steps-failed">' in chat_steps.collapsed_html(
+        [ok, failed], 1.0
+    )

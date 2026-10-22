@@ -2,9 +2,10 @@
 
 How a question is shown:
 1. The question appears as a bubble straight away.
-2. Inside the assistant bubble, small grey lines show each step live (tools, a fallback
-   model, a number-check retry) from agent.ask's on_progress events, then collapse to
-   one line that opens with <details> (src/ui/chat_steps.py).
+2. Below it, small muted lines show each step live (tools, a fallback model, a
+   number-check retry) from agent.ask's on_progress events, then collapse to one line
+   that opens with <details> (src/ui/chat_steps.py). The model, tokens and cost are
+   inside that opened view only. The answer is plain text on the page: no avatars.
 3. The answer only arrives when agent.ask returns, after the answer number guard, and
    is then revealed word by word. Unchecked text is never shown. A withheld answer is
    shown as a warning with the tool results instead.
@@ -22,7 +23,6 @@ import logging
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from html import escape
 
 import streamlit as st
 
@@ -41,20 +41,19 @@ FAILED_MESSAGE = (
     "Please ask again. The details are in the dashboard log."
 )
 UNAVAILABLE_MESSAGE = "The AI service isn't responding right now. Please try again in a minute."
+PLACEHOLDER = "Ask about sales or demand. One question at a time."
+TRUST_TEXT = "Every number in an answer comes from a tool, never from the model."
 STREAM_DELAY_SECONDS = 0.012  # per word of the typewriter effect
-EXAMPLES = [  # (chip label, the question it sends)
+EXAMPLES = [  # (Lucide icon, card title, the question it sends)
+    ("users", "Lapsed wholesale customers", "Which wholesale customers have stopped ordering?"),
+    ("package-x", "September stockouts", "Which products ran out of stock in September 2026?"),
+    ("target", "Most biased forecast", "Which product's forecast is the most biased?"),
     (
-        "Wholesale customers who stopped ordering",
-        "Which wholesale customers have stopped ordering?",
-    ),
-    ("Stockouts in September", "Which products ran out of stock in September 2026?"),
-    ("Most biased forecast", "Which product's forecast is the most biased?"),
-    (
-        "Top pre-build recommendation",
+        "factory",
+        "Top pre-build",
         "What is the top pre-build recommendation, and how many units?",
     ),
 ]
-ASSISTANT_AVATAR = str(style.LOGO_PATH)  # the logo mark, as in the sidebar
 NOTE_KINDS = {agent.EVENT_FALLBACK, agent.EVENT_GUARD_RETRY, agent.EVENT_WITHHELD}
 
 
@@ -103,7 +102,7 @@ class LiveSteps:
 
 
 def meta_line(answer: agent.AgentAnswer) -> str:
-    """model · tokens · cost · time, as a small grey line.
+    """model · tokens · cost · time, shown inside the opened steps view.
 
     The cost is left out when OpenRouter reports none or $0 (it often does; the real
     spend is measured from the key balance).
@@ -114,7 +113,7 @@ def meta_line(answer: agent.AgentAnswer) -> str:
     if answer.cost_usd:  # None or 0.0: no cost shown
         parts.append(f"${answer.cost_usd:.4f}")
     parts.append(f"{answer.latency_seconds:.1f} s")
-    return '<div class="chat-meta">' + escape(" · ".join(parts)) + "</div>"
+    return " · ".join(parts)  # chat_steps.collapsed_html escapes it
 
 
 def words(text: str) -> Iterator[str]:
@@ -132,8 +131,7 @@ def show_answer(answer: agent.AgentAnswer, stream: bool) -> None:
     if answer.answer_guard == "withheld":
         st.warning(
             "The number check could not confirm the written answer, so it is withheld. "
-            "These are the tool results it was based on.",
-            icon=":material/gpp_maybe:",
+            "These are the tool results it was based on."
         )
         st.markdown(answer.answer)
     elif stream:
@@ -142,21 +140,27 @@ def show_answer(answer: agent.AgentAnswer, stream: bool) -> None:
         st.markdown(answer.answer)
     for path in answer.charts:
         st.caption(f"Chart saved: {path}")
-    st.html(meta_line(answer))
 
 
-def show_turn(turn: Turn) -> None:
+def steps_line(turn: Turn) -> str:
+    """The collapsed steps line, with the model and tokens inside its opened view."""
+    return chat_steps.collapsed_html(
+        turn.steps, turn.answer.latency_seconds, meta_line(turn.answer)
+    )
+
+
+def show_turn(turn: Turn, index: int) -> None:
     """An earlier question and answer, as history."""
     st.html(style.user_message(turn.answer.question))
-    with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
-        st.html(chat_steps.collapsed_html(turn.steps, turn.answer.latency_seconds))
+    with st.container(key=f"chat-answer-{index}"):
+        st.html(steps_line(turn))
         show_answer(turn.answer, stream=False)
 
 
-def ask_live(question: str) -> Turn:
+def ask_live(question: str, index: int) -> Turn:
     """Show the question, the live steps and the checked answer; return the turn."""
     st.html(style.user_message(question))
-    with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
+    with st.container(key=f"chat-answer-{index}"):
         live = LiveSteps(st.empty())
         live.draw()
         config = agent.AgentConfig(
@@ -164,28 +168,30 @@ def ask_live(question: str) -> Turn:
         )
         answer = agent.ask(question, config, on_progress=live)  # guarded before it returns
         turn = Turn(answer, live.steps)
-        live.placeholder.html(chat_steps.collapsed_html(turn.steps, answer.latency_seconds))
+        live.placeholder.html(steps_line(turn))
         show_answer(answer, stream=True)
     return turn
 
 
 def empty_state() -> None:
-    """A welcome line and example questions; a click sends one."""
+    """The hero, the trust pill and the example questions as cards; a click sends one.
+
+    Each card is drawn in HTML; a real button (key example-N) is stretched over it by
+    style.css, so the click, keyboard focus and the busy lock work as for any button.
+    """
     st.html(
-        '<div class="chat-welcome">Ask about sales, customers, stock or forecasts. '
-        "Every number in an answer comes from a tool, never from the model.</div>"
+        '<div class="chat-welcome"><h2 class="chat-welcome-title">Ask about sales and demand'
+        f"</h2>{style.trust_pill(TRUST_TEXT)}</div>"
     )
-    columns = st.columns(2)
-    for index, (label, example) in enumerate(EXAMPLES):
-        with columns[index % 2]:
-            if st.button(
-                label,
-                key=f"example-{index}",
-                help=example,
-                icon=":material/chat_bubble:",
-                width="stretch",
-            ):
-                start(example)
+    st.html('<p class="suggest-label">Suggested questions</p>')
+    # Row by row, so the two cards of a row stretch to the same height (style.css).
+    for row in range(0, len(EXAMPLES), 2):
+        for column, index in zip(st.columns(2), range(row, row + 2), strict=True):
+            icon, title, example = EXAMPLES[index]
+            with column, st.container(key=f"suggestion-{index}"):
+                st.html(style.suggestion_card(icon, title, example))
+                if st.button(title, key=f"example-{index}", help=example, width="stretch"):
+                    start(example)
 
 
 def start(question: str) -> None:
@@ -198,7 +204,7 @@ def start(question: str) -> None:
 def answer_locked(question: str, history: list[Turn]) -> None:
     """Answer while the input is disabled; always release the lock, then redraw."""
     try:
-        history.append(ask_live(question))
+        history.append(ask_live(question, len(history)))
     except llm.LLMUnavailableError:
         logger.exception("Chat question failed: the AI service is unavailable")
         st.session_state[ERROR_KEY] = UNAVAILABLE_MESSAGE
@@ -217,21 +223,23 @@ def main() -> None:
     busy = st.session_state.get(BUSY_KEY, False)
     if busy and QUESTION_KEY not in st.session_state:  # a lock with nothing to answer
         busy = st.session_state[BUSY_KEY] = False
-    title, clear = st.columns([5, 1], vertical_alignment="bottom")
-    title.title(":material/forum: Chat")
-    if clear.button("Clear chat", icon=":material/delete_sweep:", disabled=busy or not history):
+    # page_class marks the page for CSS: the chat is a centred 760px column.
+    controls = common.header(
+        "Chat", "Answers from the sales and demand data.", page_class="chat-page"
+    )
+    if history and controls.button("Clear chat", key="clear-chat", disabled=busy):
         history.clear()
         st.rerun()
-    submitted = st.chat_input("Ask about sales or demand…", disabled=busy)
+    submitted = st.chat_input(PLACEHOLDER, disabled=busy)
     if submitted and not busy:
         start(submitted)
     question = st.session_state.get(QUESTION_KEY) if busy else None
     if not history and not question:
         empty_state()
-    for turn in history:
-        show_turn(turn)
+    for index, turn in enumerate(history):
+        show_turn(turn, index)
     if error := st.session_state.pop(ERROR_KEY, None):
-        st.error(error, icon=":material/error:")
+        st.error(error)
     if question:
         answer_locked(question, history)
 

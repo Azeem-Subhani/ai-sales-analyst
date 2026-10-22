@@ -373,10 +373,11 @@ streamlit run src/ui/app.py
 ```
 
 The dashboard opens in the browser in light or dark mode, following your system;
-switch it in the app menu. The theme is in `.streamlit/config.toml` and the extra CSS
-in `src/ui/style.css`. The navy sidebar has the page links, the **As of** date (default
-`DATA_END_DATE`), which applies to every page except Chat, and chips with the data end
-and the main model:
+switch it with System / Light / Dark in the top-right ⋮ menu. The theme is in `.streamlit/config.toml`, the extra CSS in
+`src/ui/style.css`, and the colour tokens in `src/ui/style.py` (Week 7 redesign: soft
+green-grey page, white cards, emerald accent, Inter). The sidebar has the page links and
+the **As of** date (default `DATA_END_DATE`), which applies to every page except Chat.
+Each page header shows a "Data through" pill with the last day of data:
 
 - **Sales:**
   - a day / week / month toggle;
@@ -395,19 +396,22 @@ and the main model:
 - **Chat:**
   - the same agent as `python -m src.agent.chat`, one question at a time, always
     measured from `DATA_END_DATE`;
-  - your question shows at once, then each step (tool, fallback, number check retry)
-    shows live as a small grey line and collapses to one line ("Checked forecast
+  - an empty chat shows 4 suggested questions as cards; a click sends one;
+  - your question shows at once as a green bubble, then each step shows live as a
+    small muted line in the answer card, with an icon for its state (a brain while
+    the model thinks, a wrench while a tool runs, a check or a cross when it ends)
+    and a readable tool name, and collapses to one line ("Checked forecast
     accuracy · 7.3 s" or "3 steps · 9.1 s"); opened, it shows each step's time, the
     SQL for `run_sql`, and a "Data" view of each tool result;
   - the input is disabled until the answer is shown;
   - the answer is revealed word by word only after the answer number guard has
     passed it; a withheld answer is a warning with the tool results instead;
-  - a grey line under each answer gives model, tokens and time (and cost, when
+  - the opened steps view also gives model, tokens and time (and cost, when
     OpenRouter reports one);
-  - an empty chat offers 4 example questions;
   - it has no approval actions, and each answer spends a little credit.
-- **Reports:** the saved dry-run and backfilled reports, with charts, plus the Excel
-  download.
+- **Reports:** the saved dry-run and backfilled reports as a list grouped by report
+  type, newest first, with charts and the Excel download; a "Summary unavailable"
+  badge marks a report whose summary was dropped.
 
 The dashboard does no calculation and has no SQL. It shows what
 `src/reports/views.py` and `src/reports/saved.py` return. Reads are read-only and

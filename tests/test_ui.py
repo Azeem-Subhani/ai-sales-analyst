@@ -6,6 +6,7 @@ approval tests write to their own copy of planning.duckdb. The chat agent is moc
 and load_dotenv is replaced, so no test reads .env or reaches OpenRouter.
 """
 
+import re
 import shutil
 from datetime import date
 from pathlib import Path
@@ -88,11 +89,11 @@ def test_sales_page_shows_report_numbers(
     cards = html_text(at)
     assert f'<div class="card-value">{net["value_shown"]}</div>' in cards  # the KPI card
     first = net["comparisons"][0]
-    assert f"{first['change_shown']} vs previous week" in cards
+    assert f'{first["change_shown"]} <span class="vs">vs prev. week</span>' in cards
     assert f"tone-{first['tone']}" in cards
     at.button_group[0].set_value("Month").run()  # day / week / month toggle
     assert not at.exception
-    assert any("September 2026" in h.value for h in at.subheader)
+    assert '<div class="section-title">September 2026</div>' in html_text(at)
 
 
 def test_demand_page_without_a_snapshot_shows_the_command(
@@ -129,10 +130,10 @@ def test_demand_tabs_show_counts_and_severity_tags(
     assert not at.exception
     counts = views.demand_view(AS_OF, planning)["counts"]
     labels = [tab.label for tab in at.tabs]
-    assert f":material/groups: Customer alerts \u00b7 {counts['customer_alerts']}" in labels
-    assert any(f"Pre-build \u00b7 {counts['pending']}" in label for label in labels)
+    assert f"Customer alerts :gray[{counts['customer_alerts']}]" in labels
+    assert f"Pre-build :gray[{counts['pending']} pending]" in labels
     overdue = at.dataframe[0].value
-    assert set(overdue["Severity"]) <= {"\U0001f534 serious", "\U0001f7e0 overdue"}
+    assert set(overdue["Severity"]) <= {"Serious", "Overdue"}  # words, no emoji
 
 
 def test_demand_forecast_units_have_one_decimal(planning: Path) -> None:
@@ -385,12 +386,12 @@ def test_chat_history_and_clear(
     assert at.session_state["chat_history"] == []
 
 
-def test_chat_page_shows_the_data_end_chip_instead_of_the_date_picker(
+def test_chat_page_shows_the_data_end_instead_of_the_date_picker(
     app_env: None, built: dict, planning: Path, tmp_path: Path
 ) -> None:
     at = chat_page(built, planning, tmp_path)
     assert not at.sidebar.date_input
-    assert "Data up to 30 Sep 2026" in html_text(at)  # the sidebar status chip
+    assert "Data through 30 Sep 2026" in html_text(at)  # the sidebar footer
     assert not any("Answers use data" in m.value for m in at.sidebar.markdown)
     at.switch_page("app_pages/sales.py").run()
     assert at.sidebar.date_input[0].value == AS_OF
@@ -492,23 +493,50 @@ def test_chat_meta_line_hides_a_missing_or_zero_cost(
     monkeypatch.setattr(agent, "ask", ask)
     at = chat_page(built, planning, tmp_path)
     at.chat_input[0].set_value("Net revenue last week?").run()
-    meta = next(h.proto.body for h in at.get("html") if 'class="chat-meta"' in h.proto.body)
+    body = next(h.proto.body for h in at.get("html") if 'class="chat-meta"' in h.proto.body)
+    # The model and tokens line is inside the collapsed steps view only (Week 7).
+    assert body.startswith('<details class="steps steps-done">')
+    meta = re.search(r'<div class="chat-meta">(.*?)</div>', body).group(1)
     assert "test/model" in meta and "1,280 tokens" in meta and "1.5 s" in meta
     assert "$" not in meta and "cost" not in meta
 
 
-def test_ok_after_retry_summary_card_is_green_like_ok(tmp_path: Path) -> None:
+def test_chat_empty_state_shows_four_suggestion_cards(
+    app_env: None, built: dict, planning: Path, tmp_path: Path
+) -> None:
+    at = chat_page(built, planning, tmp_path)
+    html = html_text(at)
+    assert "Ask about sales and demand" in html
+    assert html.count('<div class="suggestion">') == 4
+    assert "Which wholesale customers have stopped ordering?" in html  # the full question
+    assert not at.get("chat_message")  # no avatars: answers are plain text
+
+
+@pytest.mark.parametrize("status", ["ok", "ok_after_retry", None])
+def test_reports_list_shows_nothing_for_a_usable_summary(
+    tmp_path: Path, status: str | None
+) -> None:
+    """ok_after_retry counts as a success and shows exactly like ok (decisions.md)."""
     from src.reports import saved
-    from src.ui import style
     from src.ui.app_pages import reports
 
-    def card(status: str) -> str:
-        report = saved.SavedReport(
-            "backfill 2026-09-14", "daily_sales_snapshot", "2026-09-13", tmp_path,
-            summary_status=status,
-        )  # fmt: skip
-        return reports.card_html(report)
+    report = saved.SavedReport(
+        "backfill 2026-09-14", "daily_sales_snapshot", "2026-09-13", tmp_path,
+        period="Sun 13 Sep 2026", summary_status=status,
+    )  # fmt: skip
+    html = reports.row_html(report)
+    assert "ok_after_retry" not in html and "Summary unavailable" not in html
+    assert "generated 2026-09-14" in html
 
-    green = style.TAG_COLOURS["green"][0]
-    assert green in card("ok") and green in card("ok_after_retry")
-    assert "summary ok_after_retry" in card("ok_after_retry")
+
+@pytest.mark.parametrize("status", ["guard_failed", "llm_unavailable", "truncated", "skipped"])
+def test_reports_list_flags_an_unavailable_summary(tmp_path: Path, status: str) -> None:
+    from src.reports import saved
+    from src.ui.app_pages import reports
+
+    report = saved.SavedReport(
+        "backfill 2026-09-14", "daily_sales_snapshot", "2026-09-13", tmp_path,
+        summary_status=status,
+    )  # fmt: skip
+    html = reports.row_html(report)
+    assert "Summary unavailable" in html and status not in html

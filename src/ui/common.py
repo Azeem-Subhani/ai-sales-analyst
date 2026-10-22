@@ -13,6 +13,7 @@ import streamlit as st
 from src.analytics import kpis
 from src.demand import store
 from src.reports import backfill, builder, views
+from src.ui import style
 
 # Session keys. Tests set the *_PATH keys to temporary copies before the first run.
 SALES_DB_KEY = "sales_db_path"
@@ -44,6 +45,34 @@ def default_as_of(sales_db: str) -> date:
     return views.default_as_of(Path(sales_db))
 
 
+def card(name: str) -> object:
+    """A bordered container drawn as a surface card (style.css: st-key-card-*).
+
+    Streamlit gives bordered containers no class of their own, so the key carries one.
+    name must be unique on the page.
+    """
+    return st.container(border=True, key=f"card-{name}")
+
+
+def header(title: str, description: str, page_class: str = "") -> object:
+    """The page header in one flexible row: title and description on the left; on the
+    right the 'Data through' status pill, then the page's own controls (the returned
+    row). The controls take only the width they need; on a narrow screen they wrap
+    below the title. page_class marks the page for CSS.
+    """
+    row = st.container(horizontal=True, vertical_alignment="center", key="page-header")
+    row.html(style.page_header(title, description, page_class), width="stretch")
+    controls = row.container(
+        horizontal=True,
+        horizontal_alignment="right",
+        vertical_alignment="center",
+        width="content",
+    )
+    data_end = default_as_of(str(path(SALES_DB_KEY)))
+    controls.html(style.status_pill(f"Data through {data_end:%d %b %Y}"), width="content")
+    return controls
+
+
 @st.cache_data(show_spinner="Loading sales numbers...")
 def sales_view(kind: str, day: date, sales_db: str) -> dict:
     """Cached views.sales_view."""
@@ -56,11 +85,20 @@ def demand_view(day: date, planning_db: str) -> dict | None:
     return views.demand_view(day, Path(planning_db))
 
 
-def show_table(table: views.Table, height: int | None = None) -> None:
-    """A sortable table with the number formats of each column kind."""
+# Dashboard number formats: the report formats (views.DISPLAY_FORMATS) with thousands
+# separators added; the decimals stay the same as the KPI cards and the reports.
+THOUSANDS = {"%.2f": "%,.2f", "%d": "%,d", "%.1f": "%,.1f"}
+
+
+def show_table(table: views.Table, height: int | None = None, data: object = None) -> None:
+    """A sortable table with the number formats of each column kind.
+
+    data replaces table.frame when given, e.g. a pandas Styler that colours a column.
+    """
     config = {
-        label: st.column_config.NumberColumn(label, format=fmt)
+        label: st.column_config.NumberColumn(label, format=THOUSANDS.get(fmt, fmt))
         for label, fmt in table.formats().items()
     }
     options = {"height": height} if height else {}
-    st.dataframe(table.frame, column_config=config, hide_index=True, **options)
+    shown = table.frame if data is None else data
+    st.dataframe(shown, column_config=config, hide_index=True, **options)

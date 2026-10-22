@@ -40,6 +40,18 @@ NO_TOOL_RESULTS = "No tool returned data for this question."
 
 MAX_ROWS_SHOWN = 20  # run_sql rows shown when the answer is withheld
 MAX_JSON_CHARS = 1500  # other tool results are shown as JSON, cut at this length
+# Headings for tool results in a withheld answer, for a sales manager: never the raw
+# tool name. get_kpis has its own text (kpi_text) and needs no heading.
+RESULT_TITLES = {
+    "run_sql": "Sales data",
+    "make_chart": "Chart",
+    "get_forecast": "Forecast",
+    "get_customer_alerts": "Customer alerts",
+    "get_forecast_accuracy": "Forecast accuracy",
+    "get_prebuild_recommendations": "Pre-build recommendations",
+}
+# Leading verbs dropped when a tool without its own title is named from its words.
+NAME_VERBS = {"get", "run", "make", "list", "find", "check", "calculate"}
 
 MONTH = (
     r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|"
@@ -94,17 +106,28 @@ def withheld_answer(failed: list[str], outcomes: list[ToolOutcome]) -> str:
     return f"{WITHHELD_NOTE.format(numbers=', '.join(failed))}\n\n{body}"
 
 
+def result_title(tool: str) -> str:
+    """A readable heading for a tool's result ("get_customer_list" -> "Customer list")."""
+    if tool in RESULT_TITLES:
+        return RESULT_TITLES[tool]
+    words = tool.split("_")
+    if len(words) > 1 and words[0] in NAME_VERBS:
+        words = words[1:]
+    return " ".join(words).capitalize()
+
+
 def tool_result_text(outcome: ToolOutcome) -> str:
-    """One tool result in a form a sales manager can read."""
+    """One tool result in a form a sales manager can read, under a readable heading."""
     result = outcome.result
     if outcome.name == "get_kpis":
         return kpi_text(result)
+    title = result_title(outcome.name)
     if "columns" in result and "rows" in result:
-        return f"{outcome.name}:\n{rows_table(result['columns'], result['rows'])}"
+        return f"{title}:\n{rows_table(result['columns'], result['rows'])}"
     text = json.dumps(result, default=str, indent=1)
     if len(text) > MAX_JSON_CHARS:
         text = text[:MAX_JSON_CHARS] + "\n..."
-    return f"{outcome.name}:\n{text}"
+    return f"{title}:\n{text}"
 
 
 def kpi_text(result: dict) -> str:

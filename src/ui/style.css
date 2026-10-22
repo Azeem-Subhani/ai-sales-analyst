@@ -1,146 +1,392 @@
-/* Dashboard CSS (Week 6). The theme colours, font and corner radius are in
-   .streamlit/config.toml; this file adds only what the theme cannot. Loaded once per run
-   by style.inject() from app.py. Selectors use data-testid attributes, not Streamlit's
-   generated class names, which change between builds. Colours are semi-transparent where
-   possible, so the same rules work in light and dark mode. */
+/* Dashboard CSS (Week 7 redesign, built to the owner's HTML chat mock-up). Streamlit's
+   own colours, font and radius are in .streamlit/config.toml; this file adds what the
+   theme cannot. Loaded once per run by style.inject() from app.py, with the icon classes
+   (src/ui/icons.py).
+
+   Tokens: each is a light-dark() pair. Streamlit sets color-scheme on .stApp to the
+   theme the viewer picked, so the pairs switch with it, without a rerun. The values are
+   style.TOKENS; tests/test_ui.py checks that they match. The look: a soft green-grey
+   page, white surface cards with gentle shadows, 16px cards, pill badges, a 28px
+   composer. The fade above the composer is the one gradient in the app.
+   Selectors use data-testid attributes and st-key-* classes, never Streamlit's
+   generated class names, which change between builds. Icon masks use longhand
+   properties: the mask shorthand would reset the icon's mask-image. */
 
 :root {
-  /* The blue-to-cyan accent. Used only on the logo mark, the active sidebar item,
-     user chat bubbles and the send button. */
-  --accent-gradient: linear-gradient(135deg, #2563EB 0%, #06B6D4 100%);
-  --good: #16A34A;
-  --bad: #E5484D;
+  --bg: light-dark(#EFF3F1, #0E1411);
+  --sidebar: light-dark(#FFFFFF, #161E1A);
+  --surface: light-dark(#FFFFFF, #161E1A);
+  --text: light-dark(#0F1A15, #EEF4F0);
+  --muted: light-dark(#5B6862, #9AA9A1);
+  --border: light-dark(rgba(15, 26, 21, 0.09), rgba(255, 255, 255, 0.09));
+  --accent: light-dark(#0B7A54, #3DD69B);
+  --accent-strong: light-dark(#095F42, #62E3B2);
+  --accent-soft: light-dark(#E3F5EC, rgba(61, 214, 155, 0.14));
+  --on-accent: light-dark(#FFFFFF, #04140D);
+  --good: light-dark(#166534, #86EFAC);
+  --bad: light-dark(#B91C1C, #F87171);
+  --warn: light-dark(#B45309, #FBBF24);
+  --shadow-sm: 0 1px 2px light-dark(rgba(15, 26, 21, 0.05), rgba(0, 0, 0, 0.4)),
+    0 1px 1px light-dark(rgba(15, 26, 21, 0.03), rgba(0, 0, 0, 0));
+  --shadow-card: 0 1px 3px light-dark(rgba(15, 26, 21, 0.07), rgba(0, 0, 0, 0.4)),
+    0 4px 14px light-dark(rgba(15, 26, 21, 0.05), rgba(0, 0, 0, 0));
+  --shadow-md: 0 8px 24px light-dark(rgba(15, 26, 21, 0.10), rgba(0, 0, 0, 0.45)),
+    0 1px 3px light-dark(rgba(15, 26, 21, 0.06), rgba(0, 0, 0, 0));
+  --radius-card: 16px;
+  --radius-control: 10px;
+  --radius-input: 28px;
 }
 
-/* Page: comfortable width, never a horizontal scrollbar. */
-[data-testid="stMainBlockContainer"] { max-width: 1180px; padding-top: 2.2rem; }
+/* ---- Page */
+.stApp { background: var(--bg); font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased; }
+/* The top padding clears Streamlit's 52px header bar (menu and sidebar button). */
+[data-testid="stMainBlockContainer"] { max-width: 1200px; padding-top: 3.75rem; }
 [data-testid="stAppViewContainer"] { overflow-x: hidden; }
-h1 { letter-spacing: -0.02em; }
+a { color: var(--accent-strong); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-/* Cards (KPIs, reports) in a grid that wraps on small screens. */
-.card-grid { display: grid; gap: .8rem; margin: .4rem 0 1.2rem;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
-.card { border: 1px solid rgba(127,127,160,.22); border-radius: 14px;
-  padding: .85rem 1rem; background: rgba(127,127,160,.05); min-width: 0; }
-.card-label { font-size: .8rem; opacity: .72; text-transform: uppercase;
-  letter-spacing: .04em; margin-bottom: .2rem; }
-.card-value { font-size: 1.55rem; font-weight: 700; line-height: 1.25;
-  overflow-wrap: anywhere; }
-.card-delta { font-size: .86rem; font-weight: 600; margin-top: .3rem; }
-.card-sub { font-size: .78rem; opacity: .7; margin-top: .15rem; }
-/* Green and red only for up/down comparisons on the KPI cards. */
-.tone-good { color: var(--good); } .tone-bad { color: var(--bad); } .tone-flat { opacity: .7; }
+/* ---- Icons: currentColor painted through a Lucide mask (icons.py). */
+.icon { display: inline-block; flex: none; width: 16px; height: 16px;
+  vertical-align: -3px; background-color: currentColor;
+  -webkit-mask-position: center; mask-position: center; -webkit-mask-size: contain;
+  mask-size: contain; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat; }
 
-/* Tags */
-.tag { display: inline-block; padding: .1rem .55rem; border-radius: 999px;
-  font-size: .75rem; font-weight: 600; white-space: nowrap; }
+/* ---- Page header: title and description; status pill and controls on the right.
+   The pill never shrinks, so it cannot be clipped when the row is tight. */
+[data-testid="stElementContainer"]:has(.status-pill) { flex: none; }
+/* The title block keeps room for its one-line description before the controls wrap. */
+.st-key-page-header > [data-testid="stElementContainer"]:has(.page-header) {
+  flex: 1 1 260px; min-width: 0; }
+.page-header { margin: 0; }
+.page-title { font-size: 22px; font-weight: 600; line-height: 1.3; letter-spacing: -0.01em;
+  margin: 0; padding: 0; color: var(--text); }
+.page-description { font-size: 14px; color: var(--muted); margin: 4px 0 0; }
+.status-pill { flex: none; display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px;
+  font-size: 12.5px; color: var(--muted); background: var(--surface);
+  border: 1px solid var(--border); border-radius: 999px; box-shadow: var(--shadow-sm);
+  white-space: nowrap; }
+.status-pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.section-title { font-size: 15px; font-weight: 600; color: var(--text); margin: 0 0 .4rem; }
+.section-count, .section-note { font-weight: 400; color: var(--muted); }
+.section-note { font-size: 13px; }
+.muted { color: var(--muted); font-size: 13px; margin: 0 0 .6rem; }
+[data-testid="stCaptionContainer"] { color: var(--muted); font-size: 13px; }
 
-/* Chat: assistant on a subtle card next to the logo avatar; the user's question is our
-   own HTML (style.user_message): a right-aligned gradient bubble next to a slate avatar. */
-[data-testid="stChatMessage"] { background: transparent; padding: .35rem 0; gap: .65rem; }
-[data-testid="stChatMessageContent"] { background: rgba(127,127,160,.07);
-  border: 1px solid rgba(127,127,160,.18); border-radius: 18px 18px 18px 6px;
-  padding: .7rem 1rem; min-width: 0; overflow-wrap: anywhere; }
-[data-testid="stChatMessageAvatarImage"] { width: 32px; height: 32px; border-radius: 8px; }
-.user-row { display: flex; justify-content: flex-end; align-items: flex-end; gap: .65rem;
-  padding: .35rem 0; }
-.user-bubble { background: var(--accent-gradient); color: #FFFFFF;
-  border-radius: 18px 18px 6px 18px; padding: .7rem 1rem; max-width: min(78%, 620px);
-  min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; line-height: 1.5; }
-.user-avatar { position: relative; flex: none; width: 2rem; height: 2rem; border-radius: 50%;
-  background: #475569; overflow: hidden; }
-.user-avatar-head { position: absolute; left: 50%; top: 22%; width: 34%; height: 34%;
-  transform: translateX(-50%); border-radius: 50%; background: #E2E8F0; }
-.user-avatar-body { position: absolute; left: 50%; top: 62%; width: 62%; height: 50%;
-  transform: translateX(-50%); border-radius: 50% 50% 0 0; background: #E2E8F0; }
-[data-testid="stChatMessageContent"] table { border-collapse: collapse; font-size: .9rem;
+/* ---- Cards: bordered containers made with common.card() (key card-*) are surface
+   cards with a soft shadow; pending pre-build rows (key row-*) are quiet inner rows. */
+[class*="st-key-card-"] { background: var(--surface); border-color: transparent;
+  border-radius: var(--radius-card); box-shadow: var(--shadow-card); padding: 18px; }
+[class*="st-key-row-"] { background: var(--surface); border-color: var(--border);
+  border-radius: 12px; box-shadow: none; }
+[class*="st-key-row-"]:hover { border-color: color-mix(in srgb, var(--text) 18%, transparent); }
+
+/* ---- Buttons: solid accent primary, ghost secondary (as the HTML's .btn-ghost). */
+[data-testid="stBaseButton-primary"] { background: var(--accent); border-color: var(--accent);
+  color: var(--on-accent); border-radius: var(--radius-control); box-shadow: none; }
+[data-testid="stBaseButton-primary"]:hover { background: var(--accent-strong);
+  border-color: var(--accent-strong); color: var(--on-accent); }
+[data-testid="stBaseButton-primary"] * { color: var(--on-accent); }
+[data-testid="stBaseButton-secondary"] { background: transparent; border: 1px solid var(--border);
+  color: var(--text); border-radius: var(--radius-control); box-shadow: none; font-size: 13px; }
+[data-testid="stBaseButton-secondary"]:hover { background: var(--surface);
+  border-color: color-mix(in srgb, var(--text) 25%, transparent); color: var(--text); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: none; }
+[data-testid="stBaseButton-secondary"]:disabled { opacity: .5; }
+/* Lucide icons on keyed buttons (WIDGET_ICONS in style.py). */
+[class*="st-key-view-"] button::before, .st-key-excel-download button::before,
+.st-key-clear-chat button::before { content: ""; display: inline-block; width: 14px;
+  height: 14px; margin-right: .4rem; background-color: currentColor;
+  -webkit-mask-position: center; mask-position: center; -webkit-mask-size: contain;
+  mask-size: contain; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat; }
+
+/* ---- Inputs: surface, rounded. */
+[data-testid="stTextInputRootElement"], [data-testid="stDateInput"] [data-baseweb="input"] {
+  border-radius: var(--radius-control); background: var(--surface); }
+
+/* ---- Segmented controls: a pill track, the selected segment raised on the surface. */
+[data-testid="stButtonGroup"] [role="radiogroup"] { background: var(--surface);
+  border: 1px solid var(--border); border-radius: 999px; padding: 3px; gap: 2px;
+  width: fit-content; max-width: 100%; box-shadow: var(--shadow-sm); }
+[data-testid="stButtonGroup"] button[data-variant="segmented_control"] {
+  border: 0; border-radius: 999px; background: transparent; color: var(--muted);
+  box-shadow: none; min-height: 28px; padding: 0 .85rem; }
+[data-testid="stButtonGroup"] button[data-variant="segmented_control"] p { font-size: 13px; }
+[data-testid="stButtonGroup"] button[data-variant="segmented_control"]:hover {
+  color: var(--text); background: transparent; }
+[data-testid="stButtonGroup"] button[data-variant="segmented_control"][aria-checked="true"] {
+  background: var(--accent-soft); color: var(--accent-strong); }
+[data-testid="stButtonGroup"] button[data-variant="segmented_control"][aria-checked="true"] * {
+  color: var(--accent-strong); font-weight: 600; }
+
+/* ---- Tabs: underline style (Streamlit draws the accent underline), no icons. */
+[data-testid="stTabs"] [role="tablist"] { gap: 1.25rem; }
+[data-testid="stTab"], [data-testid="stTab"] p { color: var(--muted); font-size: 14px;
+  font-weight: 500; }
+[data-testid="stTab"][aria-selected="true"], [data-testid="stTab"][aria-selected="true"] p {
+  color: var(--text); }
+/* Counts in tab labels are :gray[] markdown spans; shown in the muted token. */
+[data-testid="stTab"] p span { color: var(--muted); font-weight: 400; }
+
+/* ---- Alerts and toasts: rounded tinted cards. */
+[data-testid="stAlert"] [data-testid="stAlertContainer"] { border-radius: 12px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  box-shadow: var(--shadow-sm); }
+/* Warning (e.g. the withheld answer) and error (e.g. the AI service is down). */
+[data-testid="stAlertContainer"]:has([data-testid="stAlertContentWarning"]) {
+  border-color: color-mix(in srgb, var(--warn) 35%, transparent);
+  background: color-mix(in srgb, var(--warn) 8%, var(--surface)); }
+[data-testid="stAlertContainer"]:has([data-testid="stAlertContentError"]) {
+  border-color: color-mix(in srgb, var(--bad) 35%, transparent);
+  background: color-mix(in srgb, var(--bad) 8%, var(--surface)); }
+[data-testid="stAlertContentWarning"], [data-testid="stAlertContentError"],
+[data-testid="stAlertContentWarning"] *, [data-testid="stAlertContentError"] * {
+  color: var(--text); }
+[data-testid="stToast"] { border-radius: 12px; border: 1px solid var(--border);
+  box-shadow: var(--shadow-md); }
+[data-testid="stExpander"] details { border-color: var(--border); border-radius: 12px;
+  background: var(--surface); }
+
+/* ---- Tags: small tinted pills in a tone colour. */
+.tag { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px;
+  font-weight: 500; white-space: nowrap; vertical-align: 1px; }
+.tag-good { color: var(--good); background: color-mix(in srgb, var(--good) 12%, transparent); }
+.tag-bad { color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); }
+.tag-warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
+.tag-accent { color: var(--accent-strong); background: var(--accent-soft); }
+.tag-muted { color: var(--muted); background: color-mix(in srgb, var(--text) 7%, transparent); }
+
+/* ---- Demand: pending pre-build rows next to their Approve / Reject buttons. */
+.pending-row { line-height: 1.45; min-width: 0; }
+.pending-name { font-size: 14px; font-weight: 600; color: var(--text); }
+.pending-sku { font-weight: 400; color: var(--muted); font-size: 13px; margin: 0 .25rem; }
+.pending-meta { font-size: 13px; color: var(--muted); margin-top: .15rem; }
+
+/* ---- Reports: a card per report type with a compact row per report. */
+.report-group { display: flex; align-items: center; gap: 10px; margin-bottom: .25rem; }
+.report-group .section-title { margin: 0; }
+.report-group-icon { display: grid; place-items: center; flex: none; width: 30px; height: 30px;
+  border-radius: 9px; background: var(--accent-soft); color: var(--accent-strong); }
+.report-row { min-width: 0; padding: 2px 0; }
+.report-period { font-size: 14px; font-weight: 600; color: var(--text); }
+.report-meta { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+
+/* ---- KPI cards */
+.card-grid { display: grid; gap: 14px; margin: .5rem 0 14px;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+.card { border-radius: var(--radius-card); padding: 18px; background: var(--surface);
+  box-shadow: var(--shadow-card); min-width: 0; }
+.card-label { font-size: 13px; color: var(--muted); margin-bottom: .3rem; }
+.card-value { font-size: 28px; font-weight: 600; line-height: 1.2; letter-spacing: -0.02em;
+  overflow-wrap: anywhere; color: var(--text); }
+.card-delta { font-size: 13px; font-weight: 600; margin-top: .45rem; white-space: nowrap;
+  display: flex; align-items: center; gap: .25rem; min-width: 0; }
+.card-delta .vs { font-weight: 400; color: var(--muted); }
+.card-sub { font-size: 12.5px; color: var(--muted); margin-top: .25rem; }
+.card-grid-compact { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px;
+  margin-top: 0; }
+.card-compact { padding: 14px 16px; }
+.card-compact .card-value { font-size: 20px; }
+.card-compact .card-delta { font-size: 12px; margin-top: .3rem; }
+.delta-icon { width: 14px; height: 14px; vertical-align: -2px; }
+.tone-good { color: var(--good); } .tone-bad { color: var(--bad); }
+.tone-flat { color: var(--muted); }
+
+/* ---- Chat page: a centred 760px column (marker .chat-page in the header). */
+[data-testid="stAppViewContainer"]:has(.chat-page) [data-testid="stMainBlockContainer"],
+[data-testid="stAppViewContainer"]:has(.chat-page) [data-testid="stBottomBlockContainer"] {
+  max-width: 760px; }
+
+/* Bubbles: the question in the accent, the answer on a surface card (no avatars). */
+.user-row { display: flex; justify-content: flex-end; padding: .5rem 0 .1rem; }
+.user-bubble { background: var(--accent); color: var(--on-accent); border-radius: 18px;
+  border-bottom-right-radius: 6px; padding: 12px 16px; max-width: 85%; min-width: 0;
+  overflow-wrap: anywhere; white-space: pre-wrap; line-height: 1.5; font-size: 15px; }
+[class*="st-key-chat-answer-"] { width: fit-content; max-width: 85%; min-width: min(320px, 100%);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 18px;
+  border-bottom-left-radius: 6px; box-shadow: var(--shadow-sm); padding: 12px 16px;
+  margin: .35rem 0 .5rem; gap: .35rem; }
+[class*="st-key-chat-answer-"] [data-testid="stMarkdownContainer"] p,
+[class*="st-key-chat-answer-"] [data-testid="stMarkdownContainer"] li {
+  font-size: 15px; line-height: 1.55; }
+[class*="st-key-chat-answer-"] table { border-collapse: collapse; font-size: 13px;
   display: block; max-width: 100%; overflow-x: auto; margin: .4rem 0; }
-[data-testid="stChatMessageContent"] th, [data-testid="stChatMessageContent"] td {
-  padding: .35rem .7rem; border-bottom: 1px solid rgba(127,127,160,.25); }
-[data-testid="stChatMessageContent"] th { background: rgba(37,99,235,.08); }
-.chat-meta { font-size: .75rem; opacity: .6; margin-top: .35rem; }
-.chat-welcome { font-size: 1.05rem; opacity: .8; margin: .6rem 0 .8rem; }
+[class*="st-key-chat-answer-"] th, [class*="st-key-chat-answer-"] td {
+  padding: .35rem .7rem; border-bottom: 1px solid var(--border); text-align: left; }
+[class*="st-key-chat-answer-"] th { background: var(--accent-soft); font-weight: 600; }
+.chat-meta { font-size: 12px; color: var(--muted); padding-top: .35rem; }
 
-/* Tool steps (src/ui/chat_steps.py): small muted text above the answer, no box. Live:
-   one line per step, a pulsing dot on the active one. Done: one details line that opens. */
-.steps { font-size: .84rem; color: inherit; opacity: .62; margin: 0 0 .45rem; }
-.step-row { display: flex; align-items: center; gap: .5rem; padding: .08rem 0; min-width: 0; }
+/* Empty state: hero, trust pill, "Suggested questions" and the cards. Each card is HTML
+   with the real st.button stretched invisibly over it (see chat.empty_state). */
+.chat-welcome { text-align: center; margin: 7vh 0 32px; }
+.chat-welcome-title { margin: 0; font-size: clamp(26px, 4vw, 32px); font-weight: 600;
+  letter-spacing: -0.025em; color: var(--text); }
+.trust-pill { display: inline-flex; align-items: center; gap: 8px; margin-top: 14px;
+  padding: 8px 14px; font-size: 13.5px; color: var(--accent-strong);
+  background: var(--accent-soft); border-radius: 999px; text-align: left; }
+.suggest-label { margin: 0 0 10px 4px; font-size: 13px; font-weight: 500; color: var(--muted); }
+[class*="st-key-suggestion-"] { position: relative; gap: 0; height: 100%; }
+/* The two cards of a row share one height: stretch every level from the column down. */
+[data-testid="stColumn"]:has([class*="st-key-suggestion-"]) > [data-testid="stVerticalBlock"],
+[data-testid="stLayoutWrapper"]:has(> [class*="st-key-suggestion-"]),
+[class*="st-key-suggestion-"] > [data-testid="stElementContainer"]:has(.suggestion),
+[class*="st-key-suggestion-"] .stHtml { height: 100%; }
+.suggestion { height: 100%; }
+.suggestion { position: relative; display: flex; gap: 14px; align-items: flex-start;
+  min-height: 96px; padding: 18px; background: var(--surface); border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card); transition: transform .15s ease, box-shadow .15s ease; }
+.suggestion-icon { display: grid; place-items: center; flex: none; width: 38px; height: 38px;
+  border-radius: 11px; background: var(--accent-soft); color: var(--accent-strong); }
+.suggestion-icon .icon { width: 20px; height: 20px; }
+.suggestion-body { min-width: 0; padding-right: 18px; }
+.suggestion-title { margin: 0 0 4px; font-size: 15px; font-weight: 600; color: var(--text); }
+.suggestion-text { font-size: 13.5px; color: var(--muted); line-height: 1.45; }
+.suggestion-go { position: absolute; top: 16px; right: 16px; color: var(--accent); opacity: 0;
+  transform: translateX(-4px); transition: opacity .15s, transform .15s; }
+[class*="st-key-suggestion-"]:hover .suggestion { transform: translateY(-1px);
+  box-shadow: var(--shadow-md); }
+[class*="st-key-suggestion-"]:hover .suggestion-go,
+[class*="st-key-suggestion-"]:has(button:focus-visible) .suggestion-go { opacity: 1; transform: none; }
+[class*="st-key-suggestion-"]:has(button:focus-visible) .suggestion {
+  outline: 2px solid var(--accent); outline-offset: 2px; }
+[class*="st-key-suggestion-"]:active .suggestion { transform: none; box-shadow: var(--shadow-card); }
+/* The real button covers the card; its own look is hidden, the card shows instead. */
+[class*="st-key-suggestion-"] [data-testid="stElementContainer"]:has(.stButton) {
+  position: absolute; inset: 0; z-index: 1; margin: 0; }
+[class*="st-key-suggestion-"] .stButton, [class*="st-key-suggestion-"] .stButton > div,
+[class*="st-key-suggestion-"] .stButton span, [class*="st-key-suggestion-"] button {
+  height: 100%; width: 100%; }
+[class*="st-key-suggestion-"] button { opacity: 0; cursor: pointer; }
+[class*="st-key-suggestion-"] button:focus-visible { outline: none; }
+[class*="st-key-suggestion-"] button:disabled { cursor: default; }
+/* While a clicked example is answered, the old empty state is not shown faded. */
+[class*="st-key-suggestion-"]:has([data-stale="true"]),
+[data-testid="stElementContainer"][data-stale="true"]:has(.chat-welcome),
+[data-testid="stElementContainer"][data-stale="true"]:has(.suggest-label) { display: none; }
+
+/* Composer: surface, no border, radius 28, a soft shadow and a round accent send
+   button. The fade above it is the one gradient in the app (owner's choice, Week 7). */
+[data-testid="stBottom"] > div { background: transparent; }
+[data-testid="stBottomBlockContainer"] { position: relative; background: var(--bg);
+  padding-top: 12px; padding-bottom: 20px; }
+[data-testid="stBottomBlockContainer"]::before { content: ""; position: absolute; left: 0;
+  right: 0; top: -24px; height: 24px; pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--bg)); }
+[data-testid="stChatInput"] { border: 0; border-radius: var(--radius-input);
+  background: var(--surface); box-shadow: var(--shadow-md); min-height: 56px;
+  padding: 7px 7px 7px 20px; transition: box-shadow .15s; }
+[data-testid="stChatInput"]:focus-within {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent), var(--shadow-md); }
+/* Streamlit's inner wrapper adds its own padding; the composer's padding is enough. */
+[data-testid="stChatInput"] > div { background: transparent; border: none; box-shadow: none;
+  padding: 0; }
+[data-testid="stChatInputTextArea"] { font-size: 15px; background: transparent; color: var(--text); }
+[data-testid="stChatInputTextArea"]::placeholder { color: var(--muted); }
+/* The composer's ring shows focus; no second outline on the text area itself. */
+[data-testid="stChatInputTextArea"]:focus, [data-testid="stChatInputTextArea"]:focus-visible {
+  outline: none; box-shadow: none; }
+[data-testid="stChatInputSubmitButton"] { width: 42px; height: 42px; min-width: 42px;
+  border-radius: 50%; background: var(--accent); color: var(--on-accent); border: none;
+  display: grid; place-items: center; align-self: center;
+  transition: background .15s, transform .1s; }
+[data-testid="stChatInputSubmitButton"]:hover:not(:disabled) { background: var(--accent-strong); }
+[data-testid="stChatInputSubmitButton"]:active:not(:disabled) { transform: scale(0.94); }
+[data-testid="stChatInputSubmitButton"] svg, [data-testid="stChatInputSubmitButton"] > span {
+  display: none; }
+[data-testid="stChatInputSubmitButton"]::before { content: ""; width: 18px; height: 18px;
+  background-color: currentColor; -webkit-mask-position: center; mask-position: center;
+  -webkit-mask-size: contain; mask-size: contain; -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat; }
+[data-testid="stChatInputSubmitButton"]:disabled { cursor: not-allowed; color: var(--muted);
+  background: color-mix(in srgb, var(--text) 8%, transparent); opacity: 1; }
+
+/* Tool steps (src/ui/chat_steps.py): muted 13px lines at the top of the answer card,
+   each with a state icon. Live: the brain (model thinking) pulses and the wrench (a
+   tool running) rocks, both in the accent, and the label shimmers. Done: a green
+   check, or a red cross for a failed tool; notes get a muted info icon. The finished
+   steps collapse to one line with a check and a chevron that opens the details. */
+.steps { font-size: 13px; color: var(--muted); margin: 0 0 .25rem; }
+.step-row { display: flex; align-items: center; gap: .5rem; padding: .15rem 0; min-width: 0; }
 .step-label { min-width: 0; overflow-wrap: anywhere; }
-.step-time { margin-left: auto; padding-left: .75rem; white-space: nowrap;
-  font-variant-numeric: tabular-nums; }
-.step-dot { width: .42rem; height: .42rem; border-radius: 50%; flex: none;
-  background: currentColor; opacity: .45; }
-.step-row.is-note .step-dot { background: transparent; border: 1px solid currentColor; }
-.step-row.is-active .step-dot { opacity: 1; animation: step-pulse 1.1s ease-in-out infinite; }
-@keyframes step-pulse { 0%, 100% { transform: scale(.75); opacity: .35; }
-  50% { transform: scale(1.15); opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .step-row.is-active .step-dot { animation: none; } }
+.step-time { margin-left: auto; padding-left: .75rem; white-space: nowrap; }
+.step-icon { width: 14px; height: 14px; vertical-align: middle; }
+.step-thinking .step-icon, .step-running .step-icon { color: var(--accent); }
+.step-ok .step-icon { color: var(--good); }
+.step-fail .step-icon, .step-fail .step-label { color: var(--bad); }
+.step-note .step-icon { color: var(--muted); }
+.step-row.is-active .step-label { color: var(--text); animation: shimmer 1.6s ease-in-out infinite; }
+.step-thinking.is-active .step-icon { animation: think 1.4s ease-in-out infinite; }
+.step-running.is-active .step-icon { animation: tool-rock 1s ease-in-out infinite;
+  transform-origin: 50% 50%; }
+@keyframes shimmer { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
+@keyframes think { 0%, 100% { transform: scale(.88); opacity: .55; }
+  50% { transform: scale(1.08); opacity: 1; } }
+@keyframes tool-rock { 0%, 100% { transform: rotate(-14deg); } 50% { transform: rotate(14deg); } }
+.steps-done > summary::after { content: ""; order: -1; width: 14px; height: 14px;
+  background-color: var(--good); -webkit-mask-position: center; mask-position: center;
+  -webkit-mask-size: contain; mask-size: contain; -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat; }
+.steps-failed > summary::after { background-color: var(--bad); }
 .steps-done > summary { cursor: pointer; list-style: none; display: inline-flex;
-  align-items: center; gap: .35rem; }
-.steps-done > summary::-webkit-details-marker { display: none; }
-.steps-done > summary::after { content: "›"; font-size: 1rem; line-height: 1;
-  transition: transform .15s; }
-.steps-done[open] > summary::after { transform: rotate(90deg); }
-.steps-done[open] { opacity: .85; }
-.steps-body { margin: .35rem 0 .2rem .2rem; padding-left: .7rem;
-  border-left: 1px solid rgba(127,127,160,.3); }
+  align-items: center; gap: .3rem; border-radius: 4px; }
+.steps-done > summary:hover { color: var(--text); }
+.steps-done > summary::-webkit-details-marker,
+.step-data > summary::-webkit-details-marker { display: none; }
+.steps-done > summary::before, .step-data > summary::before { content: ""; order: 2;
+  width: 14px; height: 14px; background-color: currentColor; -webkit-mask-position: center;
+  mask-position: center; -webkit-mask-size: contain; mask-size: contain;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat; transition: transform .15s; }
+.steps-done[open] > summary::before, .step-data[open] > summary::before {
+  transform: rotate(90deg); }
+.steps-body { margin: .4rem 0 .25rem .15rem; padding-left: .75rem;
+  border-left: 1px solid var(--border); }
 .step-detail { padding: .15rem 0; }
-.step-sql, .step-json { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: .76rem; line-height: 1.45; background: rgba(127,127,160,.1);
+.step-sql, .step-json { font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px; line-height: 1.5; background: var(--accent-soft); color: var(--text);
   border-radius: 8px; padding: .5rem .65rem; margin: .25rem 0 .3rem;
   white-space: pre-wrap; overflow-wrap: anywhere; }
 .step-json { max-height: 260px; overflow: auto; white-space: pre; }
-.step-data > summary { cursor: pointer; font-size: .78rem; margin-top: .15rem; }
+.step-data > summary { cursor: pointer; font-size: 12px; margin-top: .15rem; list-style: none;
+  display: inline-flex; align-items: center; gap: .25rem; }
 
-/* Pill-shaped chat input, fixed at the bottom by Streamlit; gradient send button. */
-[data-testid="stChatInput"] { border-radius: 999px; padding-left: .4rem;
-  box-shadow: 0 2px 10px rgba(20,20,60,.08); }
-[data-testid="stChatInputSubmitButton"] { border-radius: 999px;
-  background: var(--accent-gradient); color: #FFFFFF; border: none; }
-[data-testid="stChatInputSubmitButton"] svg { color: #FFFFFF; fill: #FFFFFF; }
-[data-testid="stChatInputSubmitButton"]:disabled { opacity: .45; }
+/* ---- Sidebar: surface with a 1px border (config.toml), brand on top, then the links. */
+[data-testid="stSidebar"] { background: var(--sidebar); border-right: 1px solid var(--border); }
+.brand { display: flex; align-items: center; gap: .6rem; padding: 0 .25rem .9rem; }
+.brand-mark { display: grid; place-items: center; flex: none; width: 28px; height: 28px;
+  border-radius: 9px; background: var(--accent); color: var(--on-accent); }
+.brand-mark .icon { width: 16px; height: 16px; }
+.brand-name { font-weight: 600; font-size: 15px; color: var(--text); letter-spacing: -0.01em; }
+[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"] { position: relative;
+  min-height: 36px; height: 36px; border-radius: var(--radius-control); padding: 0 .7rem;
+  gap: .6rem; background: transparent; }
+[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"]::before { content: "";
+  display: inline-block; flex: none; width: 16px; height: 16px; background-color: currentColor;
+  -webkit-mask-position: center; mask-position: center; -webkit-mask-size: contain;
+  mask-size: contain; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat; }
+[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"],
+[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"] * { color: var(--muted); }
+[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"] p { font-size: 14px; }
+[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"]:hover {
+  background: color-mix(in srgb, var(--text) 5%, transparent); }
+[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"]:hover,
+[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"]:hover * { color: var(--text); }
+[data-testid="stSidebar"] [class*="-active"] [data-testid="stPageLink-NavLink"] {
+  background: var(--accent-soft); }
+[data-testid="stSidebar"] [class*="-active"] [data-testid="stPageLink-NavLink"],
+[data-testid="stSidebar"] [class*="-active"] [data-testid="stPageLink-NavLink"] * {
+  color: var(--accent-strong); font-weight: 600; }
+[data-testid="stSidebar"] [class*="st-key-nav-"] { gap: 0; }
 
 @media (max-width: 640px) {
-  [data-testid="stMainBlockContainer"] { padding-left: 1rem; padding-right: 1rem; }
-  .card-value { font-size: 1.3rem; }
-  .user-bubble { max-width: 84%; }
+  /* Clear the header bar with the sidebar button. */
+  [data-testid="stMainBlockContainer"] { padding: 3.75rem 1rem 1rem; }
+  .card-value { font-size: 24px; }
+  .user-bubble, [class*="st-key-chat-answer-"] { max-width: 92%; }
+  .chat-welcome { margin-top: 1.5rem; }
 }
 
-/* Sidebar: deep navy in both modes (colours in config.toml). Brand block on top,
-   page links as a menu, status chips at the bottom. */
-.brand { display: flex; align-items: center; gap: .65rem; padding: .1rem .2rem .6rem; }
-.logo-mark { position: relative; flex: none; width: 32px; height: 32px; border-radius: 8px;
-  background: var(--accent-gradient); }
-.logo-bar { position: absolute; bottom: 7px; width: 4px; border-radius: 1.5px; background: #FFFFFF; }
-.logo-bar-1 { left: 8px; height: 8px; opacity: .75; }
-.logo-bar-2 { left: 14px; height: 12px; opacity: .88; }
-.logo-bar-3 { left: 20px; height: 17px; }
-.brand-name { font-weight: 700; color: #FFFFFF; font-size: 1.02rem; line-height: 1.2; }
-.brand-tagline { font-size: .76rem; color: rgba(203,213,225,.6); }
-[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"] { border-radius: 10px;
-  padding: .35rem .65rem; background: transparent; transition: background .15s; }
-[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"],
-[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"] * { color: rgba(226,232,240,.72); }
-[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"]:hover {
-  background: rgba(255,255,255,.07); }
-[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"]:hover * { color: #FFFFFF; }
-[data-testid="stSidebar"] [class*="st-key-nav-active-"] [data-testid="stPageLink-NavLink"] {
-  background: var(--accent-gradient); }
-[data-testid="stSidebar"] [class*="st-key-nav-active-"] [data-testid="stPageLink-NavLink"] * {
-  color: #FFFFFF; font-weight: 600; }
-[data-testid="stSidebar"] [class*="st-key-nav-"] { gap: 0; }
-.sidebar-status { display: flex; flex-wrap: wrap; gap: .4rem; padding-top: .8rem;
-  border-top: 1px solid rgba(255,255,255,.08); }
-.chip { display: inline-flex; align-items: center; gap: .4rem; padding: .2rem .6rem;
-  border-radius: 999px; font-size: .74rem; color: rgba(226,232,240,.85);
-  background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.08);
-  white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
-.chip-dot { width: .45rem; height: .45rem; border-radius: 50%; background: #22C55E; flex: none; }
-.chip-model { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-/* Push the status chips to the bottom of the sidebar when there is room. */
-[data-testid="stSidebarUserContent"] { display: flex; flex-direction: column;
-  min-height: calc(100vh - 5rem); }
-[data-testid="stSidebarUserContent"] > * { flex: 1; display: flex; flex-direction: column; }
-[data-testid="stSidebarUserContent"] > * > [data-testid="stVerticalBlock"] { flex: 1; }
-[data-testid="stSidebarUserContent"] [data-testid="stElementContainer"]:has(.sidebar-status) {
-  margin-top: auto; }
+@media (prefers-reduced-motion: reduce) {
+  .step-row.is-active .step-label, .step-row.is-active .step-icon { animation: none; }
+  .suggestion, .suggestion-go, [data-testid="stChatInputSubmitButton"] { transition: none; }
+}
