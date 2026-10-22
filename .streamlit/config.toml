@@ -5,6 +5,9 @@
 
 [server]
 runOnSave = false
+# Local use only: on all interfaces anyone on the network could ask questions
+# (spending credit) and press the approval buttons.
+address = "localhost"
 
 [client]
 # Hide the developer toolbar and the Deploy button.

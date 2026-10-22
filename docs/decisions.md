@@ -1006,6 +1006,12 @@ text are marked **(clarified)**.
     with a generated class.
   - `style.css` must not contain `<`, even in a comment: Streamlit then drops the
     whole stylesheet. A test checks this.
+- **Localhost only:** `.streamlit/config.toml` sets `[server] address = "localhost"`.
+  On all interfaces (the default) anyone on the network could ask questions, which
+  spends OpenRouter credit, and press the pre-build approval buttons. During the
+  polish, chat questions nobody in the session asked appeared in `agent_log`; no
+  pre-build recommendation was decided (checked 2026-10-22: all snapshots pending,
+  `prebuild_decisions` empty).
 - **Escaping:** every dynamic string placed into HTML (the question, labels, notes,
   SQL, tool results, the model name) goes through `html.escape`. Tests check that a
   question with `<script>` or `<img onerror=...>` is shown as text.
@@ -1044,3 +1050,10 @@ text are marked **(clarified)**.
     (gpt-5.6-luna, fallback off, answer guard `ok` on all 25).
   - The CLI answer to "which product is customer buying the most?" states the
     measure and period in its first sentence.
+
+### Week 6 wrap-up items
+- **Rule 11 example wording:** the example "the last 12 months" in system prompt rule
+  11 invites the number 12, which the answer number guard rejects (no tool returned
+  it), so the answer is retried once. Seen in the CLI check on 2026-10-22
+  (`docs/eval_results_week6_polish.md`). Reword the example without a number (for
+  example "over the last year") and rerun the live eval.
