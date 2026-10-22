@@ -71,18 +71,6 @@ def card_grid(cards: list[str]) -> str:
     return f'<div class="card-grid">{"".join(cards)}</div>'
 
 
-def step_line(icon: str, label: str, seconds_shown: str = "", state: str = "running") -> str:
-    """One progress step: a spinner while running, then a tick or a cross."""
-    mark = {
-        "running": '<span class="spinner"></span>',
-        "ok": '<span class="step-ok">✔</span>',
-        "fail": '<span class="step-fail">✖</span>',
-        "note": '<span class="step-fail">!</span>',
-    }[state]
-    time_text = f'<span class="step-time">{escape(seconds_shown)}</span>' if seconds_shown else ""
-    return f'<div class="step">{mark}<span>{escape(icon)}</span><span>{escape(label)}</span>{time_text}</div>'
-
-
 def logo_mark() -> str:
     """The logo mark in HTML and CSS: a gradient square with three rising bars.
 

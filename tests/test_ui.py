@@ -325,11 +325,13 @@ def test_chat_shows_live_steps_then_the_checked_answer(
     assert CHECKED in markdown
     html = html_text(at)
     assert '<div class="user-bubble">Net revenue last week?</div>' in html
-    assert "Getting KPIs (get_kpis)" in html and "0.2 s" in html  # the tool step, ticked
-    assert html.count('class="step-ok"') == 3  # two model calls and one tool call
     assert "test/model" in html and "1,280 tokens" in html and "$0.0004" in html
-    [status] = at.get("status")
-    assert status.proto.label == "Used 1 tool \u00b7 1.5 s"
+    # The steps collapse to one line: the tool's past-tense label and the total time,
+    # opening to show the step's duration and its Data.
+    assert "<summary>Calculated KPIs \u00b7 1.5 s</summary>" in html
+    assert '<span class="step-time">0.2 s</span>' in html
+    assert '<details class="step-data"><summary>Data</summary>' in html
+    assert not at.get("status") and not at.get("spinner")  # no Streamlit status widgets
     assert len(at.session_state["chat_history"]) == 1
 
 
@@ -370,7 +372,7 @@ def test_chat_history_and_clear(
     at.chat_input[0].set_value("Second?").run()
     assert not at.exception
     assert fake.asked == ["First?", "Second?"]  # single-turn: one call per question
-    assert len(at.get("status")) == 2  # one status block per answer, history included
+    assert html_text(at).count('<details class="steps steps-done">') == 2  # history too
     next(b for b in at.button if b.label == "Clear chat").click().run()
     assert at.session_state["chat_history"] == []
 
