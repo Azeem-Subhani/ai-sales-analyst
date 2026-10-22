@@ -1145,3 +1145,11 @@ text are marked **(clarified)**.
   "rain", "cloud", "°", "temperature"). Markers ignore case; letter markers match
   whole words only, so "rain" does not match "training". Off-topic questions have
   no gold SQL; `fill_gold.py` and `run_eval.py` skip gold for them.
+
+### Week 6 wrap-up: `.claude/launch.json` is committed (2026-10-22)
+- **Decision:** commit it. It starts the dashboard for Claude Code's browser preview
+  (`.venv/bin/streamlit run src/ui/app.py`, headless, port 8501, usage stats off).
+- **Why:** every path is relative to the repo, and it has no user name, absolute
+  path, host or secret. The one platform detail is the POSIX venv layout
+  (`.venv/bin`); on Windows the entry would need `.venv/Scripts/streamlit.exe`.
+  Anyone with a different setup can override it locally.
