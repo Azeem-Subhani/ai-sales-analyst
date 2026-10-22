@@ -747,3 +747,223 @@ text are marked **(clarified)**.
   pre-build. The latest inventory snapshot on or before 27 Sep is the 21 Sep one
   (329 on hand, 202 on order), which still covers the product's 4-week lead time.
   The low stock (123 on hand, none on order) appears only in the 28 Sep snapshot.
+
+## Week 6: agent fixes, backfill, dashboard
+
+### revenue_lost is stored with declining alerts
+- **Decision (2026-10-22):** `declining_alerts` already ranked by revenue lost
+  (prior 90 days minus last 90 days) but dropped the column. It is now kept and
+  stored as `customer_alerts.revenue_lost`, added to existing files by a
+  `MIGRATIONS` entry. The 2026-09-27 and 2026-09-30 snapshots were recomputed.
+  None of their recommendations had been decided, so no `--force` was needed.
+- **Why:** the rank and the number the agent quotes come from one calculation. The
+  alternative, the tool subtracting the stored revenues, would have computed the
+  same figure in a second place.
+- `get_customer_alerts` returns `revenue_lost` and `revenue_lost_shown`, rounded
+  once like the other money fields. Older snapshots show it as empty until rerun.
+
+### Demand-tool lists are capped at 10 rows
+- **Decision (2026-10-22):** every list from `get_customer_alerts` (one per alert
+  type), `get_forecast_accuracy` (`overall`, `flagged_products`, `by_category`) and
+  `get_prebuild_recommendations` (`recommendations`, `needs_planner_review`) has at
+  most 10 rows (`DEMAND_LIST_CAP`), plus `total_count` and `more_count`. The `limit`
+  argument (default 10, max 50) was removed, so the model cannot ask for more.
+- The tool descriptions tell the model to say "and N more" and that the full list is
+  in the dashboard and the report Excel. `run_sql` keeps its 500-row limit.
+- `get_forecast_accuracy` lost `flagged_count`; it is now
+  `flagged_products.total_count`.
+
+### Ranked questions are graded in order
+- **Decision (2026-10-22):** a grade spec can say `ordered: true`. The gold names the
+  answer mentions must then appear in gold order (first mention counts). A missing
+  name is left to its own name check, so it is not counted twice.
+- Set on q06, q08, q10, q11, q15, q23, q24 and q25, the questions that ask for "top",
+  "most", "highest", "lowest" or "first". It only bites where there are 2 or more
+  names: q08, q10, q11, q24, q25.
+- q21's gold is now the capped list: 41 serious customers, the first 10 by rank and
+  `more_customers` 31. q25's gold SQL orders by `revenue_lost DESC` (the same order
+  as the rank). Gold values were regenerated with `scripts/fill_gold.py`.
+- Live eval: 25/25 on `openai/gpt-5.6-luna` with fallback off
+  (`docs/eval_results_week6.md`).
+
+### Tests never load .env
+- **Decision (2026-10-22):** a test that calls a CLI `main()` must replace
+  `load_dotenv` first. The autouse OpenRouter block is function-scoped, and a
+  module-scoped fixture (the reports in `test_reports.py`) is built before it
+  applies. Once real keys are in `os.environ`, that fixture calls the model.
+- **What happened:** a first draft of the backfill test did this and spent $0.0083
+  (three report summaries). It was fixed before any commit, and a full run afterwards
+  left the key balance unchanged.
+
+### Backfill instead of two live weeks of scheduler runs
+- **Decision (project owner, 2026-10-22):** `python -m src.reports.backfill --from
+  2026-09-14 --to 2026-10-01` builds every report the scheduler would have sent on
+  those run dates. 1 Oct is included for the September monthly review.
+- **Same rules as the scheduler:**
+  - Run dates come from the scheduler's own `job_specs` CronTriggers
+    (`get_next_fire_time`, in `TIMEZONE`), and each as_of from
+    `data_clock.reporting_as_of` with that run date as "today".
+  - Nothing is hard-coded. A test moves the weekly review to Tuesday and the plan
+    follows.
+  - Result: 14 daily snapshots, 3 weekly reviews (as of 13, 20 and 27 Sep) and the
+    September monthly review. As in the scheduler, Saturdays have no daily snapshot,
+    because the Monday run reports Sunday.
+- **Always a dry run:** the backfill calls only `scheduler.build_once` with
+  `mode="dry_run"`. It never calls `deliver_once`, `send_report` or
+  `audit.record_run`, so `report_runs` stays the record of real runs.
+- **Output:**
+  - The reports go to `outputs/backfill/<run_date>/<report>_<as_of>/`, in the normal
+    dry-run format.
+  - `manifest.csv` has `run_date, report, as_of, period, status, summary_status,
+    summary_cost_usd, output_folder, error`. `summary_cost_usd` is an extra column;
+    OpenRouter reports $0, so it reads 0.0 and spend is measured from the key balance.
+  - `index.html` links every report.
+  - One failed report is recorded and the rest still run.
+- **Demand snapshots:** the weekly reports created the missing 2026-09-13 and
+  2026-09-20 snapshots through the builder's existing `get_or_run`.
+- `Report` now carries `summary_cost_usd`. It was calculated before but dropped.
+- **Run (2026-10-22):** 18 of 18 ok, every summary `ok`, 4 min 22 s, $0.0079 by the
+  key balance.
+
+### Dashboard: src/ui, read-only, numbers from src/
+- **Path (2026-10-22):** the dashboard is `src/ui/app.py` (`streamlit run
+  src/ui/app.py`), as the Week 6 brief asked. The one-line stub
+  `src/app/streamlit_app.py` was removed. `docs/project_plan.md` still names the
+  old path; it is read-only, so this entry records the change.
+- **Pages live in `src/ui/app_pages/`, not `pages/`.** Streamlit treats a `pages/`
+  folder next to the main script as old-style auto pages. On a rerun it then ran a
+  page without `app.py`, so the sidebar and shared as_of were missing.
+- **No numbers in the UI:**
+  - The pages call `src/reports/views.py` (sales and demand) and
+    `src/reports/saved.py` (saved reports). They have no SQL and open no database;
+    a guardrail test checks this.
+  - `views` reuses the builder's sections and comparisons and returns tables rounded
+    once for display: money half-up to cents, rates as percentages to 1 decimal.
+    Tables stay sortable because the values are numbers, not text.
+- **Sales periods:** the Sales page shows the latest complete day, week or month
+  ending on or before the sidebar date (the data clock's rule), with the matching
+  report's `compare_to`.
+- **Demand page:**
+  - It needs a snapshot for exactly the sidebar date. If there is none, it shows the
+    `python -m src.demand.run --as-of ...` command and has no button to create one.
+  - Lists are full, with no 10-row cap. Declining customers show revenue lost.
+- **Approvals:**
+  - Each Approve or Reject needs a second Confirm click. "Decided by" is required
+    and kept for the session; the note is optional.
+  - Every decision goes through `approve.decide()` with the dashboard's
+    `planning.duckdb` path, exactly as the CLI does.
+  - `ApprovalError`, `PlanningStoreError` and any other write failure (such as a
+    locked file) are shown as an error. After a decision the read cache is cleared.
+  - `tests/test_demand.py`'s approval-import check now covers `src/agent` and
+    `src/reports`. The guardrail tests cover `src/ui`: only the Demand page may call
+    `decide()`.
+- **Chat page:**
+  - It calls `agent.ask`, the same function the CLI uses; no refactor was needed,
+    since the CLI's `main()` only parses arguments.
+  - Each question is single-turn and history is display only.
+  - Answers are measured from `DATA_END_DATE`, not the sidebar date, as in the
+    CLI and the eval.
+  - The details expander shows the tool calls and results, and the CLI footer plus
+    tokens.
+- **Reports page:**
+  - It lists `outputs/reports` folders and the backfill manifest.
+  - The saved HTML is shown with `st.html`, after `saved.inline_images` swaps
+    each chart for a data URI. `st.html` sanitizes the HTML.
+  - `st.iframe` (the replacement for the deprecated `components.html`) runs the page
+    with access to the app, and the report includes LLM-written summary text.
+- **Short-lived reads:** every read opens DuckDB read-only and closes it, and is
+  cached with `st.cache_data` per as_of and file path. The CLIs can still write
+  while the dashboard is open.
+
+### Week 6 guardrail tests
+- **Decision (2026-10-22):** `tests/test_guardrails.py` also checks:
+  - `src/ui` uses no `openai`, `duckdb`, `connect` or `read_only`, so it opens no
+    database itself;
+  - `src/ui` has no SQL in any string;
+  - only `approve.py` writes a pre-build status (`UPDATE prebuild_recommendations`,
+    `INSERT INTO prebuild_decisions`), and only `approve.py` and the Demand page use
+    `decide`;
+  - importing the agent, its tools, the chat CLI and `src.ui.common` in a fresh
+    process never loads `src.demand.approve`, and no file in `src/agent` or the chat
+    page names it;
+  - `backfill.py` uses none of `send_report`, `deliver_once`, `notify_failure`,
+    `run_report`, `record_run`, `emailer` or `audit`;
+  - every argument combination of the three demand tools returns at most 10 rows per
+    list. The fixture must have at least one longer list, so the cap is really
+    exercised.
+- The name checks use the code's AST (names, attributes, imports), so comments and
+  docstrings that mention these words do not trip them.
+
+### The summary guard rejects refusals and number-free summaries
+- **Finding (2026-10-22):** 6 of the 14 backfilled daily snapshots had the summary
+  "I'm sorry, but I cannot assist with that request.": those as of 13, 17, 20, 22,
+  27 and 28 Sep. Their `summary_status` was `ok`, because the number guard only
+  checks numbers and a refusal has none. The weekly and monthly summaries were
+  normal.
+- **Decision (project owner, 2026-10-22):** `summary.not_a_summary()` rejects two
+  kinds of reply:
+  - a refusal (narrow `REFUSAL` pattern: "I'm sorry", "I cannot assist/help",
+    "I am unable to", "as an AI");
+  - a reply that uses no number from the input. The 1 to 10 count allowance does
+    not count as using one.
+
+  Either gets the one retry, with `NOT_A_SUMMARY_PROMPT`. If the retry fails too,
+  the summary is dropped: status `guard_failed`, the placeholder in the email, and
+  the report still sends.
+- Ordinary wording such as "unable to compare" is not a refusal (tested).
+- Why the daily input draws refusals is not yet known; the guard stops them
+  reaching an email either way.
+- **Live check (2026-10-22):** I reran the backfill for 14 Sep to 1 Oct. All 18
+  reports built and all 18 summaries ended `ok`:
+  - 12 passed on the first attempt.
+  - 6 were refusals on the first attempt and passed on the retry. They were the
+    same six dailies as before (as of 13, 17, 20, 22, 27 and 28 Sep).
+  - None was dropped.
+
+  It made 24 model calls and cost $0.0074 by the key balance (9.8282 to 9.8208).
+  No backfilled report now contains a refusal.
+- The Reports page lists backfilled reports newest first, so it opens on the
+  September monthly review.
+
+### Dashboard redesign (Week 6 follow-up)
+- **Decision (project owner, 2026-10-22):** a modern look for the whole dashboard,
+  with the chat first. It uses native Streamlit and CSS only, with no new packages.
+- **Progress callback:**
+  - `agent.ask(..., on_progress=None)` calls back with a `ProgressEvent` for each
+    model call (`thinking` / `thinking_done`, with its duration), tool call
+    (`tool_start` / `tool_done`, with arguments and result), `fallback` (seen after
+    the call returns), `guard_retry` and `withheld`.
+  - A failing callback is logged and ignored.
+  - Steps are timed with `time.monotonic`, so `config.clock` and the 120-second
+    limit work exactly as before.
+  - The CLI passes no callback.
+- **Never stream unchecked text:**
+  - Events carry no answer text. The page gets the answer only from `ask()`'s return
+    value, after the guard, and only then reveals it word by word with
+    `st.write_stream`.
+  - A withheld answer is shown as a warning plus the tool results, without the
+    typewriter effect.
+- **Chat date:** the Chat page hides the sidebar date picker and shows "Answers use
+  data up to <DATA_END_DATE>". The picked date is kept in session state, not in the
+  widget, so it survives a visit to Chat.
+- **Theme and styling:**
+  - `.streamlit/config.toml` has one indigo accent (`#4F46E5`, `#818CF8` in dark
+    mode), a system font stack (nothing is downloaded) and rounded corners, with
+    matching light and dark themes.
+  - `src/ui/style.py` adds the CSS for the chat bubbles, the pill input, cards and
+    tags. It uses semi-transparent colours, so one CSS block works in both modes.
+  - The spinner keyframes use `0%` / `100%`, because the word `from` would trip the
+    guardrail test that looks for SQL in `src/ui`.
+- **Numbers stay outside the UI:**
+  - The Demand tab badges come from a new `counts` entry in `views.demand_view`.
+  - Report cards read `period` and `summary_status` from the backfill manifest
+    (`saved.SavedReport`).
+  - KPI cards only lay out the text `views.kpi_cards` already formatted, with an
+    arrow from the change's sign and green or red from the report's `tone`.
+- **Tags in sortable tables:** severity, priority, status and "flagged" show as
+  coloured emoji text. That keeps `st.dataframe` sorting; a pandas Styler would turn
+  the numbers into text.
+- **Checked live (2026-10-22):** I asked the 4 example questions in the browser.
+  They found the churned wholesale customers, the September stockouts, AP-1150 at
+  +27.3% bias, and SB-1042 at 327 units. Each passed the guard on the first
+  attempt. No page scrolls horizontally at 375 px width.

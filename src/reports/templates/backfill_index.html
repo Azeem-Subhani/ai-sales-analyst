@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Backfilled reports {{ start }} to {{ end }}</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 24px; color: #222; }
+  table { border-collapse: collapse; }
+  th, td { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 14px; }
+  th { background: #f2f2f2; }
+  .failed { color: #b00020; }
+</style>
+</head>
+<body>
+<h1>Backfilled reports, run dates {{ start }} to {{ end }}</h1>
+<p>Dry runs only: nothing was emailed and nothing was written to report_runs.</p>
+<table>
+  <tr><th>Run date</th><th>Report</th><th>As of</th><th>Period</th><th>Status</th><th>Summary</th></tr>
+  {% for row in rows %}
+  <tr>
+    <td>{{ row.run_date }}</td>
+    <td>{% if row.output_folder %}<a href="{{ row.output_folder }}/{{ report_file }}">{{ row.report }}</a>{% else %}{{ row.report }}{% endif %}</td>
+    <td>{{ row.as_of }}</td>
+    <td>{{ row.period }}</td>
+    <td{% if row.status != "ok" %} class="failed" title="{{ row.error }}"{% endif %}>{{ row.status }}</td>
+    <td>{{ row.summary_status }}</td>
+  </tr>
+  {% endfor %}
+</table>
+</body>
+</html>

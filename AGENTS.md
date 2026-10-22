@@ -59,10 +59,24 @@ How the core rule is enforced (keep these in place; see `docs/decisions.md`):
   - `run_sql` and `make_chart` still see only the six standard tables.
   - One snapshot per as_of, computed by `run_demand(as_of)`. Thresholds come
     from `config/demand.yaml`, never from code.
-- **The agent never changes an approval status.** Only `src/demand/approve.py`
-  (the approval CLI, and the Week 6 buttons on top of it) changes a pre-build
-  status. Nothing in `src/agent`, `src/reports` or `src/app` imports it, and a
-  test checks this.
+- **The agent never changes an approval status.** Only `decide()` in
+  `src/demand/approve.py` changes a pre-build status. Two places call it: the
+  approval CLI and the dashboard's Demand page (`src/ui/app_pages/demand.py`).
+  Nothing in `src/agent`, `src/reports` or the rest of `src/ui` (the chat page
+  included) imports it. `tests/test_demand.py` and `tests/test_guardrails.py`
+  check this.
+- **Demand-tool lists are capped at 10 rows** (`DEMAND_LIST_CAP`), each with
+  `total_count` and `more_count`; the model says "and N more". There is no limit
+  argument. The full lists are in the dashboard and the report Excel.
+- **The dashboard never calculates** (`src/ui`):
+  - It shows what `src/reports/views.py` and `src/reports/saved.py` return, and
+    those reuse the report sections.
+  - It has no SQL and opens no database itself; a guardrail test checks this.
+  - New numbers go in a `src/` function with a test, never in a page.
+- **The backfill never sends** (`src/reports/backfill.py`):
+  - It replays the scheduler's triggers as forced dry runs into
+    `outputs/backfill/`.
+  - It never calls `send_report` or writes `report_runs`.
 - **`data/planted_issues.json` is for tests only.** Alert, forecast and report code
   never read it. Only `tests/test_demand_acceptance.py` uses the planted issues.
 - **Round once.**
@@ -129,8 +143,11 @@ src/agent/                    llm.py (only LLM client), tools, prompts, agent lo
                               SQL guard, answer number guard, eval grader
 src/reports/                  report builder, demand sections, emailer, scheduler,
                               Jinja2 templates
-src/app/streamlit_app.py      chat + dashboard
+src/reports/views.py, saved.py  dashboard data: sales and demand views, saved reports
+src/reports/backfill.py       replay the schedule as dry runs (Week 6)
+src/ui/app.py                 Streamlit dashboard and chat; pages in src/ui/app_pages/
 outputs/reports, outputs/logs dry-run reports and logs (git-ignored)
+outputs/backfill              backfilled reports, manifest.csv, index.html (git-ignored)
 tests/                        pytest suite
 ```
 
@@ -148,7 +165,8 @@ ruff format . && ruff check --fix .      # format and lint
 python -m src.reports.scheduler          # start scheduled reports (Week 3+)
 python -m src.agent.chat                 # chat agent in the terminal (spends credit)
 python scripts/run_eval.py --max-spend 0.40   # live eval (spends credit; ask first)
-streamlit run src/app/streamlit_app.py   # chat and dashboard (Week 6)
+python -m src.reports.backfill --from 2026-09-14 --to 2026-10-01 [--no-summary]
+streamlit run src/ui/app.py              # dashboard and chat (Week 6)
 ```
 
 ## Coding conventions

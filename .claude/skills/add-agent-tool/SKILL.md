@@ -21,6 +21,11 @@ send email, change data or approve recommendations.
      or before `DATA_END_DATE` (`demand_snapshot(ctx)`). They never call
      `run_demand` (a run takes about 100 s, a question has 120 s). With no
      snapshot they return `NOT_COMPUTED`.
+   - Every list they return goes through `capped()`: at most `DEMAND_LIST_CAP`
+     (10) rows plus `total_count` and `more_count`, with no limit argument. The
+     description tells the model to say "and N more" and that the full list is
+     in the dashboard and the report Excel. A guardrail test runs every argument
+     combination and checks the cap.
    - A tool must never change a pre-build status or import
      `src/demand/approve.py`; a test in `tests/test_demand.py` checks this.
 2. **JSON schema.** Add an OpenAI-style tool schema (name, description,

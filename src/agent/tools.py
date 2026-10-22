@@ -44,8 +44,12 @@ MAX_NAME_MATCHES = 10
 DEFAULT_FORECAST_WEEKS = 8
 MAX_FORECAST_WEEKS = 12
 SLUG_MAX_CHARS = 40
-DEFAULT_DEMAND_ROWS = 10
-MAX_DEMAND_ROWS = 50
+DEMAND_LIST_CAP = 10  # rows per list in the demand tools, like the reports
+MORE_HINT = (
+    "Each list returns at most 10 rows plus total_count and more_count. When more_count "
+    'is above 0, say "and <more_count> more" and that the full list is in the dashboard '
+    "and the report Excel file."
+)
 NOT_COMPUTED = {
     "status": "not_computed",
     "message": "Demand planning has not been computed yet. Ask the planner to run "
@@ -157,9 +161,6 @@ class GetCustomerAlertsArgs(StrictArgs):
         description="Only this severity: serious or overdue (overdue alerts), warning "
         "(declining, segment_change), info (new_high_value).",
     )
-    limit: int = Field(
-        default=DEFAULT_DEMAND_ROWS, ge=1, le=MAX_DEMAND_ROWS, description="Rows to return."
-    )
 
 
 class GetForecastAccuracyArgs(StrictArgs):
@@ -170,9 +171,6 @@ class GetForecastAccuracyArgs(StrictArgs):
 class GetPrebuildRecommendationsArgs(StrictArgs):
     status: Literal["pending", "approved", "rejected"] | None = Field(
         default=None, description="Only recommendations with this status; all if omitted."
-    )
-    limit: int = Field(
-        default=DEFAULT_DEMAND_ROWS, ge=1, le=MAX_DEMAND_ROWS, description="Rows to return."
     )
 
 
@@ -368,6 +366,7 @@ CUSTOMER_ALERT_FIELDS = {
     "revenue_recent": builder.fmt_money,
     "revenue_prior": builder.fmt_money,
     "revenue_change_pct": lambda v: builder.fmt_change(v, "pct"),
+    "revenue_lost": builder.fmt_money,
     "first_order_date": None,
     "segment_before": None,
     "segment_now": None,
@@ -409,7 +408,7 @@ PREBUILD_FIELDS = {
     "decided_at_utc": None,
 }
 REVIEW_FIELDS = {"sku": None, "name": None, "category": None, "reason": None}
-ROUNDED_MONEY = {"revenue_365d", "revenue_recent", "revenue_prior"}
+ROUNDED_MONEY = {"revenue_365d", "revenue_recent", "revenue_prior", "revenue_lost"}
 
 
 def demand_snapshot(ctx: ToolContext) -> date | None:
@@ -436,6 +435,16 @@ def record(row: dict, fields: dict[str, Callable | None]) -> dict:
     return out
 
 
+def capped(frame: pd.DataFrame, fields: dict[str, Callable | None]) -> dict:
+    """The first DEMAND_LIST_CAP rows of an already sorted list, with its full size."""
+    total = len(frame)
+    return {
+        "total_count": total,
+        "more_count": max(0, total - DEMAND_LIST_CAP),
+        "rows": [record(r, fields) for r in frame.head(DEMAND_LIST_CAP).to_dict("records")],
+    }
+
+
 def snapshot_header(as_of: date) -> dict:
     """Where the numbers come from."""
     return {
@@ -457,15 +466,17 @@ def get_customer_alerts(args: GetCustomerAlertsArgs, ctx: ToolContext) -> dict:
     if args.severity:
         alerts = alerts[alerts["severity"] == args.severity]
     alerts = alerts.sort_values(["alert_type", "rank"])
-    rows = [
-        {"alert_type": r["alert_type"], "rank": int(r["rank"]), **record(r, CUSTOMER_ALERT_FIELDS)}
-        for r in alerts.head(args.limit).to_dict("records")
+    # One list per alert type, in stored rank order (declining: revenue lost, largest first).
+    lists = [
+        {"alert_type": alert_type, **capped(group, {"rank": None, **CUSTOMER_ALERT_FIELDS})}
+        for alert_type, group in alerts.groupby("alert_type", sort=True)
     ]
     return {
         **snapshot_header(as_of),
         "definitions": "overdue: 4+ orders in 365 days and days since last order over 1.5x "
         "the usual (median) gap, serious over 2x, ranked by 365-day revenue; declining: "
         "last-90-day revenue more than 25% below the prior 90 days (prior at least 1,000); "
+        "ranked by revenue_lost (prior 90 days minus last 90 days), largest first; "
         "new_high_value: first order in the last 90 days and top 10% of 90-day revenue; "
         "segment_change: RFM segment moved from Champions/Loyal to At risk/Lapsed vs 28 "
         "days earlier. Revenue is net revenue (completed orders).",
@@ -473,9 +484,7 @@ def get_customer_alerts(args: GetCustomerAlertsArgs, ctx: ToolContext) -> dict:
             {"alert_type": t, "severity": sev, "customers": int(n)}
             for (t, sev), n in counts.items()
         ],
-        "matching": len(alerts),
-        "returned": len(rows),
-        "rows": rows,
+        "lists": lists,
     }
 
 
@@ -492,7 +501,7 @@ def get_forecast_accuracy(args: GetForecastAccuracyArgs, ctx: ToolContext) -> di
         "sum actual) / sum actual, positive = forecast too high. Actual = units on "
         "non-cancelled orders. Flagged: WAPE over 40% or bias beyond 15%, products with "
         "at least 20 actual units.",
-        "overall": [record(r, ACCURACY_FIELDS) for r in overall.to_dict("records")],
+        "overall": capped(overall, ACCURACY_FIELDS),
     }
     if args.sku_or_name:
         with sql_guard.open_readonly(ctx.db_path) as con:
@@ -515,15 +524,10 @@ def get_forecast_accuracy(args: GetForecastAccuracyArgs, ctx: ToolContext) -> di
         if args.category:
             flagged = flagged[flagged["category"].str.lower() == args.category.strip().lower()]
         flagged = flagged.reindex(flagged["bias"].abs().sort_values(ascending=False).index)
-        result["flagged_count"] = len(flagged)
-        result["flagged_products"] = [
-            record(r, ACCURACY_FIELDS) for r in flagged.head(MAX_DEMAND_ROWS).to_dict("records")
-        ]
+        result["flagged_products"] = capped(flagged, ACCURACY_FIELDS)
         if not args.category:
             categories = table[table["level"] == "category"].sort_values("key")
-            result["by_category"] = [
-                record(r, ACCURACY_FIELDS) for r in categories.to_dict("records")
-            ]
+            result["by_category"] = capped(categories, ACCURACY_FIELDS)
     return result
 
 
@@ -548,13 +552,8 @@ def get_prebuild_recommendations(args: GetPrebuildRecommendationsArgs, ctx: Tool
         "value at risk = pre-build units x unit price. Only planners approve or "
         "reject; the agent cannot change a status.",
         "status_counts": {k: int(v) for k, v in status_counts.items()},
-        "matching": len(recs),
-        "returned": min(len(recs), args.limit),
-        "rows": [record(r, PREBUILD_FIELDS) for r in recs.head(args.limit).to_dict("records")],
-        "needs_planner_review_count": len(review),
-        "needs_planner_review": [
-            record(r, REVIEW_FIELDS) for r in review.head(args.limit).to_dict("records")
-        ],
+        "recommendations": capped(recs, PREBUILD_FIELDS),
+        "needs_planner_review": capped(review, REVIEW_FIELDS),
     }
 
 
@@ -637,21 +636,25 @@ TOOLS: dict[str, Tool] = {
             "get_customer_alerts",
             "Customer ordering-pattern alerts from the stored demand-planning snapshot: "
             "overdue (serious/overdue), declining, new high-value and RFM segment changes, "
-            "with counts per type and the top customers.",
+            "with counts per type and one list per type. Overdue lists are sorted by 365-day "
+            "revenue, declining lists by revenue lost (prior 90 days minus last 90 days), "
+            "largest first. " + MORE_HINT,
             GetCustomerAlertsArgs,
             get_customer_alerts,
         ),
         Tool(
             "get_forecast_accuracy",
             "Forecast accuracy (WAPE and bias) of the seeded forecasts: overall, by category, "
-            "flagged products, or one product or category.",
+            "flagged products (largest absolute bias first), or one product or category. "
+            + MORE_HINT,
             GetForecastAccuracyArgs,
             get_forecast_accuracy,
         ),
         Tool(
             "get_prebuild_recommendations",
             "Pre-build recommendations (read-only) with their approval status, and products "
-            "that need planner review. The agent cannot approve or reject.",
+            "that need planner review, in rank order (urgent first, then value at risk). "
+            "The agent cannot approve or reject. " + MORE_HINT,
             GetPrebuildRecommendationsArgs,
             get_prebuild_recommendations,
         ),
@@ -757,7 +760,12 @@ def result_row_count(result: dict) -> int | None:
     """Rows in a tool result, for agent_log."""
     if "row_count" in result:
         return int(result["row_count"])
-    for key in ("kpis", "weeks", "rows", "flagged_products"):
+    for key in ("kpis", "weeks", "rows"):
         if key in result:
             return len(result[key])
+    # Demand tools: capped lists of {"total_count", "more_count", "rows"}.
+    lists = [v for v in result.values() if isinstance(v, dict) and "more_count" in v]
+    lists += result.get("lists", [])
+    if lists:
+        return sum(len(item["rows"]) for item in lists)
     return None

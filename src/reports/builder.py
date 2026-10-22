@@ -147,6 +147,7 @@ class Report:
     numbers: dict
     output_dir: Path
     summary_status: str | None = None  # ok | guard_failed | truncated | llm_unavailable | skipped
+    summary_cost_usd: float | None = None  # OpenRouter cost of the summary calls, if reported
 
 
 # ---------------------------------------------------------------- config
@@ -961,6 +962,7 @@ def build_report(
         numbers,
         output_dir,
         summary_status=outcome.status,
+        summary_cost_usd=outcome.cost_usd,
     )
 
 

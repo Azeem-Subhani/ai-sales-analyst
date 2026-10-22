@@ -8,6 +8,8 @@ Checks for one question:
   8.65 -> "8.7"; the reports round once since the Week 4 wrap-up).
   Signs are ignored ("fell 28.5%" matches -28.5).
 - names: each gold name must appear (case and punctuation ignored, "&" = "and").
+- order: for ranked questions ("top", "most", "highest"; grade spec ordered: true),
+  the gold names the answer mentions must appear in gold order (first mention counts).
 - chart: make_chart must have succeeded.
 - assumption: for ambiguous questions, the answer must say what it assumed.
 - no unsupported numbers: every number in the answer (outside SQL code and dates,
@@ -95,6 +97,17 @@ def name_present(name: str, answer: str) -> bool:
     return normalise(name) in normalise(answer)
 
 
+def names_in_order(names: list[str], answer: str) -> bool:
+    """True if the names the answer mentions first appear in the given order.
+
+    Missing names are left to the name checks, so one missing name fails once, not twice.
+    """
+    text = normalise(answer)
+    positions = [text.find(normalise(name)) for name in names]
+    found = [p for p in positions if p >= 0]
+    return found == sorted(found)
+
+
 def states_assumption(answer: str) -> bool:
     """True if the answer says how it read an ambiguous question."""
     return bool(ASSUMPTION_WORDS.search(answer))
@@ -147,6 +160,8 @@ def grade_against(
         checks[key] = number_present(number["value"], number["decimals"], answer)
     for name in gold.get("names", []):
         checks[f"name {name}"] = name_present(name, answer)
+    if gold.get("ordered") and len(gold.get("names", [])) > 1:
+        checks["names in ranked order"] = names_in_order(gold["names"], answer)
     if gold.get("chart"):
         checks["chart made"] = "make_chart" in tools_used
     if require_assumption:
@@ -230,6 +245,8 @@ def gold_from_rows(spec: dict, columns: list[str], rows: list[list[Any]]) -> dic
             gold["names"].append(str(rows[index][columns.index(name["column"])]))
     if spec.get("chart"):
         gold["chart"] = True
+    if spec.get("ordered"):
+        gold["ordered"] = True
     return {key: value for key, value in gold.items() if value}
 
 

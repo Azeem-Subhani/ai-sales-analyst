@@ -188,6 +188,7 @@
     ORDER BY net_revenue DESC
     LIMIT 1
   grade:
+    ordered: true
     numbers:
     - column: net_revenue
       decimals: 2
@@ -200,6 +201,7 @@
       decimals: 2
     names:
     - Electronics
+    ordered: true
 
 - id: q07
   topic: channel breakdown
@@ -253,6 +255,7 @@
     ORDER BY net_revenue DESC
     LIMIT 3
   grade:
+    ordered: true
     names:
     - column: region
       rows: all
@@ -270,6 +273,7 @@
     - Midlands
     - Yorkshire
     - South East
+    ordered: true
 
 - id: q09
   topic: customer-type breakdown
@@ -308,6 +312,7 @@
     ORDER BY net_revenue DESC
     LIMIT 5
   grade:
+    ordered: true
     names:
     - column: product
       rows: all
@@ -327,6 +332,7 @@
     - Premium Cutting Board
     - Eco Bluetooth Speaker
     - Smart Bottle Pro
+    ordered: true
 
 - id: q11
   topic: top-N customers
@@ -343,6 +349,7 @@
     ORDER BY net_revenue DESC
     LIMIT 3
   grade:
+    ordered: true
     names:
     - column: customer
       rows: all
@@ -360,6 +367,7 @@
     - Stokes, Robinson and Gough
     - Freeman, Morris and George
     - Norman, Hopkins and Oliver
+    ordered: true
 
 - id: q12
   topic: trend
@@ -475,6 +483,7 @@
     ORDER BY gross_margin_pct ASC
     LIMIT 1
   grade:
+    ordered: true
     names:
     - column: category
     numbers:
@@ -487,6 +496,7 @@
       decimals: 1
     names:
     - Electronics
+    ordered: true
 
 - id: q16
   topic: new customers
@@ -634,14 +644,17 @@
   expected_tools:
   - get_customer_alerts
   gold_planning_sql: |
-    SELECT customer_name, count(*) OVER () AS serious_customers
+    SELECT customer_name, count(*) OVER () AS serious_customers,
+           count(*) OVER () - 10 AS more_customers
     FROM customer_alerts
     WHERE as_of = DATE '2026-09-30' AND alert_type = 'overdue' AND severity = 'serious'
     ORDER BY rank
-    LIMIT 3
+    LIMIT 10
   grade:
     numbers:
     - column: serious_customers
+      decimals: 0
+    - column: more_customers
       decimals: 0
     names:
     - column: customer_name
@@ -651,10 +664,20 @@
     - label: serious_customers[0]
       value: 41
       decimals: 0
+    - label: more_customers[0]
+      value: 31
+      decimals: 0
     names:
     - Harbor & Pine Co.
     - Kestrel Home Stores
     - Bluegate Supplies
+    - Mohammad Gould
+    - Shannon Gilbert
+    - Gareth Shaw
+    - Mann-Davis
+    - Ann Chapman-Wilson
+    - Clare Weston-Bond
+    - Lewis Harris-Williamson
 
 - id: q22
   topic: demand planning, forecast accuracy of one product
@@ -695,6 +718,7 @@
     ORDER BY wape DESC
     LIMIT 1
   grade:
+    ordered: true
     numbers:
     - column: overall_wape_pct
       decimals: 1
@@ -712,6 +736,7 @@
       decimals: 1
     names:
     - Office
+    ordered: true
 
 - id: q24
   topic: demand planning, pre-build
@@ -725,6 +750,7 @@
     ORDER BY rank
     LIMIT 3
   grade:
+    ordered: true
     numbers:
     - column: recommended_units
       decimals: 0
@@ -747,6 +773,7 @@
     - Smart Bottle Pro
     - Deluxe Bluetooth Speaker
     - Essential Cotton T-Shirt
+    ordered: true
 
 - id: q25
   topic: demand planning, declining customers
@@ -757,9 +784,10 @@
     SELECT customer_name, count(*) OVER () AS declining_customers
     FROM customer_alerts
     WHERE as_of = DATE '2026-09-30' AND alert_type = 'declining'
-    ORDER BY rank
+    ORDER BY revenue_lost DESC, customer_id
     LIMIT 3
   grade:
+    ordered: true
     numbers:
     - column: declining_customers
       decimals: 0
@@ -775,3 +803,4 @@
     - Griffiths-Williams
     - Bird-Kelly
     - Kestrel Home Stores
+    ordered: true

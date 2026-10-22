@@ -130,7 +130,8 @@ def overdue_alerts(
 def declining_alerts(recent: pd.Series, prior: pd.Series, settings: dict) -> pd.DataFrame:
     """Customers whose last-90-day revenue fell more than 25% below the 90 days before.
 
-    Ranked by revenue lost (prior minus recent), largest first.
+    Ranked by revenue lost (prior minus recent), largest first; revenue_lost is kept
+    (unrounded) so the agent tool and the dashboard show the figure the rank uses.
     """
     frame = pd.DataFrame({"revenue_prior": prior}).join(pd.DataFrame({"revenue_recent": recent}))
     frame["revenue_recent"] = frame["revenue_recent"].fillna(0.0)
@@ -141,8 +142,7 @@ def declining_alerts(recent: pd.Series, prior: pd.Series, settings: dict) -> pd.
     alerts["revenue_lost"] = alerts["revenue_prior"] - alerts["revenue_recent"]
     alerts["severity"] = "warning"
     alerts = alerts.rename_axis("customer_id").reset_index()
-    alerts = ranked(alerts, "declining", by=["revenue_lost"], ascending=[False])
-    return alerts.drop(columns="revenue_lost", errors="ignore")
+    return ranked(alerts, "declining", by=["revenue_lost"], ascending=[False])
 
 
 # ---------------------------------------------------------------- new high-value

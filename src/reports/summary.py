@@ -12,6 +12,12 @@ period's dates and week number are part of the input, so they are allowed too. I
 number fails, or the model is cut off at the token cap (finish_reason "length"), the
 model gets one retry; if that fails too, the summary is dropped. A missing summary
 never stops a report.
+
+The guard also rejects a reply that is not a summary of the data: a refusal ("I'm
+sorry, but I cannot assist with that request.") or one that uses none of the input
+numbers. Both have no wrong numbers, so the number check alone passed them (Week 6:
+6 of 14 backfilled daily summaries were refusals). They get the same one retry, with
+a prompt asking for the summary, and are then dropped (status guard_failed).
 """
 
 import logging
@@ -52,6 +58,20 @@ Rules:
 - Lead with the most important change.
 - Write 3 to 5 sentences of plain business English.
 - No greeting, no heading, no bullet points, no sign-off."""
+
+# Replies that decline instead of summarising. Kept narrow, so ordinary business
+# wording ("unable to compare with last year") is not caught.
+REFUSAL = re.compile(
+    r"\b(?:I['\u2019]?m sorry|I am sorry|I apologi[sz]e|"
+    r"I can(?:not|['\u2019]t) (?:assist|help|comply|provide)|I(?:['\u2019]m| am) unable to|"
+    r"as an AI)\b",
+    re.IGNORECASE,
+)
+NOT_A_SUMMARY_PROMPT = (
+    "Your reply did not summarise the data. Write the summary now: 3 to 5 sentences "
+    "that lead with the most important change, copying the numbers you use exactly from "
+    "the data. Follow all the rules."
+)
 
 RETRY_PROMPT = (
     "These numbers in your summary are not in the data: {numbers}. Rewrite the summary "
@@ -184,6 +204,20 @@ def number_is_allowed(token: str, allowed: set[Decimal]) -> bool:
     )
 
 
+def input_numbers(input_lines: list[str]) -> set[Decimal]:
+    """The numbers in the input itself, without the 1 to 10 allowance."""
+    return {to_decimal(t) for line in input_lines for t in extract_numbers(line)}
+
+
+def not_a_summary(summary: str, from_input: set[Decimal]) -> str | None:
+    """Why the reply is not a summary of the data (a refusal, no input number), or None."""
+    if not summary or REFUSAL.search(summary):
+        return "a refusal"
+    if not any(number_is_allowed(t, from_input) for t in extract_numbers(summary)):
+        return "no number from the data"
+    return None
+
+
 def check_numbers(summary: str, allowed: set[Decimal]) -> list[str]:
     """The numbers in summary that are not allowed (empty list: the summary passes)."""
     failed = [t for t in extract_numbers(summary) if not number_is_allowed(t, allowed)]
@@ -207,6 +241,7 @@ def write_summary(
     complete = complete or llm.complete
     lines = summary_inputs(numbers)
     allowed = allowed_numbers(lines)
+    from_input = input_numbers(lines)
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": "Data:\n" + "\n".join(lines)},
@@ -238,6 +273,20 @@ def write_summary(
             messages += [
                 {"role": "assistant", "content": text},
                 {"role": "user", "content": TRUNCATED_PROMPT},
+            ]
+            continue
+        problem = not_a_summary(text, from_input)
+        if problem:
+            logger.warning(
+                "Summary for %s attempt %d is not a summary of the data: %s",
+                numbers["report"],
+                attempt,
+                problem,
+            )
+            outcome.status, outcome.failed_numbers = STATUS_GUARD_FAILED, []
+            messages += [
+                {"role": "assistant", "content": text},
+                {"role": "user", "content": NOT_A_SUMMARY_PROMPT},
             ]
             continue
         failed = check_numbers(text, allowed)

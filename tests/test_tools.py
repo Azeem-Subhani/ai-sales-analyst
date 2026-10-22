@@ -213,18 +213,48 @@ def demand_session(built: dict, demand_runs: dict, tmp_path: Path) -> tools.Tool
 
 
 def test_customer_alerts_filters_and_counts(demand_session: tools.ToolSession) -> None:
-    outcome = run(
-        demand_session, "get_customer_alerts", alert_type="overdue", severity="serious", limit=3
-    )
+    outcome = run(demand_session, "get_customer_alerts", alert_type="overdue", severity="serious")
     result = outcome.result
     assert outcome.success and result["snapshot_as_of"] == "2026-09-30"
-    names = [r["customer_name"] for r in result["rows"]]
+    [overdue] = result["lists"]
+    rows = overdue["rows"]
+    names = [r["customer_name"] for r in rows[:3]]
     assert names == ["Harbor & Pine Co.", "Kestrel Home Stores", "Bluegate Supplies"]
-    assert all(r["severity"] == "serious" for r in result["rows"])
-    assert result["rows"][0]["revenue_365d_shown"] == "25,660.17"
+    assert all(r["severity"] == "serious" for r in rows)
+    assert rows[0]["revenue_365d_shown"] == "25,660.17"
     counts = {(c["alert_type"], c["severity"]): c["customers"] for c in result["counts"]}
-    assert result["matching"] == counts[("overdue", "serious")]
-    assert not any("email" in key for r in result["rows"] for key in r)
+    assert overdue["total_count"] == counts[("overdue", "serious")]
+    assert not any("email" in key for r in rows for key in r)
+
+
+def test_customer_alert_lists_are_capped_at_10(demand_session: tools.ToolSession) -> None:
+    result = run(demand_session, "get_customer_alerts").result
+    counts = {}
+    for c in result["counts"]:
+        counts[c["alert_type"]] = counts.get(c["alert_type"], 0) + c["customers"]
+    assert {item["alert_type"] for item in result["lists"]} == set(counts)
+    for item in result["lists"]:
+        assert len(item["rows"]) == min(item["total_count"], tools.DEMAND_LIST_CAP)
+        assert item["total_count"] == counts[item["alert_type"]]
+        assert item["more_count"] == max(0, item["total_count"] - tools.DEMAND_LIST_CAP)
+        assert [r["rank"] for r in item["rows"]] == list(range(1, len(item["rows"]) + 1))
+    serious = run(demand_session, "get_customer_alerts", severity="serious").result["lists"][0]
+    assert (serious["total_count"], len(serious["rows"]), serious["more_count"]) == (41, 10, 31)
+
+
+def test_declining_alerts_are_sorted_by_revenue_lost(demand_session: tools.ToolSession) -> None:
+    from src.reports import builder
+
+    [declining] = run(demand_session, "get_customer_alerts", alert_type="declining").result["lists"]
+    rows = declining["rows"]
+    lost = [r["revenue_lost"] for r in rows]
+    assert lost == sorted(lost, reverse=True) and lost[0] > 0
+    for r in rows:
+        assert r["revenue_lost_shown"] == builder.fmt_money(r["revenue_lost"])
+        # revenue_lost is prior minus recent, rounded once (so within a cent of the rounded parts)
+        assert abs(r["revenue_lost"] - (r["revenue_prior"] - r["revenue_recent"])) <= 0.011
+    names = [r["customer_name"] for r in rows[:3]]
+    assert names == ["Griffiths-Williams", "Bird-Kelly", "Kestrel Home Stores"]
 
 
 def test_customer_alerts_reads_the_latest_snapshot_on_or_before_data_end(
@@ -233,7 +263,7 @@ def test_customer_alerts_reads_the_latest_snapshot_on_or_before_data_end(
     from datetime import date
 
     ctx = tools.ToolContext(db_path=built["db_path"], data_end=date(2026, 9, 29))
-    outcome = run(tools.ToolSession(ctx), "get_customer_alerts", limit=1)
+    outcome = run(tools.ToolSession(ctx), "get_customer_alerts")
     assert outcome.result["snapshot_as_of"] == "2026-09-27"
 
 
@@ -243,9 +273,14 @@ def test_forecast_accuracy_for_one_product_and_category(demand_session: tools.To
     assert product["bias_shown"] == builder_change(product["bias"])
     category = run(demand_session, "get_forecast_accuracy", category="apparel").result
     assert category["category"]["key"] == "Apparel"
-    assert all(p["category"] == "Apparel" for p in category["flagged_products"])
+    assert all(p["category"] == "Apparel" for p in category["flagged_products"]["rows"])
     everything = run(demand_session, "get_forecast_accuracy").result
-    assert len(everything["by_category"]) == 8 and everything["flagged_count"] >= 1
+    assert everything["by_category"]["total_count"] == 8
+    flagged = everything["flagged_products"]
+    assert flagged["total_count"] >= 1 and len(flagged["rows"]) <= tools.DEMAND_LIST_CAP
+    assert flagged["more_count"] == max(0, flagged["total_count"] - tools.DEMAND_LIST_CAP)
+    bias = [abs(r["bias"]) for r in flagged["rows"]]
+    assert bias == sorted(bias, reverse=True)
     bad = run(demand_session, "get_forecast_accuracy", category="Garden")
     assert not bad.success and "use one of" in bad.result["error"]
 
@@ -258,11 +293,14 @@ def builder_change(bias: float) -> str:
 
 
 def test_prebuild_recommendations_are_read_only(demand_session: tools.ToolSession) -> None:
-    result = run(demand_session, "get_prebuild_recommendations", status="pending", limit=5).result
-    assert result["returned"] == 5 and result["matching"] >= 5
-    assert [r["rank"] for r in result["rows"]] == [1, 2, 3, 4, 5]
-    assert all(r["status"] == "pending" for r in result["rows"])
-    assert result["needs_planner_review_count"] >= 1
+    result = run(demand_session, "get_prebuild_recommendations", status="pending").result
+    recs = result["recommendations"]
+    assert recs["total_count"] > tools.DEMAND_LIST_CAP and len(recs["rows"]) == 10
+    assert recs["more_count"] == recs["total_count"] - 10
+    assert [r["rank"] for r in recs["rows"]] == list(range(1, 11))
+    assert all(r["status"] == "pending" for r in recs["rows"])
+    review = result["needs_planner_review"]
+    assert review["total_count"] >= 1 and len(review["rows"]) <= tools.DEMAND_LIST_CAP
     assert "cannot change a status" in result["definitions"]
     assert not hasattr(tools, "approve")
 
@@ -274,6 +312,8 @@ def test_demand_tools_validate_arguments(demand_session: tools.ToolSession) -> N
     assert bad.result["error"] == "invalid_arguments"
     bad = run(demand_session, "get_forecast_accuracy", weeks=8)  # not an argument
     assert bad.result["error"] == "invalid_arguments"
+    for name in ("get_customer_alerts", "get_prebuild_recommendations"):  # lists are capped at 10
+        assert run(demand_session, name, limit=50).result["error"] == "invalid_arguments"
 
 
 def test_invalid_arguments_two_retries_then_final(session: tools.ToolSession) -> None:

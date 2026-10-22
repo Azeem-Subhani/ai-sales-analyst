@@ -359,3 +359,79 @@ def test_chat_cli_one_shot(
     out = capsys.readouterr().out
     assert "Analyst: 661 orders." in out and "model other/m" in out
     assert seen == {"question": "Orders last week?", "model": "other/m"}
+
+
+# ---------------------------------------------------------------- progress events (Week 6)
+
+
+def kinds(events: list[agent.ProgressEvent]) -> list[str]:
+    """The event kinds, in order."""
+    return [e.kind for e in events]
+
+
+def test_progress_events_follow_each_step(config: agent.AgentConfig) -> None:
+    events: list[agent.ProgressEvent] = []
+    fake = ScriptedChat(
+        calls(tool_call("get_kpis", WEEK_ARGS)),
+        text("Net revenue was about 115,000."),
+        text("Net revenue was 114,286.82.", fallback_used=True),
+    )
+    answer = agent.ask(
+        "Net revenue last week?", config, chat=fake, settings=SETTINGS, on_progress=events.append
+    )
+    assert answer.answer == "Net revenue was 114,286.82."
+    assert kinds(events) == [
+        "thinking", "thinking_done", "tool_start", "tool_done",
+        "thinking", "thinking_done", "guard_retry", "thinking", "thinking_done", "fallback",
+    ]  # fmt: skip
+    tool_done = events[3]
+    assert (tool_done.tool, tool_done.success) == ("get_kpis", True)
+    assert json.loads(tool_done.arguments) == WEEK_ARGS
+    assert tool_done.result == answer.tool_calls[0].result
+    assert all(e.seconds is not None and e.seconds >= 0 for e in events if e.kind.endswith("done"))
+    assert "fb/m" in events[-1].label
+    # The final (checked) answer is never in an event: it only comes back from ask().
+    assert not any("114,286.82." in (e.label or "") for e in events)
+
+
+def test_withheld_answer_is_reported(config: agent.AgentConfig) -> None:
+    events: list[agent.ProgressEvent] = []
+    fake = ScriptedChat(
+        calls(tool_call("get_kpis", WEEK_ARGS)),
+        text("Net revenue was 115,000."),
+        text("Net revenue was 120,000."),
+    )
+    agent.ask("Net revenue?", config, chat=fake, settings=SETTINGS, on_progress=events.append)
+    assert kinds(events)[-3:] == ["thinking", "thinking_done", "withheld"]
+
+
+def test_a_failing_callback_never_loses_the_answer(config: agent.AgentConfig) -> None:
+    def broken(event: agent.ProgressEvent) -> None:
+        raise RuntimeError("display failed")
+
+    fake = ScriptedChat(calls(tool_call("get_kpis", WEEK_ARGS)), text("Net revenue 114,286.82."))
+    answer = agent.ask("Net?", config, chat=fake, settings=SETTINGS, on_progress=broken)
+    assert answer.answer == "Net revenue 114,286.82." and answer.answer_guard == "ok"
+
+
+def test_model_failure_is_reported_as_a_failed_step(config: agent.AgentConfig) -> None:
+    events: list[agent.ProgressEvent] = []
+    fake = ScriptedChat(llm.LLMUnavailableError("both down"))
+    answer = agent.ask("Net?", config, chat=fake, settings=SETTINGS, on_progress=events.append)
+    assert answer.answer == agent.UNAVAILABLE_ANSWER
+    assert kinds(events) == ["thinking", "thinking_done"] and events[1].success is False
+
+
+def test_without_a_callback_the_answer_is_unchanged(config: agent.AgentConfig) -> None:
+    turns = (calls(tool_call("get_kpis", WEEK_ARGS)), text("Net revenue was 114,286.82."))
+    plain = ask("Net revenue last week?", config, ScriptedChat(*turns))
+    seen: list[agent.ProgressEvent] = []
+    watched = agent.ask(
+        "Net revenue last week?",
+        config,
+        chat=ScriptedChat(*turns),
+        settings=SETTINGS,
+        on_progress=seen.append,
+    )
+    assert (plain.answer, plain.answer_guard) == (watched.answer, watched.answer_guard)
+    assert seen

@@ -404,3 +404,42 @@ def test_demand_questions_use_the_planning_snapshot_only() -> None:
     for question in demand:
         assert "gold_planning_sql" in question and "gold_sql" not in question
         assert "DATE '2026-09-30'" in question["gold_planning_sql"]
+
+
+# ---------------------------------------------------------------- ranked order (Week 6)
+
+RANKED_QUESTIONS = {"q06", "q08", "q10", "q11", "q15", "q23", "q24", "q25"}
+
+
+def test_ranked_questions_are_graded_in_order() -> None:
+    ordered = {q["id"] for q in QUESTIONS if q["grade"].get("ordered")}
+    assert ordered == RANKED_QUESTIONS
+    for qid in ordered:
+        assert BY_ID[qid]["gold"].get("ordered") is True, qid
+
+
+def test_names_in_order_ignores_missing_names() -> None:
+    names = ["Midlands", "Yorkshire", "South East"]
+    assert eval_grader.names_in_order(names, "Midlands, then Yorkshire, then South East.")
+    assert eval_grader.names_in_order(names, "Midlands and South East.")  # missing: name check
+    assert not eval_grader.names_in_order(names, "Yorkshire led, ahead of Midlands.")
+
+
+def test_q25_wrong_order_is_not_correct() -> None:
+    right = "158 customers are declining. Most revenue lost: Griffiths-Williams, Bird-Kelly, "
+    right += "Kestrel Home Stores."
+    assert grade("q25", right).correct is True
+    wrong = "158 customers are declining. Most revenue lost: Kestrel Home Stores, "
+    wrong += "Griffiths-Williams, Bird-Kelly."
+    result = grade("q25", wrong)
+    assert result.correct is None and result.checks["names in ranked order"] is False
+
+
+def test_q21_expects_the_capped_list_and_the_rest() -> None:
+    gold = BY_ID["q21"]["gold"]
+    assert len(gold["names"]) == 10 and not gold.get("ordered")
+    values = {n["label"]: n["value"] for n in gold["numbers"]}
+    assert values == {"serious_customers[0]": 41, "more_customers[0]": 31}
+    answer = "41 customers are seriously overdue: " + ", ".join(gold["names"]) + ", and 31 more."
+    assert grade("q21", answer).correct is True
+    assert grade("q21", answer.replace(", and 31 more", "")).correct is None

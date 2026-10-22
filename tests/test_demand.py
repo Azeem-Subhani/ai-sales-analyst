@@ -594,7 +594,9 @@ def test_rerun_refuses_a_decided_snapshot_without_force(built: dict, planning_co
 
 def test_only_the_approval_cli_can_change_a_status() -> None:
     root = Path(__file__).resolve().parents[1] / "src"
-    for folder in ("agent", "reports", "app"):
+    # The dashboard's Demand page (src/ui) is the one other caller of decide(); the
+    # guardrail tests check that nothing else in src/ui reaches it.
+    for folder in ("agent", "reports"):
         for path in (root / folder).rglob("*.py"):
             text = path.read_text(encoding="utf-8")
             assert "demand.approve" not in text and "import approve" not in text, path
