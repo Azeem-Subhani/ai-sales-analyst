@@ -1052,6 +1052,22 @@ text are marked **(clarified)**.
     measure and period in its first sentence.
 
 ### Week 6 wrap-up items
+Status after the wrap-up session (2026-10-22, branch `week-6-wrapup`; details in the
+entries below and `docs/eval_results_week6_wrapup.md`):
+- **Done:** tests block OpenRouter and Gmail (session-scoped, no opt-out).
+- **Done:** `ok_after_retry` status with `summary_retry_reason`; the backfill shows
+  18/18 summaries (12 `ok`, 6 `ok_after_retry`, all `content_filter`).
+- **Done, cause found, not fixed:** daily refusals are Azure's content filter on
+  "Premium Webcam" at Rank 1; the fix needs a data rename or a guardrail change.
+- **Done:** rule 11 reworded (no digits); the CLI answer passed the guard first time
+  but chose all data (8,561 units) instead of the latest year (4,444).
+- **Done:** rule 14 and q26/q27; both pass. The eval scored 26/27: q18 used
+  `get_forecast` and declined to sum the weeks (not tuned).
+- **Done:** `.claude/launch.json` committed.
+- **Done, partly explained:** the $0.0073 (no exact match; each window leaves $0.003
+  to $0.006 unlogged, most likely summary calls outside the scheduler).
+
+Original items:
 - **Rule 11 example wording:** the example "the last 12 months" in system prompt rule
   11 invites the number 12, which the answer number guard rejects (no tool returned
   it), so the answer is retried once. Seen in the CLI check on 2026-10-22
