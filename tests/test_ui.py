@@ -85,8 +85,11 @@ def test_sales_page_shows_report_numbers(
     at = app(built, planning, tmp_path).run()
     view = views.sales_view("week", date(2026, 9, 27), built["db_path"])
     net = next(card for card in view["kpi_cards"] if card["kpi"] == "net_revenue")
-    assert at.metric[0].value == net["value_shown"]
-    assert "previous week" in at.metric[0].delta
+    cards = html_text(at)
+    assert f'<div class="card-value">{net["value_shown"]}</div>' in cards  # the KPI card
+    first = net["comparisons"][0]
+    assert f"{first['change_shown']} vs previous week" in cards
+    assert f"tone-{first['tone']}" in cards
     at.button_group[0].set_value("Month").run()  # day / week / month toggle
     assert not at.exception
     assert any("September 2026" in h.value for h in at.subheader)
@@ -108,11 +111,28 @@ def test_reports_page_inlines_charts(
 ) -> None:
     at = app(built, planning, tmp_path, saved_reports).run()
     at.switch_page("app_pages/reports.py").run()
-    at.radio[0].set_value("Dry runs").run()
+    at.button_group[0].set_value("Dry runs").run()
     assert not at.exception
+    assert "Weekly sales review" in html_text(at)  # its card
+    assert (
+        at.button(key=f"view-{saved_reports / 'weekly_sales_review_2026-09-27'}").label == "Viewing"
+    )
     assert at.get("download_button")
     bodies = [h.proto.body for h in at.get("html")]
     assert any('src="data:image/png;base64,' in body for body in bodies)  # chart inlined
+
+
+def test_demand_tabs_show_counts_and_severity_tags(
+    app_env: None, built: dict, planning: Path, tmp_path: Path
+) -> None:
+    at = app(built, planning, tmp_path).run().switch_page("app_pages/demand.py").run()
+    assert not at.exception
+    counts = views.demand_view(AS_OF, planning)["counts"]
+    labels = [tab.label for tab in at.tabs]
+    assert f":material/groups: Customer alerts \u00b7 {counts['customer_alerts']}" in labels
+    assert any(f"Pre-build \u00b7 {counts['pending']}" in label for label in labels)
+    overdue = at.dataframe[0].value
+    assert set(overdue["Severity"]) <= {"\U0001f534 serious", "\U0001f7e0 overdue"}
 
 
 # ---------------------------------------------------------------- approvals
@@ -156,7 +176,7 @@ def test_approve_goes_through_decide_after_a_confirm_click(
     recs = store.read_table(planning, "prebuild_recommendations", AS_OF).set_index("rec_id")
     assert recs.loc[rec_id, "status"] == "approved"
     assert recs.loc[rec_id, "decided_by"] == "Planner One"
-    assert any(rec_id in s.value for s in at.success)
+    assert any(rec_id in t.proto.body for t in at.toast)  # success toast
     assert at.session_state["decided_by"] == "Planner One"  # remembered for the session
     assert not [b for b in at.button if b.key and b.key.endswith(rec_id)]  # decided: no buttons
 

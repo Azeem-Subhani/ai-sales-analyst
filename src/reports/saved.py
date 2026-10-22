@@ -26,6 +26,13 @@ class SavedReport:
     report: str
     as_of: str
     folder: Path
+    period: str | None = None  # from the backfill manifest
+    summary_status: str | None = None  # from the backfill manifest
+
+    @property
+    def title(self) -> str:
+        """The report name for people: 'Monthly business review'."""
+        return self.report.replace("_", " ").capitalize()
 
     @property
     def html_path(self) -> Path:
@@ -64,7 +71,12 @@ def backfill_reports(root: Path = backfill.BACKFILL_ROOT) -> list[SavedReport]:
     """Successful backfilled reports from the manifest, newest run first."""
     found = [
         SavedReport(
-            f"backfill {row['run_date']}", row["report"], row["as_of"], root / row["output_folder"]
+            f"backfill {row['run_date']}",
+            row["report"],
+            row["as_of"],
+            root / row["output_folder"],
+            period=row.get("period") or None,
+            summary_status=row.get("summary_status") or None,
         )
         for row in backfill_manifest(root)
         if row["status"] == "ok" and row["output_folder"]

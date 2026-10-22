@@ -145,3 +145,32 @@ def test_saved_reports_and_backfill_manifest(tmp_path: Path) -> None:
     assert newest.source == "backfill 2026-10-01" and newest.excel_path is None
     assert oldest.report == "daily_sales_snapshot"
     assert saved.backfill_manifest(tmp_path / "none") == []
+
+
+def test_demand_counts_match_the_lists(demand_runs: dict) -> None:
+    view = views.demand_view(AS_OF, demand_runs[AS_OF].planning_db)
+    counts = view["counts"]
+    assert counts["customer_alerts"] == sum(len(t.frame) for t in view["customer_alerts"].values())
+    assert counts["Overdue"] == len(view["customer_alerts"]["Overdue"].frame)
+    assert counts["stock_alerts"] == len(view["stock_alerts"].frame)
+    assert counts["category_flagged"] == int(view["category_alerts"].frame["Flagged"].sum())
+    assert counts["category_and_stock"] == counts["category_flagged"] + counts["stock_alerts"]
+    assert counts["accuracy_products"] == len(view["accuracy_products"].frame)
+    assert counts["pending"] == len(view["pending"]) and counts["decided"] == len(view["decided"])
+    assert counts["prebuild"] == counts["pending"] + counts["decided"]
+
+
+def test_backfilled_reports_carry_period_and_summary_status(tmp_path: Path) -> None:
+    root = tmp_path / "backfill"
+    root.mkdir()
+    with (root / backfill.MANIFEST_NAME).open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=backfill.MANIFEST_COLUMNS)
+        writer.writeheader()
+        writer.writerow(
+            {"run_date": "2026-10-01", "report": "monthly_business_review", "as_of": "2026-09-30",
+             "period": "September 2026", "status": "ok", "summary_status": "ok",
+             "output_folder": "2026-10-01/monthly_business_review_2026-09-30"}
+        )  # fmt: skip
+    [report] = saved.backfill_reports(root)
+    assert (report.period, report.summary_status) == ("September 2026", "ok")
+    assert report.title == "Monthly business review"

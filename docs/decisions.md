@@ -924,3 +924,46 @@ text are marked **(clarified)**.
   No backfilled report now contains a refusal.
 - The Reports page lists backfilled reports newest first, so it opens on the
   September monthly review.
+
+### Dashboard redesign (Week 6 follow-up)
+- **Decision (project owner, 2026-10-22):** a modern look for the whole dashboard,
+  with the chat first. It uses native Streamlit and CSS only, with no new packages.
+- **Progress callback:**
+  - `agent.ask(..., on_progress=None)` calls back with a `ProgressEvent` for each
+    model call (`thinking` / `thinking_done`, with its duration), tool call
+    (`tool_start` / `tool_done`, with arguments and result), `fallback` (seen after
+    the call returns), `guard_retry` and `withheld`.
+  - A failing callback is logged and ignored.
+  - Steps are timed with `time.monotonic`, so `config.clock` and the 120-second
+    limit work exactly as before.
+  - The CLI passes no callback.
+- **Never stream unchecked text:**
+  - Events carry no answer text. The page gets the answer only from `ask()`'s return
+    value, after the guard, and only then reveals it word by word with
+    `st.write_stream`.
+  - A withheld answer is shown as a warning plus the tool results, without the
+    typewriter effect.
+- **Chat date:** the Chat page hides the sidebar date picker and shows "Answers use
+  data up to <DATA_END_DATE>". The picked date is kept in session state, not in the
+  widget, so it survives a visit to Chat.
+- **Theme and styling:**
+  - `.streamlit/config.toml` has one indigo accent (`#4F46E5`, `#818CF8` in dark
+    mode), a system font stack (nothing is downloaded) and rounded corners, with
+    matching light and dark themes.
+  - `src/ui/style.py` adds the CSS for the chat bubbles, the pill input, cards and
+    tags. It uses semi-transparent colours, so one CSS block works in both modes.
+  - The spinner keyframes use `0%` / `100%`, because the word `from` would trip the
+    guardrail test that looks for SQL in `src/ui`.
+- **Numbers stay outside the UI:**
+  - The Demand tab badges come from a new `counts` entry in `views.demand_view`.
+  - Report cards read `period` and `summary_status` from the backfill manifest
+    (`saved.SavedReport`).
+  - KPI cards only lay out the text `views.kpi_cards` already formatted, with an
+    arrow from the change's sign and green or red from the report's `tone`.
+- **Tags in sortable tables:** severity, priority, status and "flagged" show as
+  coloured emoji text. That keeps `st.dataframe` sorting; a pandas Styler would turn
+  the numbers into text.
+- **Checked live (2026-10-22):** I asked the 4 example questions in the browser.
+  They found the churned wholesale customers, the September stockouts, AP-1150 at
+  +27.3% bias, and SB-1042 at 327 units. Each passed the guard on the first
+  attempt. No page scrolls horizontally at 375 px width.

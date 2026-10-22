@@ -235,7 +235,7 @@ def demand_view(as_of: date, planning_db: Path = store.PLANNING_DB_PATH) -> dict
     totals = accuracy[accuracy["level"] != "product"].sort_values(["level", "key"])
     products = accuracy[accuracy["level"] == "product"].sort_values("key")
     recs = tables["prebuild_recommendations"].sort_values("rank")
-    return {
+    view = {
         "as_of": as_of,
         "customer_alerts": {
             label: table(alerts[alerts["alert_type"] == alert_type].to_dict("records"), columns)
@@ -263,6 +263,28 @@ def demand_view(as_of: date, planning_db: Path = store.PLANNING_DB_PATH) -> dict
             tables["planner_review"].sort_values("sku").to_dict("records"),
             demand_sections.REVIEW_COLUMNS,
         ),
+    }
+    view["counts"] = demand_counts(view, tables)
+    return view
+
+
+def demand_counts(view: dict, tables: dict[str, pd.DataFrame]) -> dict[str, int]:
+    """Row counts for the Demand page's tab badges and headings."""
+    categories = tables["category_alerts"]
+    accuracy = tables["forecast_accuracy"]
+    products = accuracy[accuracy["level"] == "product"]
+    return {
+        "customer_alerts": len(tables["customer_alerts"]),
+        **{label: len(t.frame) for label, t in view["customer_alerts"].items()},
+        "category_flagged": int(categories["flagged"].sum()),
+        "stock_alerts": len(tables["stock_alerts"]),
+        "category_and_stock": int(categories["flagged"].sum()) + len(tables["stock_alerts"]),
+        "accuracy_products": len(products),
+        "accuracy_flagged": int(products["flagged"].sum()),
+        "prebuild": len(tables["prebuild_recommendations"]),
+        "pending": len(view["pending"]),
+        "decided": len(view["decided"]),
+        "planner_review": len(tables["planner_review"]),
     }
 
 
