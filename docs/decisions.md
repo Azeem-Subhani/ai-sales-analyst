@@ -1033,7 +1033,14 @@ text are marked **(clarified)**.
   tool's `*_shown` text, formatted the value after it was cut to 4 decimals for the
   model. The text now comes from the unrounded value (0.27249996 shows +27.2%, not
   +27.3%); the raw number for the model keeps 4 decimals.
-- **System prompt rules 11 and 12:** when a question does not say which measure
-  (units or revenue) or which period, the first sentence says what was chosen. Bold
-  only key numbers and names, never a whole line. Not yet checked live; the live eval
-  rerun goes in `docs/eval_results_week6_polish.md`.
+- **System prompt rules 11 to 13:** when a question does not say which measure
+  (units or revenue) or which period, the first sentence says what was chosen (11).
+  Bold only key numbers and names, never a whole line (12). For which/how-many
+  questions, name every row the tool returned, up to 10, in the tool's order, then
+  "and N more"; rule 9's 3-point limit does not cut that list (13).
+  - Checked live on 2026-10-22 (`docs/eval_results_week6_polish.md`): with rules 11
+    and 12 the eval scored 24/25, because q21 named 5 of the 10 returned customers.
+    Rule 13 fixed it: q21 passed 3 times alone, and the full eval scored **25/25**
+    (gpt-5.6-luna, fallback off, answer guard `ok` on all 25).
+  - The CLI answer to "which product is customer buying the most?" states the
+    measure and period in its first sentence.
