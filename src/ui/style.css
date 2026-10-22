@@ -50,7 +50,7 @@ a { color: var(--accent-text); }
 .section-title { font-size: 15px; font-weight: 600; color: var(--text); margin: 0 0 .35rem; }
 .section-count, .section-note { font-weight: 400; color: var(--muted); }
 .section-note { font-size: 13px; }
-.muted { color: var(--muted); font-size: 13px; }
+.muted { color: var(--muted); font-size: 13px; margin: 0 0 .5rem; }
 [data-testid="stCaptionContainer"] { color: var(--muted); font-size: 13px; }
 
 /* ---- Bordered containers (st.container(border=True)) are the cards of the page. */
@@ -115,8 +115,8 @@ button:focus-visible { box-shadow: 0 0 0 2px var(--focus); outline: none; }
 .tag-muted { color: var(--muted); }
 
 /* ---- KPI cards */
-.card-grid { display: grid; gap: .75rem; margin: .5rem 0 1.25rem;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.card-grid { display: grid; gap: .75rem; margin: .5rem 0 .75rem;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
 .card { border: 1px solid var(--border); border-radius: var(--radius-card);
   padding: .85rem 1rem; background: var(--surface); min-width: 0; }
 .card-label { font-size: 12px; color: var(--muted); margin-bottom: .25rem; }
@@ -125,7 +125,12 @@ button:focus-visible { box-shadow: 0 0 0 2px var(--focus); outline: none; }
 .card-delta { font-size: 13px; font-weight: 500; margin-top: .35rem; white-space: nowrap;
   display: flex; align-items: center; gap: .25rem; min-width: 0; }
 .card-delta .vs { font-weight: 400; color: var(--muted); }
-.card-sub { font-size: 12px; color: var(--muted); margin-top: .15rem; }
+.card-sub { font-size: 12px; color: var(--muted); margin-top: .2rem; }
+.card-grid-compact { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: .6rem;
+  margin-top: 0; }
+.card-compact { padding: .7rem .85rem; }
+.card-compact .card-value { font-size: 20px; }
+.card-compact .card-delta { font-size: 12px; margin-top: .25rem; }
 .delta-icon { width: 14px; height: 14px; vertical-align: -2px; }
 .tone-good { color: var(--good); } .tone-bad { color: var(--bad); }
 .tone-flat { color: var(--muted); }
@@ -196,7 +201,8 @@ button:focus-visible { box-shadow: 0 0 0 2px var(--focus); outline: none; }
   margin-top: auto; }
 
 @media (max-width: 640px) {
-  [data-testid="stMainBlockContainer"] { padding-left: 1rem; padding-right: 1rem; }
+  /* Clear the header bar with the sidebar button. */
+  [data-testid="stMainBlockContainer"] { padding: 3.75rem 1rem 1rem; }
   .card-value { font-size: 24px; }
   .user-bubble { max-width: 85%; }
 }

@@ -75,6 +75,13 @@ WIDGET_ICONS = {
     '[data-testid="stChatInputSubmitButton"]': "arrow-up",
 }
 SIGN_ARROWS = {"+": "arrow-up", "-": "arrow-down"}
+# Shorter comparison names for the KPI cards (builder.COMPARISON_LABELS values).
+SHORT_LABELS = {
+    "previous week": "prev. week",
+    "previous month": "prev. month",
+    "same week last year": "last year",
+    "same month last year": "last year",
+}
 
 
 def inject() -> None:
@@ -112,12 +119,47 @@ def section_title(text: str, count: object = None, note: str = "") -> str:
     return f'<div class="section-title">{escape(text)}{extra}{tail}</div>'
 
 
+def short_label(label: str) -> str:
+    """'previous week' -> 'prev. week'; labels without a short form stay as they are."""
+    return SHORT_LABELS.get(label, label)
+
+
 def delta_arrow(change_shown: str) -> str:
     """An up or down arrow for a signed change such as '+2.5%', a dash for no change."""
     return icons.icon(SIGN_ARROWS.get(change_shown[:1], "minus"), "delta-icon")
 
 
-# ---- Helpers the pages still use until their own redesign step (Weeks 7 steps 2-5).
+def kpi_card(card: dict, compact: bool = False) -> str:
+    """One KPI card from a views.kpi_cards entry (all text already formatted).
+
+    The first comparison is the coloured delta with an arrow; the others are muted
+    lines such as '+18.4% vs last year · 96,497.53'.
+    """
+    first, *others = card["comparisons"]
+    delta = (
+        f'<div class="card-delta tone-{escape(first["tone"])}">'
+        f"{delta_arrow(first['change_shown'])}{escape(first['change_shown'])}"
+        f' <span class="vs">vs {escape(short_label(first["label"]))}</span></div>'
+    )
+    subs = "".join(
+        f'<div class="card-sub">{escape(o["change_shown"])} vs {escape(short_label(o["label"]))}'
+        f" · {escape(o['value_shown'])}</div>"
+        for o in others
+    )
+    size = " card-compact" if compact else ""
+    return (
+        f'<div class="card{size}"><div class="card-label">{escape(card["label"])}</div>'
+        f'<div class="card-value">{escape(card["value_shown"])}</div>{delta}{subs}</div>'
+    )
+
+
+def card_grid(cards: list[str], compact: bool = False) -> str:
+    """Cards in a responsive grid; compact for the secondary KPIs."""
+    kind = "card-grid card-grid-compact" if compact else "card-grid"
+    return f'<div class="{kind}">{"".join(cards)}</div>'
+
+
+# ---- Helpers the pages still use until their own redesign step (Week 7 steps 3-5).
 
 TAG_TONES = {"red": "bad", "amber": "warn", "green": "good", "blue": "accent", "grey": "muted"}
 
@@ -125,30 +167,6 @@ TAG_TONES = {"red": "bad", "amber": "warn", "green": "good", "blue": "accent", "
 def tag(text: str, colour: str = "grey") -> str:
     """A small label in a tone colour."""
     return f'<span class="tag tag-{TAG_TONES.get(colour, "muted")}">{escape(text)}</span>'
-
-
-def kpi_card(card: dict) -> str:
-    """One KPI card from a views.kpi_cards entry (all text already formatted)."""
-    first, *others = card["comparisons"]
-    delta = (
-        f'<div class="card-delta tone-{escape(first["tone"])}">'
-        f"{delta_arrow(first['change_shown'])} {escape(first['change_shown'])} vs "
-        f"{escape(first['label'])}</div>"
-    )
-    subs = "".join(
-        f'<div class="card-sub">{escape(o["change_shown"])} vs {escape(o["label"])} '
-        f"({escape(o['value_shown'])})</div>"
-        for o in others
-    )
-    return (
-        f'<div class="card"><div class="card-label">{escape(card["label"])}</div>'
-        f'<div class="card-value">{escape(card["value_shown"])}</div>{delta}{subs}</div>'
-    )
-
-
-def card_grid(cards: list[str]) -> str:
-    """Cards in a responsive grid."""
-    return f'<div class="card-grid">{"".join(cards)}</div>'
 
 
 def user_message(question: str) -> str:

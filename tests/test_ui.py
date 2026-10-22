@@ -88,11 +88,11 @@ def test_sales_page_shows_report_numbers(
     cards = html_text(at)
     assert f'<div class="card-value">{net["value_shown"]}</div>' in cards  # the KPI card
     first = net["comparisons"][0]
-    assert f"{first['change_shown']} vs previous week" in cards
+    assert f'{first["change_shown"]} <span class="vs">vs prev. week</span>' in cards
     assert f"tone-{first['tone']}" in cards
     at.button_group[0].set_value("Month").run()  # day / week / month toggle
     assert not at.exception
-    assert any("September 2026" in h.value for h in at.subheader)
+    assert '<div class="section-title">September 2026</div>' in html_text(at)
 
 
 def test_demand_page_without_a_snapshot_shows_the_command(
