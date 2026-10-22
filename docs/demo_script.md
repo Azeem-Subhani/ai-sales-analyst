@@ -160,10 +160,9 @@ decision is kept either way.
 
 ## If something goes wrong
 
-- **Avoid the daily snapshots in the Reports page** unless the backfill has been
-  rerun since 2026-10-22. Six of the first backfill's daily summaries were a model
-  refusal. The summary guard now rejects these and shows the placeholder instead.
-  The monthly review was never affected.
+- **A daily summary shows the placeholder:** the summary guard rejected a refusal
+  twice. This is expected behaviour, and the report itself is complete. The
+  2026-10-22 backfill has a summary on all 18 reports.
 - **"There is no demand-planning snapshot":** run the command the page shows, then
   reload.
 - **"Not saved: ... is in use by another process":** close the other program that

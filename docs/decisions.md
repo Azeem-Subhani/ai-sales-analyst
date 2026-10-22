@@ -913,5 +913,14 @@ text are marked **(clarified)**.
 - Ordinary wording such as "unable to compare" is not a refusal (tested).
 - Why the daily input draws refusals is not yet known; the guard stops them
   reaching an email either way.
+- **Live check (2026-10-22):** I reran the backfill for 14 Sep to 1 Oct. All 18
+  reports built and all 18 summaries ended `ok`:
+  - 12 passed on the first attempt.
+  - 6 were refusals on the first attempt and passed on the retry. They were the
+    same six dailies as before (as of 13, 17, 20, 22, 27 and 28 Sep).
+  - None was dropped.
+
+  It made 24 model calls and cost $0.0074 by the key balance (9.8282 to 9.8208).
+  No backfilled report now contains a refusal.
 - The Reports page lists backfilled reports newest first, so it opens on the
   September monthly review.
