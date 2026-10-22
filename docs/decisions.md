@@ -794,3 +794,33 @@ text are marked **(clarified)**.
 - **What happened:** a first draft of the backfill test did this and spent $0.0083
   (three report summaries). It was fixed before any commit, and a full run afterwards
   left the key balance unchanged.
+
+### Backfill instead of two live weeks of scheduler runs
+- **Decision (project owner, 2026-10-22):** `python -m src.reports.backfill --from
+  2026-09-14 --to 2026-10-01` builds every report the scheduler would have sent on
+  those run dates. 1 Oct is included for the September monthly review.
+- **Same rules as the scheduler:**
+  - Run dates come from the scheduler's own `job_specs` CronTriggers
+    (`get_next_fire_time`, in `TIMEZONE`), and each as_of from
+    `data_clock.reporting_as_of` with that run date as "today".
+  - Nothing is hard-coded. A test moves the weekly review to Tuesday and the plan
+    follows.
+  - Result: 14 daily snapshots, 3 weekly reviews (as of 13, 20 and 27 Sep) and the
+    September monthly review. As in the scheduler, Saturdays have no daily snapshot,
+    because the Monday run reports Sunday.
+- **Always a dry run:** the backfill calls only `scheduler.build_once` with
+  `mode="dry_run"`. It never calls `deliver_once`, `send_report` or
+  `audit.record_run`, so `report_runs` stays the record of real runs.
+- **Output:**
+  - The reports go to `outputs/backfill/<run_date>/<report>_<as_of>/`, in the normal
+    dry-run format.
+  - `manifest.csv` has `run_date, report, as_of, period, status, summary_status,
+    summary_cost_usd, output_folder, error`. `summary_cost_usd` is an extra column;
+    OpenRouter reports $0, so it reads 0.0 and spend is measured from the key balance.
+  - `index.html` links every report.
+  - One failed report is recorded and the rest still run.
+- **Demand snapshots:** the weekly reports created the missing 2026-09-13 and
+  2026-09-20 snapshots through the builder's existing `get_or_run`.
+- `Report` now carries `summary_cost_usd`. It was calculated before but dropped.
+- **Run (2026-10-22):** 18 of 18 ok, every summary `ok`, 4 min 22 s, $0.0079 by the
+  key balance.
