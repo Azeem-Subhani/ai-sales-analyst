@@ -1057,3 +1057,13 @@ text are marked **(clarified)**.
   it), so the answer is retried once. Seen in the CLI check on 2026-10-22
   (`docs/eval_results_week6_polish.md`). Reword the example without a number (for
   example "over the last year") and rerun the live eval.
+- **Stay on topic (scope rule):** on 2026-10-22 the agent answered "Who is the prime
+  minister of pakistan" from general knowledge, with no tool call; the answer guard
+  passed it because it had no numbers. To do:
+  - add a system prompt rule: the agent only answers questions about this
+    business's sales and demand data; anything else gets a short, polite redirect
+    saying what it can help with, never a general-knowledge answer;
+  - add 2 off-topic questions to `tests/eval/questions.yaml` (for example "Who is
+    the prime minister of Pakistan?" and "What's the weather tomorrow?"), graded
+    pass when the answer declines and redirects;
+  - the rule 11 rewording above and this rule share one live eval rerun.
