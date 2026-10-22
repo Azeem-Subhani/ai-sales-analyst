@@ -319,7 +319,7 @@ def _guarded_text(
     """
     if not text:
         return NO_TEXT_ANSWER
-    failed = answer_guard.check_answer(text, question, answer.tool_calls)
+    failed = answer_guard.check_answer(text, question, answer.tool_calls, earlier)
     if not failed:
         answer.answer_guard = answer_guard.GUARD_OK
         return text
@@ -345,7 +345,7 @@ def _guarded_text(
         )
         _add_usage(answer, result)
         retry_text = result.text or ""
-        failed_again = answer_guard.check_answer(retry_text, question, answer.tool_calls)
+        failed_again = answer_guard.check_answer(retry_text, question, answer.tool_calls, earlier)
         if retry_text and not failed_again:
             answer.answer_guard = answer_guard.GUARD_RETRIED_OK
             answer.answer_guard_failed = failed
