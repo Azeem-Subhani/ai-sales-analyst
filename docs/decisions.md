@@ -874,3 +874,22 @@ text are marked **(clarified)**.
 - **Short-lived reads:** every read opens DuckDB read-only and closes it, and is
   cached with `st.cache_data` per as_of and file path. The CLIs can still write
   while the dashboard is open.
+
+### Week 6 guardrail tests
+- **Decision (2026-10-22):** `tests/test_guardrails.py` also checks:
+  - `src/ui` uses no `openai`, `duckdb`, `connect` or `read_only`, so it opens no
+    database itself;
+  - `src/ui` has no SQL in any string;
+  - only `approve.py` writes a pre-build status (`UPDATE prebuild_recommendations`,
+    `INSERT INTO prebuild_decisions`), and only `approve.py` and the Demand page use
+    `decide`;
+  - importing the agent, its tools, the chat CLI and `src.ui.common` in a fresh
+    process never loads `src.demand.approve`, and no file in `src/agent` or the chat
+    page names it;
+  - `backfill.py` uses none of `send_report`, `deliver_once`, `notify_failure`,
+    `run_report`, `record_run`, `emailer` or `audit`;
+  - every argument combination of the three demand tools returns at most 10 rows per
+    list. The fixture must have at least one longer list, so the cap is really
+    exercised.
+- The name checks use the code's AST (names, attributes, imports), so comments and
+  docstrings that mention these words do not trip them.
