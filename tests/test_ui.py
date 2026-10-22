@@ -15,7 +15,7 @@ import pytest
 import streamlit as st
 from streamlit.testing.v1 import AppTest
 
-from src.agent import agent, tools
+from src.agent import agent, llm, tools
 from src.demand import approve, store
 from src.reports import builder, views
 from src.ui import common
@@ -133,6 +133,14 @@ def test_demand_tabs_show_counts_and_severity_tags(
     assert any(f"Pre-build \u00b7 {counts['pending']}" in label for label in labels)
     overdue = at.dataframe[0].value
     assert set(overdue["Severity"]) <= {"\U0001f534 serious", "\U0001f7e0 overdue"}
+
+
+def test_demand_forecast_units_have_one_decimal(planning: Path) -> None:
+    """The dashboard shows forecast units to one decimal; actual units stay whole."""
+    table = views.demand_view(AS_OF, planning)["accuracy_products"]
+    assert table.formats()["Forecast units"] == "%.1f"
+    assert table.formats()["Actual units"] == "%d"
+    assert views.display_value(500.09999999999997, "units_1dp") == 500.1
 
 
 # ---------------------------------------------------------------- approvals
@@ -322,13 +330,16 @@ def test_chat_shows_live_steps_then_the_checked_answer(
     assert not at.exception, [e.value for e in at.exception]
     assert fake.asked == ["Net revenue last week?"]
     markdown = " ".join(m.value for m in at.markdown)
-    assert "Net revenue last week?" in markdown and CHECKED in markdown
+    assert CHECKED in markdown
     html = html_text(at)
-    assert "Getting KPIs (get_kpis)" in html and "0.2 s" in html  # the tool step, ticked
-    assert html.count('class="step-ok"') == 3  # two model calls and one tool call
+    assert '<div class="user-bubble">Net revenue last week?</div>' in html
     assert "test/model" in html and "1,280 tokens" in html and "$0.0004" in html
-    [status] = at.get("status")
-    assert status.proto.label == "Used 1 tool \u00b7 1.5 s"
+    # The steps collapse to one line: the tool's past-tense label and the total time,
+    # opening to show the step's duration and its Data.
+    assert "<summary>Calculated KPIs \u00b7 1.5 s</summary>" in html
+    assert '<span class="step-time">0.2 s</span>' in html
+    assert '<details class="step-data"><summary>Data</summary>' in html
+    assert not at.get("status") and not at.get("spinner")  # no Streamlit status widgets
     assert len(at.session_state["chat_history"]) == 1
 
 
@@ -369,16 +380,118 @@ def test_chat_history_and_clear(
     at.chat_input[0].set_value("Second?").run()
     assert not at.exception
     assert fake.asked == ["First?", "Second?"]  # single-turn: one call per question
-    assert len(at.get("status")) == 2  # one status block per answer, history included
+    assert html_text(at).count('<details class="steps steps-done">') == 2  # history too
     next(b for b in at.button if b.label == "Clear chat").click().run()
     assert at.session_state["chat_history"] == []
 
 
-def test_chat_page_shows_the_data_end_instead_of_the_date_picker(
+def test_chat_page_shows_the_data_end_chip_instead_of_the_date_picker(
     app_env: None, built: dict, planning: Path, tmp_path: Path
 ) -> None:
     at = chat_page(built, planning, tmp_path)
     assert not at.sidebar.date_input
-    assert any("Answers use data up to **30 Sep 2026**" in m.value for m in at.sidebar.markdown)
+    assert "Data up to 30 Sep 2026" in html_text(at)  # the sidebar status chip
+    assert not any("Answers use data" in m.value for m in at.sidebar.markdown)
     at.switch_page("app_pages/sales.py").run()
     assert at.sidebar.date_input[0].value == AS_OF
+
+
+# ---------------------------------------------------------------- input lock
+
+BUSY_KEY = "chat_busy"
+
+
+def test_chat_input_is_locked_while_answering_and_unlocked_after(
+    app_env: None, built: dict, planning: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = FakeAgent()
+    busy_during_run: list[bool] = []
+
+    def ask(question: str, config: agent.AgentConfig, **kwargs: object) -> agent.AgentAnswer:
+        busy_during_run.append(st.session_state.get(BUSY_KEY, False))
+        return fake(question, config, **kwargs)
+
+    monkeypatch.setattr(agent, "ask", ask)
+    at = chat_page(built, planning, tmp_path)
+    at.chat_input[0].set_value("Net revenue last week?").run()
+    assert not at.exception, [e.value for e in at.exception]
+    assert busy_during_run == [True]  # the input was drawn disabled during the run
+    assert at.session_state[BUSY_KEY] is False
+    assert not at.chat_input[0].disabled  # enabled again with the answer shown
+    assert len(at.session_state["chat_history"]) == 1
+
+
+@pytest.mark.parametrize(
+    ("error", "message"),
+    [
+        (RuntimeError("tool crashed"), "Something went wrong"),
+        (llm.LLMUnavailableError("OpenRouter timed out"), "The AI service isn't responding"),
+    ],
+    ids=["exception", "llm_unavailable"],
+)
+def test_chat_input_is_unlocked_when_answering_fails(
+    app_env: None,
+    built: dict,
+    planning: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    error: Exception,
+    message: str,
+) -> None:
+    def failing_ask(question: str, config: agent.AgentConfig, **kwargs: object) -> None:
+        raise error
+
+    monkeypatch.setattr(agent, "ask", failing_ask)
+    at = chat_page(built, planning, tmp_path)
+    at.chat_input[0].set_value("Net revenue last week?").run()
+    assert not at.exception, [e.value for e in at.exception]  # a message, not a traceback
+    assert at.session_state[BUSY_KEY] is False  # the finally block released the lock
+    assert not at.chat_input[0].disabled
+    [shown] = [e.value for e in at.error]
+    assert shown.startswith(message)
+    assert at.session_state["chat_history"] == []
+    # The page still works: the next question is answered.
+    monkeypatch.setattr(agent, "ask", FakeAgent())
+    at.chat_input[0].set_value("Second try?").run()
+    assert not at.exception
+    assert len(at.session_state["chat_history"]) == 1
+
+
+# ---------------------------------------------------------------- escaping and the meta line
+
+
+def test_chat_question_with_markup_is_shown_as_text(
+    app_env: None, built: dict, planning: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(agent, "ask", FakeAgent())
+    at = chat_page(built, planning, tmp_path)
+    at.chat_input[0].set_value('Hi <script>alert(1)</script> <img src=x onerror="x()">').run()
+    assert not at.exception
+    html = html_text(at)
+    assert "<script>" not in html and "<img" not in html  # never placed as markup
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
+    assert "&lt;img src=x onerror=&quot;x()&quot;&gt;" in html
+
+
+@pytest.mark.parametrize("cost", [None, 0.0])
+def test_chat_meta_line_hides_a_missing_or_zero_cost(
+    app_env: None,
+    built: dict,
+    planning: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    cost: float | None,
+) -> None:
+    fake = FakeAgent()
+
+    def ask(question: str, config: agent.AgentConfig, **kwargs: object) -> agent.AgentAnswer:
+        answer = fake(question, config, **kwargs)
+        answer.cost_usd = cost
+        return answer
+
+    monkeypatch.setattr(agent, "ask", ask)
+    at = chat_page(built, planning, tmp_path)
+    at.chat_input[0].set_value("Net revenue last week?").run()
+    meta = next(h.proto.body for h in at.get("html") if 'class="chat-meta"' in h.proto.body)
+    assert "test/model" in meta and "1,280 tokens" in meta and "1.5 s" in meta
+    assert "$" not in meta and "cost" not in meta

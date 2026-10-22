@@ -299,6 +299,9 @@ def test_system_prompt_contents(built: dict) -> None:
     assert "orders.status: cancelled, completed, returned" in prompt
     assert "not_computed" in prompt and "get_prebuild_recommendations" in prompt
     assert prompt.count("```sql") == 5
+    assert "say so in your first sentence" in prompt  # chosen measure / period
+    assert "Never bold a whole sentence or line." in prompt
+    assert "name every row the tool returned, up to 10, in the tool's" in prompt
     assert "{" not in prompt.split("## KPI definitions")[0]  # template fully filled
 
 

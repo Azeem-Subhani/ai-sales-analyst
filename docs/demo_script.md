@@ -118,7 +118,7 @@ emails sent.
   - In "Needs planner review", AP-1150 is held back from pre-build with reason
     "forecast bias +27.3% (seeded forecasts)".
 - **Dashboard:** Demand page, **Forecast accuracy** tab, Products table: AP-1150 has
-  393 actual vs 500 forecast units. Overall WAPE is 15.9%.
+  393 actual vs 500.1 forecast units. Overall WAPE is 15.9%.
 - **Chat:** "How accurate were the forecasts for the Classic Denim Jacket? Give WAPE
   and bias."
   - Expected: WAPE **27.3%**, bias **+27.3%** (forecast too high).
@@ -136,8 +136,9 @@ emails sent.
   - Expected, in order: Smart Bottle Pro **327**, Deluxe Bluetooth Speaker **135**,
     Essential Cotton T-Shirt **95**.
   - The answer says a planner must approve; the agent cannot. This is eval q24.
-- Point out the chat **Details** expander: the tool call, its result, model,
-  tokens, cost and latency.
+- Point out the collapsed steps line above the answer: open it to show each step's
+  time, the SQL for `run_sql`, and the **Data** view with the tool result. The grey
+  line under the answer gives model, tokens and latency.
 
 ### 4. Approve SB-1042 (3 min)
 

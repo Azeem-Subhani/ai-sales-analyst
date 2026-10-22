@@ -31,6 +31,7 @@ TRENDS = {
 }
 PCT_DECIMALS = 1
 DAYS_DECIMALS = 1
+UNITS_1DP_DECIMALS = 1  # forecast units: not whole, shown to one decimal
 
 # Kind of each display column -> the Streamlit number format the dashboard uses.
 DISPLAY_FORMATS = {
@@ -40,6 +41,7 @@ DISPLAY_FORMATS = {
     "change": "%+.1f%%",
     "pp": "%+.1f pp",
     "days": "%.1f",
+    "units_1dp": "%.1f",
 }
 
 CATEGORY_COLUMNS = [
@@ -76,7 +78,8 @@ ACCURACY_PRODUCT_COLUMNS = [
     ("key", "SKU", "text"),
     ("category", "Category", "text"),
     ("actual_units", "Actual units", "count"),
-    ("forecast_units", "Forecast units", "count"),
+    # One decimal, so the shown units agree with the bias (500.1 vs 393 is +27.3%).
+    ("forecast_units", "Forecast units", "units_1dp"),
     ("wape", "WAPE", "rate"),
     ("bias_pct", "Bias", "change"),
     ("flagged", "Flagged", "text"),
@@ -123,6 +126,8 @@ def display_value(value: object, kind: str) -> object:
         return round(float(value), PCT_DECIMALS)
     if kind == "days":
         return round(float(value), DAYS_DECIMALS)
+    if kind == "units_1dp":
+        return round(float(value), UNITS_1DP_DECIMALS)
     return value
 
 

@@ -2,29 +2,45 @@
 
 How a question is shown:
 1. The question appears as a bubble straight away.
-2. A status block shows each step live (model calls, tools, a fallback model, a number
-   check retry) from agent.ask's on_progress events, then collapses to one line.
+2. Inside the assistant bubble, small grey lines show each step live (tools, a fallback
+   model, a number-check retry) from agent.ask's on_progress events, then collapse to
+   one line that opens with <details> (src/ui/chat_steps.py).
 3. The answer only arrives when agent.ask returns, after the answer number guard, and
    is then revealed word by word. Unchecked text is never shown. A withheld answer is
    shown as a warning with the tool results instead.
+
+While a question is being answered the chat input is disabled, so a second question
+cannot interrupt the run; the lock is released in a finally block, so an error or a
+timeout never leaves it disabled.
 
 Each question is answered on its own (single-turn, as in the eval); earlier questions
 and answers are only shown as history. The agent's tools are read-only, and this page
 has no approval actions.
 """
 
+import logging
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass, field
+from html import escape
 
 import streamlit as st
 
-from src.agent import agent
+from src.agent import agent, llm
 from src.reports import data_clock
-from src.ui import common, style
+from src.ui import chat_steps, common, style
+
+logger = logging.getLogger(__name__)
 
 HISTORY_KEY = "chat_history"
-PENDING_KEY = "chat_pending"  # an example question clicked on the empty page
+QUESTION_KEY = "chat_question"  # the question being answered
+BUSY_KEY = "chat_busy"  # True while a question is answered: the input is disabled
+ERROR_KEY = "chat_error"  # shown once after a question failed unexpectedly
+FAILED_MESSAGE = (
+    "Something went wrong while answering, and the question was not answered. "
+    "Please ask again. The details are in the dashboard log."
+)
+UNAVAILABLE_MESSAGE = "The AI service isn't responding right now. Please try again in a minute."
 STREAM_DELAY_SECONDS = 0.012  # per word of the typewriter effect
 EXAMPLES = [  # (chip label, the question it sends)
     (
@@ -38,36 +54,8 @@ EXAMPLES = [  # (chip label, the question it sends)
         "What is the top pre-build recommendation, and how many units?",
     ),
 ]
-THINKING_ICON = "\U0001f9e0"  # brain
-NOTE_ICON = "⚠️"  # warning sign
-# Tool name -> (icon, what the step says). Text only; the numbers come from the tools.
-TOOL_STEPS = {
-    "get_kpis": ("\U0001f4c8", "Getting KPIs"),
-    "run_sql": ("\U0001f5c4️", "Running SQL"),
-    "make_chart": ("\U0001f4ca", "Making a chart"),
-    "get_forecast": ("\U0001f52e", "Getting the forecast"),
-    "get_customer_alerts": ("\U0001f465", "Checking customer alerts"),
-    "get_forecast_accuracy": ("\U0001f3af", "Checking forecast accuracy"),
-    "get_prebuild_recommendations": ("\U0001f4e6", "Checking pre-build recommendations"),
-}
+ASSISTANT_AVATAR = str(style.LOGO_PATH)  # the logo mark, as in the sidebar
 NOTE_KINDS = {agent.EVENT_FALLBACK, agent.EVENT_GUARD_RETRY, agent.EVENT_WITHHELD}
-
-
-@dataclass
-class Step:
-    """One line of the progress block."""
-
-    icon: str
-    label: str
-    state: str = "running"  # running | ok | fail | note
-    seconds_shown: str = ""
-    tool: str | None = None
-    arguments: str | None = None
-    result: dict | None = None
-
-    def html(self) -> str:
-        """The step as one line of HTML."""
-        return style.step_line(self.icon, self.label, self.seconds_shown, self.state)
 
 
 @dataclass
@@ -75,85 +63,58 @@ class Turn:
     """One question and its answer, with the steps it took."""
 
     answer: agent.AgentAnswer
-    steps: list[Step] = field(default_factory=list)
+    steps: list[chat_steps.Step] = field(default_factory=list)
 
 
 class LiveSteps:
-    """agent.ask's on_progress callback: draws each step as it starts and finishes."""
+    """agent.ask's on_progress callback: redraws the step lines in one placeholder."""
 
-    def __init__(self, container: object) -> None:
-        self.container = container
-        self.steps: list[Step] = []
-        self.slots: list = []
+    def __init__(self, placeholder: object) -> None:
+        self.placeholder = placeholder
+        self.steps: list[chat_steps.Step] = []
+        self.thinking = True  # the model starts first; show Thinking at once
 
     def __call__(self, event: agent.ProgressEvent) -> None:
         if event.kind == agent.EVENT_THINKING:
-            self.start(Step(THINKING_ICON, f"{agent.THINKING_LABEL}…"))
+            self.thinking = True
+        elif event.kind == agent.EVENT_THINKING_DONE:
+            self.thinking = False
         elif event.kind == agent.EVENT_TOOL_START:
-            icon, label = TOOL_STEPS.get(event.tool or "", ("\U0001f527", "Using a tool"))
-            self.start(Step(icon, f"{label} ({event.tool})", tool=event.tool))
-        elif event.kind in (agent.EVENT_THINKING_DONE, agent.EVENT_TOOL_DONE):
+            self.steps.append(chat_steps.Step(tool=event.tool or "", arguments=event.arguments))
+        elif event.kind == agent.EVENT_TOOL_DONE:
             self.finish(event)
         elif event.kind in NOTE_KINDS:
-            self.start(Step(NOTE_ICON, event.label, state="note"))
-
-    def start(self, step: Step) -> None:
-        """Add a step line."""
-        self.steps.append(step)
-        slot = self.container.empty()
-        self.slots.append(slot)
-        slot.html(step.html())
+            self.steps.append(chat_steps.Step(note=event.label, state="ok"))
+        self.draw()
 
     def finish(self, event: agent.ProgressEvent) -> None:
-        """Turn the latest running step of that kind into a tick or a cross."""
-        wanted_tool = event.kind == agent.EVENT_TOOL_DONE
-        for step, slot in zip(reversed(self.steps), reversed(self.slots), strict=True):
-            if step.state == "running" and (step.tool is not None) == wanted_tool:
+        """Mark the latest running tool step as done, with its duration and result."""
+        for step in reversed(self.steps):
+            if step.tool is not None and step.state == "running":
                 step.state = "ok" if event.success else "fail"
-                step.seconds_shown = seconds_text(event.seconds)
-                step.arguments, step.result = event.arguments, event.result
-                slot.html(step.html())
+                step.seconds = event.seconds
+                step.arguments = event.arguments or step.arguments
+                step.result = event.result
                 return
 
-
-def seconds_text(seconds: float | None) -> str:
-    """'1.2 s' for a step's duration."""
-    return "" if seconds is None else f"{seconds:.1f} s"
-
-
-def summary_label(turn: Turn) -> str:
-    """The collapsed status line, e.g. 'Used 3 tools · 4.2 s'."""
-    count = len(turn.answer.tool_calls)
-    tools_text = "No tools used" if count == 0 else f"Used {count} tool{'s' * (count != 1)}"
-    return f"{tools_text} · {turn.answer.latency_seconds:.1f} s"
-
-
-def status_state(answer: agent.AgentAnswer) -> str:
-    """complete, or error when the model failed or the answer was withheld."""
-    return "error" if answer.error or answer.answer_guard == "withheld" else "complete"
-
-
-def tool_details(steps: list[Step]) -> None:
-    """Arguments and results of every tool call, inside the status block."""
-    for step in steps:
-        if step.tool and step.state in ("ok", "fail"):
-            st.caption(f"{step.icon} {step.tool}: arguments, then result")
-            st.json(step.arguments or "{}", expanded=False)
-            st.json(step.result or {}, expanded=False)
+    def draw(self) -> None:
+        """Show the current steps."""
+        self.placeholder.html(chat_steps.live_html(self.steps, self.thinking))
 
 
 def meta_line(answer: agent.AgentAnswer) -> str:
-    """model · tokens · cost · time, as a small grey line."""
-    cost = "cost n/a" if answer.cost_usd is None else f"${answer.cost_usd:.4f}"
-    parts = [
-        answer.model or "no model",
-        f"{answer.total_tokens:,} tokens",
-        cost,
-        f"{answer.latency_seconds:.1f} s",
-    ]
+    """model · tokens · cost · time, as a small grey line.
+
+    The cost is left out when OpenRouter reports none or $0 (it often does; the real
+    spend is measured from the key balance).
+    """
+    parts = [answer.model or "no model", f"{answer.total_tokens:,} tokens"]
     if answer.fallback_used:
         parts.insert(1, "fallback model")
-    return '<div class="chat-meta">' + " · ".join(parts) + "</div>"
+    if answer.cost_usd:  # None or 0.0: no cost shown
+        parts.append(f"${answer.cost_usd:.4f}")
+    parts.append(f"{answer.latency_seconds:.1f} s")
+    return '<div class="chat-meta">' + escape(" · ".join(parts)) + "</div>"
 
 
 def words(text: str) -> Iterator[str]:
@@ -186,31 +147,24 @@ def show_answer(answer: agent.AgentAnswer, stream: bool) -> None:
 
 def show_turn(turn: Turn) -> None:
     """An earlier question and answer, as history."""
-    with st.chat_message("user"):
-        st.markdown(turn.answer.question)
-    with st.chat_message("assistant"):
-        with st.status(summary_label(turn), state=status_state(turn.answer), expanded=False):
-            for step in turn.steps:
-                st.html(step.html())
-            tool_details(turn.steps)
+    st.html(style.user_message(turn.answer.question))
+    with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
+        st.html(chat_steps.collapsed_html(turn.steps, turn.answer.latency_seconds))
         show_answer(turn.answer, stream=False)
 
 
 def ask_live(question: str) -> Turn:
     """Show the question, the live steps and the checked answer; return the turn."""
-    with st.chat_message("user"):
-        st.markdown(question)
-    with st.chat_message("assistant"):
-        status = st.status("Working…", expanded=True)
-        live = LiveSteps(status)
+    st.html(style.user_message(question))
+    with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
+        live = LiveSteps(st.empty())
+        live.draw()
         config = agent.AgentConfig(
             db_path=common.path(common.SALES_DB_KEY), data_end=data_clock.data_end_from_env()
         )
         answer = agent.ask(question, config, on_progress=live)  # guarded before it returns
         turn = Turn(answer, live.steps)
-        with status:
-            tool_details(turn.steps)
-        status.update(label=summary_label(turn), state=status_state(answer), expanded=False)
+        live.placeholder.html(chat_steps.collapsed_html(turn.steps, answer.latency_seconds))
         show_answer(answer, stream=True)
     return turn
 
@@ -231,27 +185,55 @@ def empty_state() -> None:
                 icon=":material/chat_bubble:",
                 width="stretch",
             ):
-                st.session_state[PENDING_KEY] = example
-                st.rerun()
+                start(example)
+
+
+def start(question: str) -> None:
+    """Take a question: lock the input and rerun, so the input is drawn disabled."""
+    st.session_state[QUESTION_KEY] = question
+    st.session_state[BUSY_KEY] = True
+    st.rerun()
+
+
+def answer_locked(question: str, history: list[Turn]) -> None:
+    """Answer while the input is disabled; always release the lock, then redraw."""
+    try:
+        history.append(ask_live(question))
+    except llm.LLMUnavailableError:
+        logger.exception("Chat question failed: the AI service is unavailable")
+        st.session_state[ERROR_KEY] = UNAVAILABLE_MESSAGE
+    except Exception:  # shown as a message; the page must stay usable
+        logger.exception("Chat question failed")
+        st.session_state[ERROR_KEY] = FAILED_MESSAGE
+    finally:
+        st.session_state[BUSY_KEY] = False
+        st.session_state.pop(QUESTION_KEY, None)
+    st.rerun()  # redraw with the input enabled again
 
 
 def main() -> None:
     """Render the page."""
     history: list[Turn] = st.session_state.setdefault(HISTORY_KEY, [])
+    busy = st.session_state.get(BUSY_KEY, False)
+    if busy and QUESTION_KEY not in st.session_state:  # a lock with nothing to answer
+        busy = st.session_state[BUSY_KEY] = False
     title, clear = st.columns([5, 1], vertical_alignment="bottom")
     title.title(":material/forum: Chat")
-    if clear.button("Clear chat", icon=":material/delete_sweep:", disabled=not history):
+    if clear.button("Clear chat", icon=":material/delete_sweep:", disabled=busy or not history):
         history.clear()
         st.rerun()
-    question = st.chat_input("Ask about sales or demand…") or st.session_state.pop(
-        PENDING_KEY, None
-    )
+    submitted = st.chat_input("Ask about sales or demand…", disabled=busy)
+    if submitted and not busy:
+        start(submitted)
+    question = st.session_state.get(QUESTION_KEY) if busy else None
     if not history and not question:
         empty_state()
     for turn in history:
         show_turn(turn)
+    if error := st.session_state.pop(ERROR_KEY, None):
+        st.error(error, icon=":material/error:")
     if question:
-        history.append(ask_live(question))
+        answer_locked(question, history)
 
 
 main()

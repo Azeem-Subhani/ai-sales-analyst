@@ -374,8 +374,9 @@ streamlit run src/ui/app.py
 
 The dashboard opens in the browser in light or dark mode, following your system;
 switch it in the app menu. The theme is in `.streamlit/config.toml` and the extra CSS
-in `src/ui/style.py`. The sidebar **As of** date (default `DATA_END_DATE`) applies to
-every page except Chat:
+in `src/ui/style.css`. The navy sidebar has the page links, the **As of** date (default
+`DATA_END_DATE`), which applies to every page except Chat, and chips with the data end
+and the main model:
 
 - **Sales:**
   - a day / week / month toggle;
@@ -394,12 +395,15 @@ every page except Chat:
 - **Chat:**
   - the same agent as `python -m src.agent.chat`, one question at a time, always
     measured from `DATA_END_DATE`;
-  - your question shows at once, then each step (model call, tool, fallback, number
-    check retry) shows live and collapses to one line ("Used 1 tool · 5.2 s") that
-    you can expand for the tool arguments and results;
+  - your question shows at once, then each step (tool, fallback, number check retry)
+    shows live as a small grey line and collapses to one line ("Checked forecast
+    accuracy · 7.3 s" or "3 steps · 9.1 s"); opened, it shows each step's time, the
+    SQL for `run_sql`, and a "Data" view of each tool result;
+  - the input is disabled until the answer is shown;
   - the answer is revealed word by word only after the answer number guard has
     passed it; a withheld answer is a warning with the tool results instead;
-  - a grey line under each answer gives model, tokens, cost and time;
+  - a grey line under each answer gives model, tokens and time (and cost, when
+    OpenRouter reports one);
   - an empty chat offers 4 example questions;
   - it has no approval actions, and each answer spends a little credit.
 - **Reports:** the saved dry-run and backfilled reports, with charts, plus the Excel
