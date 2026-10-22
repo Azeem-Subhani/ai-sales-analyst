@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from src.agent import answer_guard
+from src.agent import answer_guard, tools
 from src.agent.tools import ToolOutcome
 
 
@@ -72,4 +72,15 @@ def test_withheld_with_no_tool_results() -> None:
 def test_other_tools_shown_as_json() -> None:
     forecast = outcome({"product": {"sku": "AP-1"}, "weeks": []}, name="get_forecast")
     text = answer_guard.withheld_answer(["99"], [forecast])
-    assert "get_forecast:" in text and json.dumps("AP-1") in text
+    assert "Forecast:" in text and json.dumps("AP-1") in text
+    assert "get_forecast" not in text  # a readable heading, never the raw tool name
+
+
+def test_withheld_headings_are_readable_for_every_tool() -> None:
+    """Every agent tool has a heading without underscores; others are named from words."""
+    for name in tools.TOOLS:
+        assert "_" not in answer_guard.result_title(name), name
+    assert answer_guard.result_title("get_customer_list") == "Customer list"
+    rows = outcome({"columns": ["n"], "rows": [[1]]}, name="run_sql")
+    text = answer_guard.withheld_answer(["99"], [rows])
+    assert "Sales data:" in text and "run_sql" not in text

@@ -1315,6 +1315,11 @@ Original items:
   (`get_customer_list` -> "Getting customer list" / "Got customer list"), and only a
   name with no known verb falls back to "Using a tool" / "Used a tool". A raw tool
   name never appears in a step line.
-- **Known gap (agent code, not changed):** when an answer is withheld,
-  `answer_guard.withheld_answer` still heads each tool result with the raw tool name
-  ("run_sql:"). That text is built in `src/agent`, which this UI work does not touch.
+- **Withheld answers (agent code, changed at the owner's request):** when an answer
+  is withheld, `answer_guard.withheld_answer` now heads each tool result with a
+  readable title (`RESULT_TITLES`: "Sales data", "Customer alerts", "Forecast
+  accuracy", ...) instead of the raw tool name ("run_sql:"). A tool without a title
+  is named from its words without the leading verb ("get_customer_list" ->
+  "Customer list"). Only the headings changed; the guard, the rows shown and the
+  numbers are the same. The titles live in `src/agent` (not the UI labels), because
+  the agent must not import from `src/ui`; the CLI and the agent log get the same text.
