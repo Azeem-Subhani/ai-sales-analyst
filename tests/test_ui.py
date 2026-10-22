@@ -385,12 +385,12 @@ def test_chat_history_and_clear(
     assert at.session_state["chat_history"] == []
 
 
-def test_chat_page_shows_the_data_end_chip_instead_of_the_date_picker(
+def test_chat_page_shows_the_data_end_instead_of_the_date_picker(
     app_env: None, built: dict, planning: Path, tmp_path: Path
 ) -> None:
     at = chat_page(built, planning, tmp_path)
     assert not at.sidebar.date_input
-    assert "Data up to 30 Sep 2026" in html_text(at)  # the sidebar status chip
+    assert "Data through 30 Sep 2026" in html_text(at)  # the sidebar footer
     assert not any("Answers use data" in m.value for m in at.sidebar.markdown)
     at.switch_page("app_pages/sales.py").run()
     assert at.sidebar.date_input[0].value == AS_OF
@@ -499,7 +499,6 @@ def test_chat_meta_line_hides_a_missing_or_zero_cost(
 
 def test_ok_after_retry_summary_card_is_green_like_ok(tmp_path: Path) -> None:
     from src.reports import saved
-    from src.ui import style
     from src.ui.app_pages import reports
 
     def card(status: str) -> str:
@@ -509,6 +508,5 @@ def test_ok_after_retry_summary_card_is_green_like_ok(tmp_path: Path) -> None:
         )  # fmt: skip
         return reports.card_html(report)
 
-    green = style.TAG_COLOURS["green"][0]
-    assert green in card("ok") and green in card("ok_after_retry")
+    assert "tag-good" in card("ok") and "tag-good" in card("ok_after_retry")
     assert "summary ok_after_retry" in card("ok_after_retry")

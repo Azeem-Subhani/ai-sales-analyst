@@ -1,13 +1,15 @@
-# Dashboard theme (Week 6 redesign): a blue accent (#2563EB light, #3B82F6 dark; the
-# blue-to-cyan gradient lives in src/ui/style.css), a system font stack (nothing is
-# downloaded), rounded corners, and matching light and dark modes. The viewer picks
-# light or dark in the app menu; the default follows the operating system.
+# Dashboard theme (Week 7 redesign): a quiet emerald palette, Geist (self-hosted in
+# src/ui/static/fonts, OFL), 1px borders and no shadows or gradients. The colours are the
+# tokens in src/ui/style.py (TOKENS); tests/test_ui.py checks that they match. The viewer
+# picks light or dark in the app menu; the default follows the operating system.
 
 [server]
 runOnSave = false
 # Local use only: on all interfaces anyone on the network could ask questions
 # (spending credit) and press the approval buttons.
 address = "localhost"
+# Serves src/ui/static (the font files) at app/static/.
+enableStaticServing = true
 
 [client]
 # Hide the developer toolbar and the Deploy button.
@@ -16,42 +18,61 @@ toolbarMode = "minimal"
 [browser]
 gatherUsageStats = false
 
-[theme]
-font = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif"
-headingFontWeights = [700, 650, 600]
-baseRadius = "0.75rem"
-buttonRadius = "full"
-showWidgetBorder = true
+[[theme.fontFaces]]
+family = "Geist"
+url = "app/static/fonts/Geist-Variable.woff2"
+weight = "100 900"
+style = "normal"
 
+[[theme.fontFaces]]
+family = "Geist Mono"
+url = "app/static/fonts/GeistMono-Variable.woff2"
+weight = "100 900"
+style = "normal"
+
+[theme]
+font = "Geist, system-ui, -apple-system, 'Segoe UI', sans-serif"
+codeFont = "'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace"
+baseFontSize = 14
+headingFontWeights = 600
+baseRadius = "8px"
+buttonRadius = "6px"
+showWidgetBorder = true
+showSidebarBorder = true
+
+# primaryColor is the accent (focus rings, active tab, selected controls); the primary
+# button fill is darker (#166534) in light mode for contrast with white text, set in
+# style.css. Chart series: accent first, muted second (comparisons).
 [theme.light]
-primaryColor = "#2563EB"
-backgroundColor = "#FFFFFF"
-secondaryBackgroundColor = "#F4F5FB"
-textColor = "#1F2333"
-borderColor = "#E3E5EF"
-linkColor = "#2563EB"
-dataframeHeaderBackgroundColor = "#EEF0FA"
-chartCategoricalColors = ["#2563EB", "#0EA5E9", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#14B8A6", "#64748B"]
+primaryColor = "#059669"
+backgroundColor = "#F8FAF9"
+secondaryBackgroundColor = "#ECFDF5"
+textColor = "#14251B"
+borderColor = "#D1FAE5"
+linkColor = "#047857"
+codeBackgroundColor = "#ECFDF5"
+dataframeHeaderBackgroundColor = "#ECFDF5"
+chartCategoricalColors = ["#059669", "#64756A", "#B45309", "#B91C1C", "#166534"]
 
 [theme.dark]
-primaryColor = "#3B82F6"
-backgroundColor = "#0F1117"
-secondaryBackgroundColor = "#1A1D29"
-textColor = "#E6E8F0"
-borderColor = "#2A2E3D"
-linkColor = "#60A5FA"
-dataframeHeaderBackgroundColor = "#202436"
-chartCategoricalColors = ["#3B82F6", "#38BDF8", "#34D399", "#FBBF24", "#F87171", "#A78BFA", "#2DD4BF", "#94A3B8"]
+primaryColor = "#34D399"
+backgroundColor = "#07130F"
+secondaryBackgroundColor = "#173326"
+textColor = "#ECFDF5"
+borderColor = "#28513C"
+linkColor = "#34D399"
+codeBackgroundColor = "#173326"
+dataframeHeaderBackgroundColor = "#173326"
+chartCategoricalColors = ["#34D399", "#9AB7A5", "#FBBF24", "#F87171", "#86EFAC"]
 
-# The sidebar is deep navy in both modes, with muted white text.
 [theme.light.sidebar]
-backgroundColor = "#0B1220"
-secondaryBackgroundColor = "#162033"
-textColor = "#CBD5E1"
-borderColor = "#1E293B"
+backgroundColor = "#F0FDF4"
+secondaryBackgroundColor = "#ECFDF5"
+textColor = "#14251B"
+borderColor = "#D1FAE5"
 
 [theme.dark.sidebar]
-backgroundColor = "#0B1220"
-secondaryBackgroundColor = "#162033"
-textColor = "#CBD5E1"
-borderColor = "#1E293B"
+backgroundColor = "#0A1C15"
+secondaryBackgroundColor = "#173326"
+textColor = "#ECFDF5"
+borderColor = "#28513C"

@@ -218,7 +218,7 @@ def main() -> None:
     if busy and QUESTION_KEY not in st.session_state:  # a lock with nothing to answer
         busy = st.session_state[BUSY_KEY] = False
     title, clear = st.columns([5, 1], vertical_alignment="bottom")
-    title.title(":material/forum: Chat")
+    title.html(style.page_header("Chat", "Answers from the sales and demand data."))
     if clear.button("Clear chat", icon=":material/delete_sweep:", disabled=busy or not history):
         history.clear()
         st.rerun()

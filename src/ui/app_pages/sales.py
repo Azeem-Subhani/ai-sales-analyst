@@ -4,7 +4,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from src.ui import common, style
+from src.ui import chart_theme, common, style
 
 PERIOD_LABELS = {"Day": "day", "Week": "week", "Month": "month"}
 TREND_TITLES = {
@@ -12,53 +12,47 @@ TREND_TITLES = {
     "week": "Weekly net revenue",
     "month": "Monthly net revenue",
 }
-CHART_HEIGHT = 320
-GRID = "rgba(127,127,160,.18)"
-
-
-def styled(figure: go.Figure, money_axis: str = "y") -> go.Figure:
-    """Transparent background, light grid, the accent colour and money-style hovers."""
-    figure.update_layout(
-        height=CHART_HEIGHT,
-        margin={"l": 8, "r": 8, "t": 8, "b": 8},
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        hoverlabel={"font_size": 13},
-        showlegend=False,
-    )
-    figure.update_xaxes(showgrid=False, title=None)
-    figure.update_yaxes(gridcolor=GRID, title=None, zeroline=False)
-    getattr(figure, f"update_{money_axis}axes")(tickformat=",.0f")
-    return figure
 
 
 def trend_chart(trend: object) -> go.Figure:
-    """Net revenue per week or month, as a line with soft fill."""
-    figure = px.area(trend, x="Period start", y="Net revenue", markers=True)
+    """Net revenue per week or month, as a line in the accent colour (the theme's first)."""
+    figure = px.line(trend, x="Period start", y="Net revenue", markers=True)
     figure.update_traces(
-        line={"color": style.ACCENT, "width": 2.5},
-        fillcolor=style.ACCENT_FILL,
+        line={"width": 2},
+        marker={"size": 5},
         hovertemplate="%{x|%d %b %Y}<br>Net revenue %{y:,.2f}<extra></extra>",
     )
-    return styled(figure)
+    return chart_theme.apply(figure)
 
 
 def category_chart(categories: object) -> go.Figure:
-    """Net revenue by category, largest at the top."""
+    """Net revenue by category, largest at the top, with the value at each bar end."""
     figure = px.bar(categories, x="Net revenue", y="Category", orientation="h")
     figure.update_traces(
-        marker_color=style.ACCENT,
-        marker_cornerradius=6,
+        marker_cornerradius=4,
+        texttemplate="%{x:,.0f}",
+        textposition="outside",
+        cliponaxis=False,  # the value label may sit past the axis end
         hovertemplate="%{y}<br>Net revenue %{x:,.2f}<extra></extra>",
     )
     figure.update_yaxes(categoryorder="total ascending", showgrid=False)
-    return styled(figure, money_axis="x")
+    figure = chart_theme.apply(figure, number_axis="x")
+    figure.update_xaxes(showticklabels=False)  # the values are on the bars
+    return figure
 
 
 def main() -> None:
     """Render the page."""
-    st.title(":material/monitoring: Sales")
-    choice = st.segmented_control("Period", list(PERIOD_LABELS), default="Week", key="sales_period")
+    head, controls = st.columns([3, 2], vertical_alignment="bottom")
+    head.html(style.page_header("Sales", "Revenue, orders and margin, as in the reports."))
+    with controls, st.container(horizontal=True, horizontal_alignment="right"):
+        choice = st.segmented_control(
+            "Period",
+            list(PERIOD_LABELS),
+            default="Week",
+            key="sales_period",
+            label_visibility="collapsed",
+        )
     kind = PERIOD_LABELS[choice or "Week"]
     try:
         view = common.sales_view(kind, common.as_of(), str(common.path(common.SALES_DB_KEY)))

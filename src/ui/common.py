@@ -56,11 +56,20 @@ def demand_view(day: date, planning_db: str) -> dict | None:
     return views.demand_view(day, Path(planning_db))
 
 
-def show_table(table: views.Table, height: int | None = None) -> None:
-    """A sortable table with the number formats of each column kind."""
+# Dashboard number formats: the report formats (views.DISPLAY_FORMATS) with thousands
+# separators added; the decimals stay the same as the KPI cards and the reports.
+THOUSANDS = {"%.2f": "%,.2f", "%d": "%,d", "%.1f": "%,.1f"}
+
+
+def show_table(table: views.Table, height: int | None = None, data: object = None) -> None:
+    """A sortable table with the number formats of each column kind.
+
+    data replaces table.frame when given, e.g. a pandas Styler that colours a column.
+    """
     config = {
-        label: st.column_config.NumberColumn(label, format=fmt)
+        label: st.column_config.NumberColumn(label, format=THOUSANDS.get(fmt, fmt))
         for label, fmt in table.formats().items()
     }
     options = {"height": height} if height else {}
-    st.dataframe(table.frame, column_config=config, hide_index=True, **options)
+    shown = table.frame if data is None else data
+    st.dataframe(shown, column_config=config, hide_index=True, **options)

@@ -1,50 +1,130 @@
-"""Look and feel of the dashboard: the CSS file and small HTML pieces (Week 6 redesign).
+"""Look and feel of the dashboard: colour tokens, the CSS file and small HTML pieces.
 
-The theme colours, font and corner radius are in .streamlit/config.toml. Everything the
-theme cannot do (chat bubbles, the pill-shaped input, cards and tags) is in style.css,
-loaded once per run from app.py.
+Week 7 redesign: a quiet emerald palette. TOKENS is the one list of colours; the same
+values are in .streamlit/config.toml (Streamlit's own widgets and the charts) and in
+style.css (as light-dark() pairs, which follow the theme picked in the app menu without
+a rerun). tests/test_ui.py checks that the three agree.
 
 The HTML helpers only lay out text that src/reports already formatted; they never do
 arithmetic. Every value is escaped.
 """
 
+from datetime import date
 from html import escape
 from pathlib import Path
 
 import streamlit as st
 
+from src.ui import icons
+
 CSS_PATH = Path(__file__).with_name("style.css")
-LOGO_PATH = Path(__file__).with_name("logo.svg")  # gradient square with rising bars
+LOGO_PATH = Path(__file__).with_name("logo.svg")  # the brand mark as a file (favicon)
 BRAND_NAME = "Sales Analyst"
-BRAND_TAGLINE = "Proof of concept"
-ACCENT = "#2563EB"  # blue, the start of the accent gradient
-ACCENT_FILL = "rgba(37,99,235,.12)"  # the accent, faint, for chart fills
-GOOD = "#16A34A"
-BAD = "#E5484D"
-TAG_COLOURS = {
-    "red": ("rgba(229,72,77,.14)", BAD),
-    "amber": ("rgba(245,158,11,.16)", "#B45309"),
-    "green": ("rgba(22,163,74,.14)", GOOD),
-    "blue": ("rgba(37,99,235,.14)", ACCENT),
-    "grey": ("rgba(127,127,160,.16)", "#6B7085"),
+# Colour tokens, light and dark. accent: fills, chart main series, active nav marker,
+# focus ring. accent_text: links and the active nav label (#047857 reads better than
+# #059669 on white). good is a darker green than the accent, so a positive delta does
+# not look like brand colour; it always carries an arrow too.
+TOKENS = {
+    "light": {
+        "bg": "#F8FAF9",
+        "sidebar": "#F0FDF4",
+        "surface": "#FFFFFF",
+        "subtle": "#ECFDF5",
+        "border": "#D1FAE5",
+        "text": "#14251B",
+        "muted": "#64756A",
+        "accent": "#059669",
+        "accent_text": "#047857",
+        "button": "#166534",
+        "button_hover": "#14532D",
+        "button_text": "#FFFFFF",
+        "good": "#166534",
+        "bad": "#B91C1C",
+        "warn": "#B45309",
+    },
+    "dark": {
+        "bg": "#07130F",
+        "sidebar": "#0A1C15",
+        "surface": "#10231A",
+        "subtle": "#173326",
+        "border": "#28513C",
+        "text": "#ECFDF5",
+        "muted": "#9AB7A5",
+        "accent": "#34D399",
+        "accent_text": "#34D399",
+        "button": "#34D399",
+        "button_hover": "#6EE7B7",
+        "button_text": "#07130F",
+        "good": "#86EFAC",
+        "bad": "#F87171",
+        "warn": "#FBBF24",
+    },
 }
-ARROWS = {"+": "↑", "-": "↓"}  # up and down arrows; anything else gets none
+NAV_ICONS = {  # page title -> Lucide icon
+    "Sales": "chart-column",
+    "Demand": "package",
+    "Chat": "message-square",
+    "Reports": "file-text",
+}
+# Widgets that carry a Lucide icon, drawn by CSS (selector -> icon name).
+WIDGET_ICONS = {
+    **{f".st-key-nav-{title.lower()} a": name for title, name in NAV_ICONS.items()},
+    **{f".st-key-nav-{title.lower()}-active a": name for title, name in NAV_ICONS.items()},
+    '[class*="st-key-view-"] button': "eye",
+    ".st-key-excel-download button": "download",
+    '[data-testid="stChatInputSubmitButton"]': "arrow-up",
+}
+SIGN_ARROWS = {"+": "arrow-up", "-": "arrow-down"}
 
 
 def inject() -> None:
-    """Add the dashboard CSS to the page (once per run, from app.py)."""
+    """Add the dashboard CSS and the icon classes to the page (once per run, from app.py)."""
     st.html(CSS_PATH)  # a Path to a .css file is wrapped in <style> by Streamlit
+    st.html(f"<style>{icons.icon_css(WIDGET_ICONS)}</style>")
+
+
+def nav_key(title: str, active: bool) -> str:
+    """The container key of a sidebar link; it becomes the CSS class st-key-<key>."""
+    return f"nav-{title.lower()}" + ("-active" if active else "")
+
+
+def brand_block() -> str:
+    """The sidebar header: an accent monogram with white bars, and the product name."""
+    mark = f'<div class="brand-mark">{icons.icon("chart-no-axes-column")}</div>'
+    return f'<div class="brand">{mark}<div class="brand-name">{escape(BRAND_NAME)}</div></div>'
+
+
+def sidebar_footer(data_end: date) -> str:
+    """The sidebar footer: the last day of data, as plain muted text."""
+    return f'<div class="sidebar-footer">Data through {data_end:%d %b %Y}</div>'
+
+
+def page_header(title: str, description: str = "") -> str:
+    """The page title (no icon, no anchor link) and a one-line muted description."""
+    text = f'<p class="page-description">{escape(description)}</p>' if description else ""
+    return f'<div class="page-header"><h1 class="page-title">{escape(title)}</h1>{text}</div>'
+
+
+def section_title(text: str, count: object = None, note: str = "") -> str:
+    """A section title with an optional muted count and a muted note after it."""
+    extra = f' <span class="section-count">{escape(str(count))}</span>' if count is not None else ""
+    tail = f' <span class="section-note">{escape(note)}</span>' if note else ""
+    return f'<div class="section-title">{escape(text)}{extra}{tail}</div>'
+
+
+def delta_arrow(change_shown: str) -> str:
+    """An up or down arrow for a signed change such as '+2.5%', a dash for no change."""
+    return icons.icon(SIGN_ARROWS.get(change_shown[:1], "minus"), "delta-icon")
+
+
+# ---- Helpers the pages still use until their own redesign step (Weeks 7 steps 2-5).
+
+TAG_TONES = {"red": "bad", "amber": "warn", "green": "good", "blue": "accent", "grey": "muted"}
 
 
 def tag(text: str, colour: str = "grey") -> str:
-    """A small rounded label."""
-    background, ink = TAG_COLOURS.get(colour, TAG_COLOURS["grey"])
-    return f'<span class="tag" style="background:{background};color:{ink}">{escape(text)}</span>'
-
-
-def arrow(change_shown: str) -> str:
-    """An up or down arrow for a signed change text such as '+2.5%'."""
-    return ARROWS.get(change_shown[:1], "")
+    """A small label in a tone colour."""
+    return f'<span class="tag tag-{TAG_TONES.get(colour, "muted")}">{escape(text)}</span>'
 
 
 def kpi_card(card: dict) -> str:
@@ -52,7 +132,7 @@ def kpi_card(card: dict) -> str:
     first, *others = card["comparisons"]
     delta = (
         f'<div class="card-delta tone-{escape(first["tone"])}">'
-        f"{arrow(first['change_shown'])} {escape(first['change_shown'])} vs "
+        f"{delta_arrow(first['change_shown'])} {escape(first['change_shown'])} vs "
         f"{escape(first['label'])}</div>"
     )
     subs = "".join(
@@ -71,39 +151,6 @@ def card_grid(cards: list[str]) -> str:
     return f'<div class="card-grid">{"".join(cards)}</div>'
 
 
-def logo_mark() -> str:
-    """The logo mark in HTML and CSS: a gradient square with three rising bars.
-
-    st.html strips inline <svg> and SVG data URIs, so the sidebar draws the mark with
-    CSS. logo.svg is the same mark as a file, for places that take an image.
-    """
-    bars = "".join(f'<span class="logo-bar logo-bar-{n}"></span>' for n in (1, 2, 3))
-    return f'<div class="logo-mark" aria-hidden="true">{bars}</div>'
-
-
-def brand_block() -> str:
-    """The sidebar header: logo mark, product name and tagline."""
-    return (
-        f'<div class="brand">{logo_mark()}<div><div class="brand-name">{escape(BRAND_NAME)}</div>'
-        f'<div class="brand-tagline">{escape(BRAND_TAGLINE)}</div></div></div>'
-    )
-
-
-def status_chips(data_end_shown: str, model: str | None) -> str:
-    """The sidebar footer: a green-dot data-date chip and, if known, the main model chip."""
-    chips = [f'<span class="chip"><span class="chip-dot"></span>{escape(data_end_shown)}</span>']
-    if model:
-        chips.append(f'<span class="chip chip-model">{escape(model)}</span>')
-    return f'<div class="sidebar-status">{"".join(chips)}</div>'
-
-
 def user_message(question: str) -> str:
-    """The user's question as a right-aligned gradient bubble next to a slate avatar.
-
-    The question is escaped, so markup in it (a <script> tag, say) shows as text.
-    """
-    return (
-        f'<div class="user-row"><div class="user-bubble">{escape(question)}</div>'
-        '<div class="user-avatar" aria-hidden="true"><span class="user-avatar-head"></span>'
-        '<span class="user-avatar-body"></span></div></div>'
-    )
+    """The user's question as a right-aligned bubble (escaped, so markup shows as text)."""
+    return f'<div class="user-row"><div class="user-bubble">{escape(question)}</div></div>'

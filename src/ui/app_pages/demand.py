@@ -213,13 +213,13 @@ def prebuild_tab(view: dict) -> None:
 
 def main() -> None:
     """Render the page."""
-    st.title(":material/inventory_2: Demand")
     day = common.as_of()
+    st.html(style.page_header("Demand", f"Demand-planning snapshot as of {day:%d %b %Y}."))
     view = common.demand_view(day, str(common.path(common.PLANNING_DB_KEY)))
     if view is None:
         no_snapshot(day)
         return
-    st.caption(f"Demand-planning snapshot as of {day}. Full lists, sortable by any column.")
+    st.caption("Full lists, sortable by any column.")
     counts = view["counts"]
     alerts, category_stock, accuracy, prebuild = st.tabs(
         [
