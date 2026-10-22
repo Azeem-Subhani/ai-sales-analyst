@@ -285,6 +285,16 @@ def test_forecast_accuracy_for_one_product_and_category(demand_session: tools.To
     assert not bad.success and "use one of" in bad.result["error"]
 
 
+def test_forecast_units_are_shown_to_one_decimal(demand_session: tools.ToolSession) -> None:
+    """Forecast units are not whole: shown as e.g. '500.1', so they agree with the bias."""
+    product = run(demand_session, "get_forecast_accuracy", sku_or_name="AP-1150").result["product"]
+    assert product["forecast_units_shown"] == f"{product['forecast_units']:,.1f}"
+    assert "." in product["forecast_units_shown"]
+    assert "." not in product["actual_units_shown"]  # actual units stay whole
+    assert tools.fmt_units_1dp(500.09999999999997) == "500.1"
+    assert tools.fmt_units_1dp(None) == "n/a"
+
+
 def builder_change(bias: float) -> str:
     """Bias fraction shown as a signed percentage, like the reports."""
     from src.reports import builder

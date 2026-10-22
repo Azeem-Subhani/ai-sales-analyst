@@ -118,7 +118,7 @@ emails sent.
   - In "Needs planner review", AP-1150 is held back from pre-build with reason
     "forecast bias +27.3% (seeded forecasts)".
 - **Dashboard:** Demand page, **Forecast accuracy** tab, Products table: AP-1150 has
-  393 actual vs 500 forecast units. Overall WAPE is 15.9%.
+  393 actual vs 500.1 forecast units. Overall WAPE is 15.9%.
 - **Chat:** "How accurate were the forecasts for the Classic Denim Jacket? Give WAPE
   and bias."
   - Expected: WAPE **27.3%**, bias **+27.3%** (forecast too high).

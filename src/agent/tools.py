@@ -371,6 +371,13 @@ CUSTOMER_ALERT_FIELDS = {
     "segment_before": None,
     "segment_now": None,
 }
+
+
+def fmt_units_1dp(value: float | None) -> str:
+    """Forecast units with one decimal: 500.09 -> '500.1' (forecasts are not whole)."""
+    return "n/a" if value is None else f"{value:,.1f}"
+
+
 ACCURACY_FIELDS = {
     "level": None,
     "key": None,
@@ -378,7 +385,7 @@ ACCURACY_FIELDS = {
     "category": None,
     "weeks": builder.fmt_count,
     "actual_units": builder.fmt_count,
-    "forecast_units": builder.fmt_count,
+    "forecast_units": fmt_units_1dp,  # one decimal, so it agrees with the bias
     "wape": builder.fmt_pct,
     "bias": lambda v: builder.fmt_change(None if v is None else v * 100, "pct"),
     "flagged": None,

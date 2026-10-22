@@ -135,6 +135,14 @@ def test_demand_tabs_show_counts_and_severity_tags(
     assert set(overdue["Severity"]) <= {"\U0001f534 serious", "\U0001f7e0 overdue"}
 
 
+def test_demand_forecast_units_have_one_decimal(planning: Path) -> None:
+    """The dashboard shows forecast units to one decimal; actual units stay whole."""
+    table = views.demand_view(AS_OF, planning)["accuracy_products"]
+    assert table.formats()["Forecast units"] == "%.1f"
+    assert table.formats()["Actual units"] == "%d"
+    assert views.display_value(500.09999999999997, "units_1dp") == 500.1
+
+
 # ---------------------------------------------------------------- approvals
 
 
