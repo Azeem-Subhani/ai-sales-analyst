@@ -495,3 +495,20 @@ def test_chat_meta_line_hides_a_missing_or_zero_cost(
     meta = next(h.proto.body for h in at.get("html") if 'class="chat-meta"' in h.proto.body)
     assert "test/model" in meta and "1,280 tokens" in meta and "1.5 s" in meta
     assert "$" not in meta and "cost" not in meta
+
+
+def test_ok_after_retry_summary_card_is_green_like_ok(tmp_path: Path) -> None:
+    from src.reports import saved
+    from src.ui import style
+    from src.ui.app_pages import reports
+
+    def card(status: str) -> str:
+        report = saved.SavedReport(
+            "backfill 2026-09-14", "daily_sales_snapshot", "2026-09-13", tmp_path,
+            summary_status=status,
+        )  # fmt: skip
+        return reports.card_html(report)
+
+    green = style.TAG_COLOURS["green"][0]
+    assert green in card("ok") and green in card("ok_after_retry")
+    assert "summary ok_after_retry" in card("ok_after_retry")

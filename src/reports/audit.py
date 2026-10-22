@@ -35,22 +35,29 @@ CREATE TABLE IF NOT EXISTS report_runs (
     duration_seconds  DOUBLE NOT NULL,
     started_at_utc    TIMESTAMP NOT NULL,
     finished_at_utc   TIMESTAMP NOT NULL,
-    summary_status    VARCHAR             -- ok | guard_failed | llm_unavailable | skipped (Week 4)
+    summary_status    VARCHAR,            -- ok | guard_failed | llm_unavailable | skipped (Week 4)
+    summary_retry_reason VARCHAR          -- refusal | no_number_used | number_mismatch | truncated
 )
 """
 # Week 4: summary_status. NULL for Week 3 rows and for attempts that failed before
 # the summary step.
 # Week 4 wrap-up: summary_status can also be truncated (cut off at the token cap twice).
-MIGRATIONS = ["ALTER TABLE report_runs ADD COLUMN IF NOT EXISTS summary_status VARCHAR"]
+# Week 6 wrap-up: summary_status ok_after_retry (the retry passed), and
+# summary_retry_reason (why the first attempt failed; NULL when it passed or for
+# older rows).
+MIGRATIONS = [
+    "ALTER TABLE report_runs ADD COLUMN IF NOT EXISTS summary_status VARCHAR",
+    "ALTER TABLE report_runs ADD COLUMN IF NOT EXISTS summary_retry_reason VARCHAR",
+]
 INSERT_REPORT_RUN = """
 INSERT INTO report_runs (
     run_id, report, attempt, triggered_by, mode, as_of, period_start, period_end,
     recipients, status, error, duration_seconds, started_at_utc, finished_at_utc,
-    summary_status
+    summary_status, summary_retry_reason
 ) VALUES (
     $run_id, $report, $attempt, $triggered_by, $mode, $as_of, $period_start, $period_end,
     $recipients, $status, $error, $duration_seconds, $started_at_utc, $finished_at_utc,
-    $summary_status
+    $summary_status, $summary_retry_reason
 )
 """
 SELECT_REPORT_RUNS = "SELECT * FROM report_runs ORDER BY started_at_utc, attempt"
@@ -78,6 +85,7 @@ class RunRecord:
     started_at_utc: datetime
     finished_at_utc: datetime
     summary_status: str | None = None
+    summary_retry_reason: str | None = None
 
 
 def record_run(record: RunRecord, db_path: Path = AUDIT_DB_PATH) -> None:

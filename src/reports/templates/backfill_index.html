@@ -23,7 +23,7 @@
     <td>{{ row.as_of }}</td>
     <td>{{ row.period }}</td>
     <td{% if row.status != "ok" %} class="failed" title="{{ row.error }}"{% endif %}>{{ row.status }}</td>
-    <td>{{ row.summary_status }}</td>
+    <td>{{ row.summary_status }}{% if row.summary_retry_reason %} ({{ row.summary_retry_reason }}){% endif %}</td>
   </tr>
   {% endfor %}
 </table>

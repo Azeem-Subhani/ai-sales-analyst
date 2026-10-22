@@ -174,3 +174,28 @@ def test_real_backfill_of_one_weekly_and_two_daily_reports(
     assert (weekly / builder.HTML_FILENAME).exists()
     assert (weekly / "weekly_sales_review_2026-09-27.xlsx").exists()
     assert rows[1]["summary_status"] == "skipped"
+
+
+def test_manifest_and_index_record_a_summary_retry(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """ok_after_retry and the first attempt's failure reason reach manifest and index."""
+
+    def retried_build(name: str, as_of: date, settings: scheduler.Settings) -> builder.Report:
+        report = fake_build(name, as_of, settings)
+        if name == "daily_sales_snapshot":
+            report.summary_status, report.summary_retry_reason = "ok_after_retry", "refusal"
+        return report
+
+    monkeypatch.setattr(scheduler, "build_once", retried_build)
+    backfill.backfill(settings_for(), START, END, tmp_path)
+    manifest = read_manifest(tmp_path)
+    daily = [row for row in manifest if row["report"] == "daily_sales_snapshot"]
+    assert {(r["summary_status"], r["summary_retry_reason"]) for r in daily} == {
+        ("ok_after_retry", "refusal")
+    }
+    weekly = next(row for row in manifest if row["report"] == "weekly_sales_review")
+    assert (weekly["summary_status"], weekly["summary_retry_reason"]) == ("ok", "")
+    index = (tmp_path / backfill.INDEX_NAME).read_text(encoding="utf-8")
+    assert "ok_after_retry (refusal)" in index
+    assert backfill.status_counts(manifest, "summary_status") == "ok_after_retry 14, ok 4"

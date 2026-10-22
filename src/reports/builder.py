@@ -146,7 +146,9 @@ class Report:
     excel_path: Path | None
     numbers: dict
     output_dir: Path
-    summary_status: str | None = None  # ok | guard_failed | truncated | llm_unavailable | skipped
+    # ok | ok_after_retry | guard_failed | truncated | llm_unavailable | skipped
+    summary_status: str | None = None
+    summary_retry_reason: str | None = None  # why the first summary attempt failed, if it did
     summary_cost_usd: float | None = None  # OpenRouter cost of the summary calls, if reported
 
 
@@ -963,6 +965,7 @@ def build_report(
         output_dir,
         summary_status=outcome.status,
         summary_cost_usd=outcome.cost_usd,
+        summary_retry_reason=outcome.retry_reason,
     )
 
 
