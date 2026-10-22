@@ -14,34 +14,60 @@ from src.analytics import forecasting
 from src.data import generate as gen
 
 OWNER = "owner@example.com"  # dummy report owner used in email tests
-BLOCKED_HOST_SUFFIX = "openrouter.ai"  # tests must never spend OpenRouter credit
-LLM_ENV_NAMES = (
-    "OPENROUTER_API_KEY",
-    "LLM_BASE_URL",
-    "LLM_MODEL",
-    "LLM_FALLBACK_MODEL",
-    "LLM_TIMEOUT_SECONDS",
-)
+# Tests must never spend OpenRouter credit or send real email.
+BLOCKED_HOST_SUFFIXES = ("openrouter.ai", "smtp.gmail.com")
+BLOCKED_MESSAGE = "OpenRouter is blocked in tests; pass a fake client or complete function."
+# Obvious fakes, so a leak to any service is recognisable and never a working secret.
+FAKE_ENV = {
+    "OPENROUTER_API_KEY": "fake-openrouter-key-blocked-in-tests",
+    "GMAIL_ADDRESS": "fake-sender@example.com",
+    "GMAIL_APP_PASSWORD": "fake-app-password-blocked-in-tests",
+}
+LLM_ENV_NAMES = ("LLM_BASE_URL", "LLM_MODEL", "LLM_FALLBACK_MODEL", "LLM_TIMEOUT_SECONDS")
 
 
 class NetworkBlockedError(OSError):
-    """Raised when a test tries to reach OpenRouter."""
+    """Raised when a test tries to reach OpenRouter or Gmail."""
 
 
-@pytest.fixture(autouse=True)
-def block_openrouter(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Make every real connection to OpenRouter fail, and clear any LLM settings.
+class OpenRouterBlockedError(RuntimeError):
+    """Raised when a test would create the real OpenRouter client or read the key."""
 
-    Patching socket name resolution and connect works whatever HTTP library the
-    openai SDK uses underneath. Tests that need settings set dummy values themselves.
+
+def guarded_host(host: object) -> None:
+    """Raise NetworkBlockedError for OpenRouter and Gmail host names."""
+    name = (host.decode() if isinstance(host, bytes) else str(host)).rstrip(".").lower()
+    if name.endswith(BLOCKED_HOST_SUFFIXES):
+        raise NetworkBlockedError(f"Tests may not call {name}; use a fake.")
+
+
+def blocked_call(*args: object, **kwargs: object) -> None:
+    """Stands in for llm.make_client and llm.key_limit_remaining in every test."""
+    raise OpenRouterBlockedError(BLOCKED_MESSAGE)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def block_live_services() -> object:
+    """Block OpenRouter and Gmail for the whole run; there is no opt-out.
+
+    Session scope matters: module- and session-scoped fixtures (such as the reports
+    in test_reports.py) are built before any function-scoped fixture, so a
+    per-test block came too late in Week 6 and three real summaries were billed.
+
+    Layers: fake secrets in the environment; .env loading disabled (the environment
+    switch plus the method every load_dotenv() call ends in, which also covers
+    modules that did `from dotenv import load_dotenv`); the real OpenRouter client
+    and the key-balance read raise; and socket name resolution and connect refuse the
+    OpenRouter and Gmail hosts, whatever HTTP library is underneath. Tests that mock
+    llm.complete or pass a fake client are unaffected: their own monkeypatches run
+    later and are undone back to this blocked state.
     """
+    from dotenv import main as dotenv_main
+
+    from src.agent import llm
+
     real_getaddrinfo = socket.getaddrinfo
     real_create_connection = socket.create_connection
-
-    def guarded_host(host: object) -> None:
-        name = host.decode() if isinstance(host, bytes) else str(host)
-        if name.rstrip(".").endswith(BLOCKED_HOST_SUFFIX):
-            raise NetworkBlockedError(f"Tests may not call {name}; use a fake LLM client.")
 
     def getaddrinfo(host: object, *args: object, **kwargs: object) -> list:
         guarded_host(host)
@@ -51,8 +77,29 @@ def block_openrouter(monkeypatch: pytest.MonkeyPatch) -> None:
         guarded_host(address[0])
         return real_create_connection(address, *args, **kwargs)
 
-    monkeypatch.setattr(socket, "getaddrinfo", getaddrinfo)
-    monkeypatch.setattr(socket, "create_connection", create_connection)
+    with pytest.MonkeyPatch.context() as patch:
+        for name, value in FAKE_ENV.items():
+            patch.setenv(name, value)
+        for name in LLM_ENV_NAMES:
+            patch.delenv(name, raising=False)
+        patch.setenv("PYTHON_DOTENV_DISABLED", "1")
+        patch.setattr(dotenv_main.DotEnv, "set_as_environment_variables", lambda self: False)
+        patch.setattr(llm, "make_client", blocked_call)
+        patch.setattr(llm, "key_limit_remaining", blocked_call)
+        patch.setattr(socket, "getaddrinfo", getaddrinfo)
+        patch.setattr(socket, "create_connection", create_connection)
+        yield
+
+
+@pytest.fixture(autouse=True)
+def reset_secret_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every test starts with the fake secrets and no LLM model settings.
+
+    Tests that need model settings set dummy values themselves; tests about a missing
+    secret delete it themselves.
+    """
+    for name, value in FAKE_ENV.items():
+        monkeypatch.setenv(name, value)
     for name in LLM_ENV_NAMES:
         monkeypatch.delenv(name, raising=False)
 

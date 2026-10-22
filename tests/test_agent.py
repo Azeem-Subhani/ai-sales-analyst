@@ -340,6 +340,7 @@ def test_prompt_examples_run_and_match(built: dict, example: dict) -> None:
 
 def test_chat_cli_missing_key_is_one_line(capsys: pytest.CaptureFixture, monkeypatch) -> None:
     monkeypatch.setattr(chat, "load_dotenv", lambda: None)
+    monkeypatch.delenv("OPENROUTER_API_KEY")  # conftest sets a fake one for every test
     assert chat.main(["--question", "hi"]) == 1
     err = capsys.readouterr().err.strip()
     assert err.startswith("Error: OPENROUTER_API_KEY")

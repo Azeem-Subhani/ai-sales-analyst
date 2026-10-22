@@ -195,7 +195,8 @@ def test_cost_is_none_without_usage_cost_or_price() -> None:
     assert call(FakeClient(response(cost=None))).cost_usd is None
 
 
-def test_missing_key_message() -> None:
+def test_missing_key_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OPENROUTER_API_KEY")  # conftest sets a fake one for every test
     with pytest.raises(llm.LLMConfigError) as caught:
         llm.llm_settings()
     message = str(caught.value)
@@ -223,8 +224,8 @@ def test_network_guard_blocks_openrouter() -> None:
 
 
 def test_real_client_cannot_reach_openrouter() -> None:
-    """Even the real SDK client fails fast inside tests, so no credit is ever spent."""
-    with pytest.raises(llm.LLMUnavailableError):
+    """Even the real SDK client cannot be created inside tests, so no credit is ever spent."""
+    with pytest.raises(RuntimeError, match="OpenRouter is blocked in tests"):
         llm.complete(MESSAGES, settings=SETTINGS)
 
 
