@@ -409,14 +409,17 @@ def test_progress_events_follow_each_step(config: agent.AgentConfig) -> None:
     assert answer.answer == "Net revenue was 114,286.82."
     assert kinds(events) == [
         "thinking", "thinking_done", "tool_start", "tool_done",
-        "thinking", "thinking_done", "guard_retry", "thinking", "thinking_done", "fallback",
+        "thinking", "thinking_done", "check_start", "check_done", "guard_retry",
+        "thinking", "thinking_done", "fallback", "check_start", "check_done",
     ]  # fmt: skip
+    check_done = [e for e in events if e.kind == "check_done"]
+    assert [e.success for e in check_done] == [False, True]  # the first answer failed the guard
     tool_done = events[3]
     assert (tool_done.tool, tool_done.success) == ("get_kpis", True)
     assert json.loads(tool_done.arguments) == WEEK_ARGS
     assert tool_done.result == answer.tool_calls[0].result
     assert all(e.seconds is not None and e.seconds >= 0 for e in events if e.kind.endswith("done"))
-    assert "fb/m" in events[-1].label
+    assert "fb/m" in events[-3].label
     # The final (checked) answer is never in an event: it only comes back from ask().
     assert not any("114,286.82." in (e.label or "") for e in events)
 
@@ -429,7 +432,13 @@ def test_withheld_answer_is_reported(config: agent.AgentConfig) -> None:
         text("Net revenue was 120,000."),
     )
     agent.ask("Net revenue?", config, chat=fake, settings=SETTINGS, on_progress=events.append)
-    assert kinds(events)[-3:] == ["thinking", "thinking_done", "withheld"]
+    assert kinds(events)[-5:] == [
+        "thinking",
+        "thinking_done",
+        "check_start",
+        "check_done",
+        "withheld",
+    ]
 
 
 def test_a_failing_callback_never_loses_the_answer(config: agent.AgentConfig) -> None:

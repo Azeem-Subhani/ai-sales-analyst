@@ -2,10 +2,13 @@
 
 How a question is shown:
 1. The question appears as a bubble straight away.
-2. Below it, small muted lines show each step live (tools, a fallback model, a
-   number-check retry) from agent.ask's on_progress events, then collapse to one line
-   that opens with <details> (src/ui/chat_steps.py). The model, tokens and cost are
-   inside that opened view only. The answer is plain text on the page: no avatars.
+2. Below it, a compact timeline shows each step live from agent.ask's on_progress
+   events: Thinking, tool calls, Reviewing results, Checking numbers, a fallback model or
+   retry note, then Writing answer while the text is typed out. Each finished step keeps
+   its real duration. The steps then collapse to one line that opens with <details>
+   (src/ui/chat_steps.py); each SQL query sits behind its own closed "View SQL query"
+   toggle. The model, tokens and cost are inside that opened view only. The answer is
+   plain text on the page: no avatars.
 3. The answer only arrives when agent.ask returns, after the answer number guard, and
    is then revealed word by word. Unchecked text is never shown. A withheld answer is
    shown as a warning with the tool results instead.
@@ -63,39 +66,75 @@ NOTE_KINDS = {agent.EVENT_FALLBACK, agent.EVENT_GUARD_RETRY, agent.EVENT_WITHHEL
 
 
 class LiveSteps:
-    """agent.ask's on_progress callback: redraws the step lines in one placeholder."""
+    """agent.ask's on_progress callback: redraws the step lines in one placeholder.
+
+    Every step comes from a real event: a model call (Thinking, or Reviewing results
+    once a tool has finished), a tool call, the number check, a note. Each running
+    step is closed by its own *_done event, which carries its duration.
+    """
 
     def __init__(self, placeholder: object) -> None:
         self.placeholder = placeholder
         self.steps: list[chat_steps.Step] = []
-        self.thinking = True  # the model starts first; show Thinking at once
+        self.tool_finished = False  # the next model call reviews tool results
+        self.begin(chat_steps.THINKING)  # the model starts first; show Thinking at once
 
     def __call__(self, event: agent.ProgressEvent) -> None:
         if event.kind == agent.EVENT_THINKING:
-            self.thinking = True
+            self.begin(chat_steps.REVIEW if self.tool_finished else chat_steps.THINKING)
         elif event.kind == agent.EVENT_THINKING_DONE:
-            self.thinking = False
+            self.finish(event, kinds={chat_steps.THINKING, chat_steps.REVIEW})
         elif event.kind == agent.EVENT_TOOL_START:
             self.steps.append(chat_steps.Step(tool=event.tool or "", arguments=event.arguments))
         elif event.kind == agent.EVENT_TOOL_DONE:
-            self.finish(event)
+            self.finish(event, tool=True)
+            self.tool_finished = True
+        elif event.kind == agent.EVENT_CHECK_START:
+            self.begin(chat_steps.CHECK)
+        elif event.kind == agent.EVENT_CHECK_DONE:
+            self.finish(event, kinds={chat_steps.CHECK})
         elif event.kind in NOTE_KINDS:
+            if event.kind == agent.EVENT_GUARD_RETRY:
+                self.tool_finished = False  # the retry rewrites the answer: plain Thinking
             self.steps.append(chat_steps.Step(note=event.label, state="ok"))
         self.draw()
 
-    def finish(self, event: agent.ProgressEvent) -> None:
-        """Mark the latest running tool step as done, with its duration and result."""
+    def begin(self, kind: str) -> None:
+        """Start a step that is not a tool call, unless that one is already running."""
+        model_calls = {chat_steps.THINKING, chat_steps.REVIEW}
+        last = self.steps[-1] if self.steps else None
+        if last and last.state == "running" and last.kind in model_calls and kind in model_calls:
+            last.kind = kind  # the page's own first Thinking step, now confirmed
+            return
+        self.steps.append(chat_steps.Step(kind=kind))
+
+    def finish(
+        self, event: agent.ProgressEvent, kinds: set[str] | None = None, tool: bool = False
+    ) -> None:
+        """Close the latest running step of that sort, with its duration (and tool result)."""
         for step in reversed(self.steps):
-            if step.tool is not None and step.state == "running":
-                step.state = "ok" if event.success else "fail"
-                step.seconds = event.seconds
+            is_tool = step.tool is not None
+            if step.state != "running" or is_tool != tool or (not tool and step.kind not in kinds):
+                continue
+            step.state = "ok" if event.success else "fail"
+            step.seconds = event.seconds
+            if tool:
                 step.arguments = event.arguments or step.arguments
                 step.result = event.result
-                return
+            return
+
+    def start_writing(self) -> None:
+        """Show 'Writing answer' while the checked answer is typed out (no time: it is a display effect)."""
+        self.steps.append(chat_steps.Step(kind=chat_steps.WRITE))
+        self.draw()
+
+    def stop_writing(self) -> None:
+        """Drop the 'Writing answer' step; it is not part of what the agent did."""
+        self.steps = [s for s in self.steps if s.kind != chat_steps.WRITE]
 
     def draw(self) -> None:
         """Show the current steps."""
-        self.placeholder.html(chat_steps.live_html(self.steps, self.thinking))
+        self.placeholder.html(chat_steps.live_html(self.steps))
 
 
 def meta_line(answer: agent.AgentAnswer) -> str:
@@ -173,9 +212,12 @@ def ask_live(question: str, history: list[ChatTurn]) -> ChatTurn:
             on_progress=live,
             history=chat_session.agent_history(history),
         )
-        turn = ChatTurn(answer, live.steps)
-        live.placeholder.html(steps_line(turn))
+        if not answer.error:  # a failed question has no answer to write out
+            live.start_writing()
         show_answer(answer, stream=True)
+        live.stop_writing()
+        turn = ChatTurn(answer, live.steps)
+        live.placeholder.html(steps_line(turn))  # the finished steps, as one line
     return turn
 
 

@@ -74,6 +74,7 @@ WIDGET_ICONS = {
     ".steps-done > summary::after": "circle-check",  # finished: a check before the line
     ".steps-failed > summary::after": "circle-x",  # a tool failed: a cross instead
     ".step-data > summary": "chevron-right",
+    ".step-sql-toggle > summary": "chevron-right",
     ".st-key-clear-chat button": "trash-2",
 }
 SIGN_ARROWS = {"+": "arrow-up", "-": "arrow-down"}

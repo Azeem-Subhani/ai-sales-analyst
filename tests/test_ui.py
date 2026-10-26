@@ -298,6 +298,10 @@ class FakeAgent:
             agent.ProgressEvent(
                 agent.EVENT_THINKING_DONE, agent.THINKING_LABEL, seconds=0.5, success=True
             ),
+            agent.ProgressEvent(agent.EVENT_CHECK_START, agent.CHECK_LABEL),
+            agent.ProgressEvent(
+                agent.EVENT_CHECK_DONE, agent.CHECK_LABEL, seconds=0.002, success=guard == "ok"
+            ),
         ]
         if guard == "withheld":
             events += [
@@ -340,7 +344,10 @@ def test_chat_shows_live_steps_then_the_checked_answer(
     # The steps collapse to one line: the tool's past-tense label and the total time,
     # opening to show the step's duration and its Data.
     assert "<summary>Calculated KPIs \u00b7 1.5 s</summary>" in html
-    assert '<span class="step-time">0.2 s</span>' in html
+    assert '<span class="step-time">200 ms</span>' in html  # fast steps show milliseconds
+    assert "Reviewed results" in html and "Checked numbers" in html
+    assert "0.0 s" not in html
+    assert '<details class="step-sql-toggle"' not in html  # this question ran no SQL
     assert '<details class="step-data"><summary>Data</summary>' in html
     assert not at.get("status") and not at.get("spinner")  # no Streamlit status widgets
     assert len(at.session_state["chat_history"]) == 1

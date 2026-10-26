@@ -55,7 +55,7 @@ def test_sql_tool_result_and_labels_are_escaped() -> None:
     note = chat_steps.Step(note=f"Main model failed {SCRIPT}", state="ok")
     html = chat_steps.collapsed_html([step, note], 1.5)
     assert "<script>" not in html and "<img" not in html
-    assert "SELECT &#x27;&lt;script&gt;" in html  # the SQL block
+    assert "&#x27;&lt;script&gt;alert(1)&lt;/script&gt;&#x27;" in html  # the SQL block
     assert "&lt;img src=x onerror=" in html  # the Data block
     assert "Main model failed &lt;script&gt;" in html  # a note
 
@@ -88,7 +88,7 @@ def test_every_tool_gets_a_readable_label_never_the_raw_name() -> None:
 
 def test_step_rows_show_one_icon_per_state() -> None:
     """Brain while thinking, wrench while a tool runs, check, cross, info for notes."""
-    thinking = chat_steps.row_html(chat_steps.Step(note=chat_steps.THINKING_LABEL), True)
+    thinking = chat_steps.row_html(chat_steps.Step(kind=chat_steps.THINKING), True)
     running = chat_steps.row_html(chat_steps.Step(tool="run_sql"), True)
     done = chat_steps.row_html(chat_steps.Step(tool="run_sql", state="ok"))
     failed = chat_steps.row_html(chat_steps.Step(tool="run_sql", state="fail"))
@@ -98,8 +98,10 @@ def test_step_rows_show_one_icon_per_state() -> None:
     assert "i-circle-check" in done and "step-ok" in done
     assert "i-circle-x" in failed and "step-fail" in failed
     assert "i-info" in note and "step-note" in note
-    live = chat_steps.live_html([chat_steps.Step(tool="run_sql", state="ok")], thinking=True)
-    assert live.count("i-brain") == 1  # the model works again after the tool
+    live = chat_steps.live_html(
+        [chat_steps.Step(tool="run_sql", state="ok"), chat_steps.Step(kind=chat_steps.REVIEW)]
+    )
+    assert live.count("i-brain") == 1  # the model reviews the tool result
 
 
 def test_collapsed_line_marks_a_failed_tool() -> None:
@@ -108,4 +110,56 @@ def test_collapsed_line_marks_a_failed_tool() -> None:
     assert "steps-failed" not in chat_steps.collapsed_html([ok], 1.0)
     assert '<details class="steps steps-done steps-failed">' in chat_steps.collapsed_html(
         [ok, failed], 1.0
+    )
+
+
+def test_durations_are_never_shown_as_zero_seconds() -> None:
+    text = chat_steps.duration_text
+    assert text(None) == ""
+    assert text(0.0) == text(0.0004) == "<1 ms"
+    assert text(0.03) == "30 ms" and text(0.84) == "840 ms"
+    assert text(0.9996) == "1.0 s"  # rounds up to a second, not "1000 ms"
+    assert text(7.3) == "7.3 s" and text(42.4) == "42 s"
+    assert text(75) == "1 min 15 s" and text(120) == "2 min"
+    assert "0.0 s" not in {text(s) for s in (0.0, 0.0004, 0.04, 0.0499)}
+
+
+def test_model_and_check_steps_have_their_own_labels_icons_and_times() -> None:
+    thinking = chat_steps.Step(kind=chat_steps.THINKING, state="ok", seconds=0.84)
+    review = chat_steps.Step(kind=chat_steps.REVIEW)
+    check = chat_steps.Step(kind=chat_steps.CHECK, state="ok", seconds=0.003)
+    assert (thinking.label(), review.label(), check.label()) == (
+        "Thought",
+        "Reviewing results",
+        "Checked numbers",
+    )
+    assert (
+        chat_steps.Step(kind=chat_steps.CHECK, state="fail").label() == "Checked numbers (failed)"
+    )
+    assert "i-shield-check" in chat_steps.row_html(chat_steps.Step(kind=chat_steps.CHECK), True)
+    assert "i-pencil-line" in chat_steps.row_html(chat_steps.Step(kind=chat_steps.WRITE), True)
+    assert '<span class="step-time">840 ms</span>' in chat_steps.row_html(thinking)
+    assert '<span class="step-time">3 ms</span>' in chat_steps.row_html(check)
+    assert '<span class="step-time"></span>' in chat_steps.row_html(review, True)  # no time yet
+    # Only tool calls are counted in the summary line.
+    assert chat_steps.summary_text([thinking, review, check], 1.0) == "No tools used · 1.0 s"
+
+
+def test_sql_is_behind_a_closed_toggle_and_highlighted_safely() -> None:
+    query = f"SELECT sum(total) FROM orders WHERE note = '{SCRIPT}' -- {IMG}"
+    step = chat_steps.Step(
+        tool="run_sql", state="ok", arguments=json.dumps({"query": query}), result={"rows": []}
+    )
+    html = chat_steps.detail_html(step)
+    assert '<details class="step-sql-toggle"><summary>View SQL query</summary>' in html
+    assert '<details class="step-sql-toggle" open' not in html  # closed by default
+    assert '<span class="sql-kw">SELECT</span>' in html
+    assert '<span class="sql-str">' in html and '<span class="sql-com">' in html
+    assert "<script>" not in html and "<img" not in html
+    assert "&lt;script&gt;" in html and "&lt;img" in html
+    # Other tools get no SQL toggle.
+    other = chat_steps.Step(tool="get_kpis", state="ok", arguments=json.dumps({"query": "x"}))
+    assert "step-sql-toggle" not in chat_steps.detail_html(other)
+    assert chat_steps.highlight_sql("select 1") == (
+        '<span class="sql-kw">select</span> <span class="sql-num">1</span>'
     )

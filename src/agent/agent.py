@@ -75,10 +75,13 @@ EVENT_THINKING = "thinking"  # a model call starts
 EVENT_THINKING_DONE = "thinking_done"
 EVENT_TOOL_START = "tool_start"
 EVENT_TOOL_DONE = "tool_done"
+EVENT_CHECK_START = "check_start"  # the answer number guard starts on a written answer
+EVENT_CHECK_DONE = "check_done"  # seconds; success is True when every number passed
 EVENT_FALLBACK = "fallback"  # the main model failed; the fallback model answered
 EVENT_GUARD_RETRY = "guard_retry"  # the answer used numbers no tool returned; one retry
 EVENT_WITHHELD = "withheld"  # the retry failed too; tool results are shown instead
 THINKING_LABEL = "Thinking"
+CHECK_LABEL = "Checking numbers"
 GUARD_RETRY_LABEL = "Number check failed, asking the model again"
 WITHHELD_LABEL = "Number check failed again, showing the tool results instead"
 
@@ -299,6 +302,22 @@ def _run_loop(
             answer.tool_messages.append(dict(tool_message))
 
 
+def _check(
+    progress: _Progress,
+    text: str,
+    question: str,
+    answer: AgentAnswer,
+    earlier: list[history.Turn] | None,
+) -> list[str]:
+    """answer_guard.check_answer, reported as a timed "Checking numbers" step."""
+    progress.emit(EVENT_CHECK_START, CHECK_LABEL)
+    started = time.monotonic()
+    failed = answer_guard.check_answer(text, question, answer.tool_calls, earlier)
+    seconds = time.monotonic() - started
+    progress.emit(EVENT_CHECK_DONE, CHECK_LABEL, seconds=seconds, success=not failed)
+    return failed
+
+
 def _guarded_text(
     question: str,
     text: str | None,
@@ -319,7 +338,7 @@ def _guarded_text(
     """
     if not text:
         return NO_TEXT_ANSWER
-    failed = answer_guard.check_answer(text, question, answer.tool_calls, earlier)
+    failed = _check(progress, text, question, answer, earlier)
     if not failed:
         answer.answer_guard = answer_guard.GUARD_OK
         return text
@@ -345,7 +364,7 @@ def _guarded_text(
         )
         _add_usage(answer, result)
         retry_text = result.text or ""
-        failed_again = answer_guard.check_answer(retry_text, question, answer.tool_calls, earlier)
+        failed_again = _check(progress, retry_text, question, answer, earlier)
         if retry_text and not failed_again:
             answer.answer_guard = answer_guard.GUARD_RETRIED_OK
             answer.answer_guard_failed = failed
