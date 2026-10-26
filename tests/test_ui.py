@@ -19,7 +19,7 @@ from streamlit.testing.v1 import AppTest
 from src.agent import agent, llm, tools
 from src.demand import approve, store
 from src.reports import builder, views
-from src.ui import chat_session, common
+from src.ui import chat_session, chat_steps, common
 
 APP = Path(__file__).resolve().parents[1] / "src" / "ui" / "app.py"
 AS_OF = date(2026, 9, 30)
@@ -481,7 +481,8 @@ def test_chat_question_with_markup_is_shown_as_text(
     at = chat_page(built, planning, tmp_path)
     at.chat_input[0].set_value('Hi <script>alert(1)</script> <img src=x onerror="x()">').run()
     assert not at.exception
-    html = html_text(at)
+    # The page's own fixed copy-button script is the only script allowed.
+    html = html_text(at).replace(chat_steps.COPY_SCRIPT, "")
     assert "<script>" not in html and "<img" not in html  # never placed as markup
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
     assert "&lt;img src=x onerror=&quot;x()&quot;&gt;" in html

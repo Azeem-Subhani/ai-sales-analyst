@@ -199,12 +199,76 @@ def preview(value: Any) -> Any:
     return value
 
 
+# The one script of the chat steps. st.html strips inline event handlers, so the copy
+# buttons are served by a single click listener on the page (installed once, from the
+# chat page with unsafe_allow_javascript). It copies the textContent of the <pre> next to the
+# button, so the clipboard holds exactly what is shown. The script is a fixed string:
+# no dynamic text goes into it.
+COPY_SCRIPT = """<script>
+(function () {
+  if (window.__copyButtonsBound) return;
+  window.__copyButtonsBound = true;
+  function fallbackCopy(text) {
+    var area = document.createElement("textarea");
+    area.value = text;
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.appendChild(area);
+    area.select();
+    var ok = false;
+    try { ok = document.execCommand("copy"); } catch (error) { ok = false; }
+    document.body.removeChild(area);
+    return ok;
+  }
+  function markCopied(button) {
+    button.classList.add("copied");
+    setTimeout(function () { button.classList.remove("copied"); }, 1500);
+  }
+  document.addEventListener("click", function (event) {
+    var button = event.target.closest(".copy-btn");
+    if (!button) return;
+    var block = button.parentElement.querySelector("pre");
+    var text = block ? block.textContent : "";
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(
+        function () { markCopied(button); },
+        function () { if (fallbackCopy(text)) markCopied(button); }
+      );
+    } else if (fallbackCopy(text)) {
+      markCopied(button);
+    }
+  });
+})();
+</script>"""
+
+
+BLANK_LINES = re.compile(r"\n{3,}")
+SQL_BLOCK = re.compile(r"```sql\b.*?```", re.DOTALL | re.IGNORECASE)  # a fenced query
+
+
+def hide_sql(text: str) -> str:
+    """The answer without its ```sql blocks: the query is in the steps view, with a copy button.
+
+    Display only. The stored answer (history, logs, the CLI) keeps the query.
+    """
+    return BLANK_LINES.sub("\n\n", SQL_BLOCK.sub("", text)).strip()
+
+
+def copy_block(pre_html: str) -> str:
+    """A code block with a copy button in its corner (the button is wired by COPY_SCRIPT)."""
+    button = (
+        '<button type="button" class="copy-btn" title="Copy" aria-label="Copy">'
+        f"{icons.icon('copy', 'copy-icon')}{icons.icon('check', 'copied-icon')}</button>"
+    )
+    return f'<div class="copy-wrap">{pre_html}{button}</div>'
+
+
 def data_html(result: dict | None) -> str:
     """A collapsed 'Data' view of one tool result: escaped, pretty-printed JSON."""
     text = json.dumps(preview(result or {}), indent=2, ensure_ascii=False, default=str)
     return (
         '<details class="step-data"><summary>Data</summary>'
-        f'<pre class="step-json">{escape(text)}</pre></details>'
+        f"{copy_block(f'<pre class="step-json">{escape(text)}</pre>')}</details>"
     )
 
 
@@ -288,7 +352,8 @@ def sql_html(query: str) -> str:
     """The query behind a closed 'View SQL query' toggle."""
     return (
         '<details class="step-sql-toggle"><summary>View SQL query</summary>'
-        f'<pre class="step-sql"><code>{highlight_sql(query)}</code></pre></details>'
+        f"{copy_block(f'<pre class="step-sql"><code>{highlight_sql(query)}</code></pre>')}"
+        "</details>"
     )
 
 

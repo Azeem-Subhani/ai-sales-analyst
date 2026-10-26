@@ -1062,6 +1062,14 @@ text are marked **(clarified)**.
     wholesale customers, last month's net revenue, top 5 products, an unknown
     product, an off-topic question): tables rendered, no em dashes, numbers
     matched the tool results. The full live eval has not been rerun.
+- **SQL hidden in the chat answer, copy buttons in the steps (2026-10-26):** the chat
+  page removes ```sql blocks from the answer it shows (`chat_steps.hide_sql`, display
+  only); the query stays in the stored answer, so the CLI, history and eval are
+  unchanged. The query is in the step's "View SQL query" toggle. That block and each
+  step's Data block have a copy button that copies the text shown (Data is cut at
+  20 rows per list). One fixed script (`chat_steps.COPY_SCRIPT`, loaded with
+  `unsafe_allow_javascript`) serves all buttons, because `st.html` strips inline
+  handlers. It holds no dynamic text.
 
 ### Week 6 wrap-up items
 Status after the wrap-up session (2026-10-22, branch `week-6-wrapup`; details in the
