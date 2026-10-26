@@ -26,12 +26,20 @@ from src.ui import common, style
 
 PAGES_DIR = Path(__file__).resolve().with_name("app_pages")
 CHAT_TITLE = "Chat"
+AS_OF_WIDGET_KEY = "as_of_picker"  # the date_input's own state; common.AS_OF_KEY is the shared copy
 PAGES = [  # (file, title); the Lucide nav icons come from CSS (style.NAV_ICONS)
     ("sales.py", "Sales"),
     ("demand.py", "Demand"),
     ("chat.py", CHAT_TITLE),
     ("reports.py", "Reports"),
 ]
+
+
+def _store_as_of() -> None:
+    """Copy the picked date to the shared as_of key before the page reruns."""
+    picked = st.session_state[AS_OF_WIDGET_KEY]
+    if picked is not None:  # the field can be cleared by hand; keep the last date then
+        st.session_state[common.AS_OF_KEY] = picked
 
 
 def sidebar(pages: list, page_title: str) -> None:
@@ -50,10 +58,16 @@ def sidebar(pages: list, page_title: str) -> None:
             with st.container(key=style.nav_key(page.title, page.title == page_title)):
                 st.page_link(page)
         if page_title != CHAT_TITLE:
-            picked = st.date_input(
-                "As of", value=st.session_state[common.AS_OF_KEY], max_value=default
+            # A fixed key keeps the widget the same one across reruns. Without it, the
+            # changing value= made Streamlit rebuild the picker after each pick, which
+            # reset it and dropped the next click.
+            st.date_input(
+                "As of",
+                value=st.session_state[common.AS_OF_KEY],
+                max_value=default,
+                key=AS_OF_WIDGET_KEY,
+                on_change=_store_as_of,
             )
-            st.session_state[common.AS_OF_KEY] = picked
 
 
 def main() -> None:
