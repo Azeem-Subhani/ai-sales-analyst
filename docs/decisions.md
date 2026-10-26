@@ -1051,6 +1051,17 @@ text are marked **(clarified)**.
     (gpt-5.6-luna, fallback off, answer guard `ok` on all 25).
   - The CLI answer to "which product is customer buying the most?" states the
     measure and period in its first sentence.
+- **Plain answer style (2026-10-26):** chat answers use simple English (B1/B2), no
+  em or en dashes, and a Markdown table when two or more items each have several
+  details (rule 13); rule 16 says what to do when a tool result is incomplete.
+  - Prompt only: no code rewrites the answer. Replacing dashes after the number
+    guard could break date ranges the guard accepts, so the rule lives in the
+    prompt and in `RETRY_PROMPT` (so a retried answer keeps the style).
+  - The number guard treats table cells like prose, so no guard change was needed.
+  - Checked by hand in the dashboard on 2026-10-26 with 5 questions (lapsed
+    wholesale customers, last month's net revenue, top 5 products, an unknown
+    product, an off-topic question): tables rendered, no em dashes, numbers
+    matched the tool results. The full live eval has not been rerun.
 
 ### Week 6 wrap-up items
 Status after the wrap-up session (2026-10-22, branch `week-6-wrapup`; details in the

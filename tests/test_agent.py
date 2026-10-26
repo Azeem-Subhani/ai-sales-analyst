@@ -313,6 +313,17 @@ def rule_text(prompt: str, number: int) -> str:
     return match.group(1)
 
 
+def test_answer_style_rules(built: dict) -> None:
+    """Plain English, tables for multi-field lists, no em dashes, honest about gaps."""
+    prompt = prompts.build_system_prompt(built["db_path"], DATA_END)
+    assert "B1/B2" in rule_text(prompt, 9)
+    assert "Never use em dashes or en dashes" in " ".join(rule_text(prompt, 12).split())
+    assert "Markdown table" in rule_text(prompt, 13)
+    assert "and N more" in rule_text(prompt, 13)
+    assert "incomplete" in rule_text(prompt, 16)
+    assert "—" not in prompt and "–" not in prompt  # the prompt follows its own rule
+
+
 def test_rule_11_example_has_no_digits(built: dict) -> None:
     """A number in the example ("the last 12 months") was copied and tripped the guard."""
     rule = rule_text(prompts.build_system_prompt(built["db_path"], DATA_END), 11)

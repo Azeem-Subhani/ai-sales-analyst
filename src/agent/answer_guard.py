@@ -35,7 +35,8 @@ GUARD_NOT_RUN = "not_run"  # no model-written answer (error, time limit)
 RETRY_PROMPT = (
     "These numbers in your answer do not appear in any tool result: {numbers}. "
     "Rewrite the answer using only numbers copied from the tool results (dates and "
-    "counts from 1 to 10 are fine). Do not calculate, estimate or round anything."
+    "counts from 1 to 10 are fine). Do not calculate, estimate or round anything. "
+    "Keep the same plain, short style and do not use em dashes."
 )
 WITHHELD_NOTE = (
     "(The written answer was withheld because it contained numbers that no tool "
