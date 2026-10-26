@@ -1,11 +1,14 @@
-"""Chat page: the same agent as python -m src.agent.chat, one question at a time.
+"""Chat page: the same agent as python -m src.agent.chat, with follow-up questions.
 
 How a question is shown:
 1. The question appears as a bubble straight away.
-2. Below it, small muted lines show each step live (tools, a fallback model, a
-   number-check retry) from agent.ask's on_progress events, then collapse to one line
-   that opens with <details> (src/ui/chat_steps.py). The model, tokens and cost are
-   inside that opened view only. The answer is plain text on the page: no avatars.
+2. Below it, a compact timeline shows each step live from agent.ask's on_progress
+   events: Thinking, tool calls, Reviewing results, Checking numbers, a fallback model or
+   retry note, then Writing answer while the text is typed out. Each finished step keeps
+   its real duration. The steps then collapse to one line that opens with <details>
+   (src/ui/chat_steps.py); each SQL query sits behind its own closed "View SQL query"
+   toggle. The model, tokens and cost are inside that opened view only. The answer is
+   plain text on the page: no avatars.
 3. The answer only arrives when agent.ask returns, after the answer number guard, and
    is then revealed word by word. Unchecked text is never shown. A withheld answer is
    shown as a warning with the tool results instead.
@@ -14,21 +17,25 @@ While a question is being answered the chat input is disabled, so a second quest
 cannot interrupt the run; the lock is released in a finally block, so an error or a
 timeout never leaves it disabled.
 
-Each question is answered on its own (single-turn, as in the eval); earlier questions
-and answers are only shown as history. The agent's tools are read-only, and this page
-has no approval actions.
+Multi-turn (Week 8): each question is sent with the earlier turns of this chat (their
+questions, answers and tool results; src/agent/history.py), so "what did they order?"
+works. A chat takes 20 answered questions (src/ui/chat_session.py). From question 16 a
+muted line says how many are left; at 20 the input is disabled and a notice offers
+"Start new chat", which clears the chat like "Clear chat" does. A question that failed
+is shown once and not counted. History lives in st.session_state only. The agent's
+tools are read-only, and this page has no approval actions.
 """
 
 import logging
 import time
 from collections.abc import Iterator
-from dataclasses import dataclass, field
 
 import streamlit as st
 
 from src.agent import agent, llm
 from src.reports import data_clock
-from src.ui import chat_steps, common, style
+from src.ui import chat_session, chat_steps, common, style
+from src.ui.chat_session import ChatTurn
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +48,8 @@ FAILED_MESSAGE = (
     "Please ask again. The details are in the dashboard log."
 )
 UNAVAILABLE_MESSAGE = "The AI service isn't responding right now. Please try again in a minute."
-PLACEHOLDER = "Ask about sales or demand. One question at a time."
+PLACEHOLDER = "Ask a question, or follow up on the last answer."
+NEW_CHAT_LABEL = "Start new chat"
 TRUST_TEXT = "Every number in an answer comes from a tool, never from the model."
 STREAM_DELAY_SECONDS = 0.012  # per word of the typewriter effect
 EXAMPLES = [  # (Lucide icon, card title, the question it sends)
@@ -57,48 +65,76 @@ EXAMPLES = [  # (Lucide icon, card title, the question it sends)
 NOTE_KINDS = {agent.EVENT_FALLBACK, agent.EVENT_GUARD_RETRY, agent.EVENT_WITHHELD}
 
 
-@dataclass
-class Turn:
-    """One question and its answer, with the steps it took."""
-
-    answer: agent.AgentAnswer
-    steps: list[chat_steps.Step] = field(default_factory=list)
-
-
 class LiveSteps:
-    """agent.ask's on_progress callback: redraws the step lines in one placeholder."""
+    """agent.ask's on_progress callback: redraws the step lines in one placeholder.
+
+    Every step comes from a real event: a model call (Thinking, or Reviewing results
+    once a tool has finished), a tool call, the number check, a note. Each running
+    step is closed by its own *_done event, which carries its duration.
+    """
 
     def __init__(self, placeholder: object) -> None:
         self.placeholder = placeholder
         self.steps: list[chat_steps.Step] = []
-        self.thinking = True  # the model starts first; show Thinking at once
+        self.tool_finished = False  # the next model call reviews tool results
+        self.begin(chat_steps.THINKING)  # the model starts first; show Thinking at once
 
     def __call__(self, event: agent.ProgressEvent) -> None:
         if event.kind == agent.EVENT_THINKING:
-            self.thinking = True
+            self.begin(chat_steps.REVIEW if self.tool_finished else chat_steps.THINKING)
         elif event.kind == agent.EVENT_THINKING_DONE:
-            self.thinking = False
+            self.finish(event, kinds={chat_steps.THINKING, chat_steps.REVIEW})
         elif event.kind == agent.EVENT_TOOL_START:
             self.steps.append(chat_steps.Step(tool=event.tool or "", arguments=event.arguments))
         elif event.kind == agent.EVENT_TOOL_DONE:
-            self.finish(event)
+            self.finish(event, tool=True)
+            self.tool_finished = True
+        elif event.kind == agent.EVENT_CHECK_START:
+            self.begin(chat_steps.CHECK)
+        elif event.kind == agent.EVENT_CHECK_DONE:
+            self.finish(event, kinds={chat_steps.CHECK})
         elif event.kind in NOTE_KINDS:
+            if event.kind == agent.EVENT_GUARD_RETRY:
+                self.tool_finished = False  # the retry rewrites the answer: plain Thinking
             self.steps.append(chat_steps.Step(note=event.label, state="ok"))
         self.draw()
 
-    def finish(self, event: agent.ProgressEvent) -> None:
-        """Mark the latest running tool step as done, with its duration and result."""
+    def begin(self, kind: str) -> None:
+        """Start a step that is not a tool call, unless that one is already running."""
+        model_calls = {chat_steps.THINKING, chat_steps.REVIEW}
+        last = self.steps[-1] if self.steps else None
+        if last and last.state == "running" and last.kind in model_calls and kind in model_calls:
+            last.kind = kind  # the page's own first Thinking step, now confirmed
+            return
+        self.steps.append(chat_steps.Step(kind=kind))
+
+    def finish(
+        self, event: agent.ProgressEvent, kinds: set[str] | None = None, tool: bool = False
+    ) -> None:
+        """Close the latest running step of that sort, with its duration (and tool result)."""
         for step in reversed(self.steps):
-            if step.tool is not None and step.state == "running":
-                step.state = "ok" if event.success else "fail"
-                step.seconds = event.seconds
+            is_tool = step.tool is not None
+            if step.state != "running" or is_tool != tool or (not tool and step.kind not in kinds):
+                continue
+            step.state = "ok" if event.success else "fail"
+            step.seconds = event.seconds
+            if tool:
                 step.arguments = event.arguments or step.arguments
                 step.result = event.result
-                return
+            return
+
+    def start_writing(self) -> None:
+        """Show 'Writing answer' while the checked answer is typed out (no time: it is a display effect)."""
+        self.steps.append(chat_steps.Step(kind=chat_steps.WRITE))
+        self.draw()
+
+    def stop_writing(self) -> None:
+        """Drop the 'Writing answer' step; it is not part of what the agent did."""
+        self.steps = [s for s in self.steps if s.kind != chat_steps.WRITE]
 
     def draw(self) -> None:
         """Show the current steps."""
-        self.placeholder.html(chat_steps.live_html(self.steps, self.thinking))
+        self.placeholder.html(chat_steps.live_html(self.steps))
 
 
 def meta_line(answer: agent.AgentAnswer) -> str:
@@ -142,14 +178,14 @@ def show_answer(answer: agent.AgentAnswer, stream: bool) -> None:
         st.caption(f"Chart saved: {path}")
 
 
-def steps_line(turn: Turn) -> str:
+def steps_line(turn: ChatTurn) -> str:
     """The collapsed steps line, with the model and tokens inside its opened view."""
     return chat_steps.collapsed_html(
         turn.steps, turn.answer.latency_seconds, meta_line(turn.answer)
     )
 
 
-def show_turn(turn: Turn, index: int) -> None:
+def show_turn(turn: ChatTurn, index: int) -> None:
     """An earlier question and answer, as history."""
     st.html(style.user_message(turn.answer.question))
     with st.container(key=f"chat-answer-{index}"):
@@ -157,8 +193,12 @@ def show_turn(turn: Turn, index: int) -> None:
         show_answer(turn.answer, stream=False)
 
 
-def ask_live(question: str, index: int) -> Turn:
-    """Show the question, the live steps and the checked answer; return the turn."""
+def ask_live(question: str, history: list[ChatTurn]) -> ChatTurn:
+    """Show the question, the live steps and the checked answer; return the turn.
+
+    The earlier turns of this chat go to the agent as history.
+    """
+    index = len(history)
     st.html(style.user_message(question))
     with st.container(key=f"chat-answer-{index}"):
         live = LiveSteps(st.empty())
@@ -166,10 +206,18 @@ def ask_live(question: str, index: int) -> Turn:
         config = agent.AgentConfig(
             db_path=common.path(common.SALES_DB_KEY), data_end=data_clock.data_end_from_env()
         )
-        answer = agent.ask(question, config, on_progress=live)  # guarded before it returns
-        turn = Turn(answer, live.steps)
-        live.placeholder.html(steps_line(turn))
+        answer = agent.ask(  # guarded before it returns
+            question,
+            config,
+            on_progress=live,
+            history=chat_session.agent_history(history),
+        )
+        if not answer.error:  # a failed question has no answer to write out
+            live.start_writing()
         show_answer(answer, stream=True)
+        live.stop_writing()
+        turn = ChatTurn(answer, live.steps)
+        live.placeholder.html(steps_line(turn))  # the finished steps, as one line
     return turn
 
 
@@ -201,10 +249,15 @@ def start(question: str) -> None:
     st.rerun()
 
 
-def answer_locked(question: str, history: list[Turn]) -> None:
-    """Answer while the input is disabled; always release the lock, then redraw."""
+def answer_locked(question: str, history: list[ChatTurn]) -> None:
+    """Answer while the input is disabled; always release the lock, then redraw.
+
+    A failed question (no answer from the model) is shown once and not stored.
+    """
     try:
-        history.append(ask_live(question, len(history)))
+        turn = ask_live(question, history)
+        if not chat_session.add_turn(history, turn):
+            st.session_state[ERROR_KEY] = turn.answer.answer
     except llm.LLMUnavailableError:
         logger.exception("Chat question failed: the AI service is unavailable")
         st.session_state[ERROR_KEY] = UNAVAILABLE_MESSAGE
@@ -217,9 +270,23 @@ def answer_locked(question: str, history: list[Turn]) -> None:
     st.rerun()  # redraw with the input enabled again
 
 
+def limit_notice(busy: bool) -> None:
+    """The notice at the cap, with a button that starts a new chat."""
+    with st.container(key="chat-limit"):
+        st.html(style.limit_notice(chat_session.LIMIT_TEXT))
+        if st.button(NEW_CHAT_LABEL, key="new-chat", type="primary", disabled=busy):
+            new_chat()
+
+
+def new_chat() -> None:
+    """Clear the chat and its counter (Clear chat and Start new chat)."""
+    chat_session.clear(st.session_state[HISTORY_KEY])
+    st.rerun()
+
+
 def main() -> None:
     """Render the page."""
-    history: list[Turn] = st.session_state.setdefault(HISTORY_KEY, [])
+    history: list[ChatTurn] = st.session_state.setdefault(HISTORY_KEY, [])
     busy = st.session_state.get(BUSY_KEY, False)
     if busy and QUESTION_KEY not in st.session_state:  # a lock with nothing to answer
         busy = st.session_state[BUSY_KEY] = False
@@ -228,10 +295,10 @@ def main() -> None:
         "Chat", "Answers from the sales and demand data.", page_class="chat-page"
     )
     if history and controls.button("Clear chat", key="clear-chat", disabled=busy):
-        history.clear()
-        st.rerun()
-    submitted = st.chat_input(PLACEHOLDER, disabled=busy)
-    if submitted and not busy:
+        new_chat()
+    full = not chat_session.can_ask(history)
+    submitted = st.chat_input(PLACEHOLDER, disabled=busy or full)
+    if submitted and not busy and not full:
         start(submitted)
     question = st.session_state.get(QUESTION_KEY) if busy else None
     if not history and not question:
@@ -240,6 +307,10 @@ def main() -> None:
         show_turn(turn, index)
     if error := st.session_state.pop(ERROR_KEY, None):
         st.error(error)
+    if full:
+        limit_notice(busy)
+    elif chat_session.show_counter(history) and not question:
+        st.html(style.turns_left(chat_session.turns_left_text(history)))
     if question:
         answer_locked(question, history)
 

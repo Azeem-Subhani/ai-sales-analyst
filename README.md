@@ -327,6 +327,8 @@ python -m src.agent.chat --question "How did we do last month?"
 - **Answer number guard:**
   - Every number in the answer must come from a tool result for that question.
     Numbers the user wrote, dates and counts from 1 to 10 are also allowed.
+  - In a dashboard chat, results from earlier turns and earlier questions count
+    too; a number found only in an earlier answer does not.
   - If the guard fails, the model gets one retry. If that fails too, the
     written answer is withheld and the tool results are shown instead.
 - **SQL guard:** only a single read-only SELECT on the six standard tables.
@@ -338,8 +340,10 @@ python -m src.agent.chat --question "How did we do last month?"
   month is September 2026.
 - **Limits:** 10 tool calls and 120 seconds per question.
 
-Each question, tool call and guard result is logged in `agent_log` and
-`agent_tool_calls` in `data/audit.duckdb`.
+The terminal chat answers each question on its own; the dashboard chat carries
+earlier turns. Each question, tool call and guard result is logged in `agent_log`
+and `agent_tool_calls` in `data/audit.duckdb`, with `history_turns` and
+`history_chars` for what an answer carried.
 
 ## Eval and model check
 
@@ -394,8 +398,13 @@ Each page header shows a "Data through" pill with the last day of data:
   - **Approve** or **Reject**, then **Confirm**;
   - the decision goes through the same `approve.decide()` as the CLI.
 - **Chat:**
-  - the same agent as `python -m src.agent.chat`, one question at a time, always
-    measured from `DATA_END_DATE`;
+  - the same agent as `python -m src.agent.chat`, always measured from
+    `DATA_END_DATE`, with follow-up questions: each question is sent with the
+    earlier questions, answers and tool results of this chat, so "what did they
+    order?" knows who "they" are;
+  - a chat takes 20 questions; from question 16 a line says how many are left, and
+    at 20 the input locks and **Start new chat** (like **Clear chat**) starts over;
+    the history is kept in the browser session only;
   - an empty chat shows 4 suggested questions as cards; a click sends one;
   - your question shows at once as a green bubble, then each step shows live as a
     small muted line in the answer card, with an icon for its state (a brain while

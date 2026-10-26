@@ -74,6 +74,7 @@ WIDGET_ICONS = {
     ".steps-done > summary::after": "circle-check",  # finished: a check before the line
     ".steps-failed > summary::after": "circle-x",  # a tool failed: a cross instead
     ".step-data > summary": "chevron-right",
+    ".step-sql-toggle > summary": "chevron-right",
     ".st-key-clear-chat button": "trash-2",
 }
 SIGN_ARROWS = {"+": "arrow-up", "-": "arrow-down"}
@@ -173,6 +174,16 @@ def card_grid(cards: list[str], compact: bool = False) -> str:
 def user_message(question: str) -> str:
     """The user's question as a right-aligned bubble (escaped, so markup shows as text)."""
     return f'<div class="user-row"><div class="user-bubble">{escape(question)}</div></div>'
+
+
+def turns_left(text: str) -> str:
+    """The muted 'N questions left in this chat' line under the chat."""
+    return f'<p class="chat-turns-left">{escape(text)}</p>'
+
+
+def limit_notice(text: str) -> str:
+    """The notice text when a chat has reached its question limit."""
+    return f'<p class="chat-limit-text">{escape(text)}</p>'
 
 
 def suggestion_card(icon_name: str, title: str, question: str) -> str:

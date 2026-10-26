@@ -24,6 +24,7 @@
   --accent-soft: light-dark(#E3F5EC, rgba(61, 214, 155, 0.14));
   --on-accent: light-dark(#FFFFFF, #04140D);
   --good: light-dark(#166534, #86EFAC);
+  --sheen: light-dark(#8FE3C0, #FFFFFF);
   --bad: light-dark(#B91C1C, #F87171);
   --warn: light-dark(#B45309, #FBBF24);
   --shadow-sm: 0 1px 2px light-dark(rgba(15, 26, 21, 0.05), rgba(0, 0, 0, 0.4)),
@@ -225,6 +226,11 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; bo
 .trust-pill { display: inline-flex; align-items: center; gap: 8px; margin-top: 14px;
   padding: 8px 14px; font-size: 13.5px; color: var(--accent-strong);
   background: var(--accent-soft); border-radius: 999px; text-align: left; }
+/* Week 8: questions left, and the notice at the 20-question limit (tokens only). */
+.chat-turns-left { margin: 4px 0 0; font-size: 13px; color: var(--muted); text-align: center; }
+.st-key-chat-limit { padding: 18px; border-radius: var(--radius-card);
+  background: var(--surface); box-shadow: var(--shadow-card); align-items: center; }
+.chat-limit-text { margin: 0; font-size: 14.5px; color: var(--text); text-align: center; }
 .suggest-label { margin: 0 0 10px 4px; font-size: 13px; font-weight: 500; color: var(--muted); }
 [class*="st-key-suggestion-"] { position: relative; gap: 0; height: 100%; }
 /* The two cards of a row share one height: stretch every level from the column down. */
@@ -301,28 +307,51 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; bo
 [data-testid="stChatInputSubmitButton"]:disabled { cursor: not-allowed; color: var(--muted);
   background: color-mix(in srgb, var(--text) 8%, transparent); opacity: 1; }
 
-/* Tool steps (src/ui/chat_steps.py): muted 13px lines at the top of the answer card,
-   each with a state icon. Live: the brain (model thinking) pulses and the wrench (a
-   tool running) rocks, both in the accent, and the label shimmers. Done: a green
-   check, or a red cross for a failed tool; notes get a muted info icon. The finished
-   steps collapse to one line with a check and a chevron that opens the details. */
+/* Tool steps (src/ui/chat_steps.py). Live: a compact timeline at the top of the answer
+   card, one row per step with a 22px icon box so the icon centres on its 14px label.
+   The active row animates: the sparkles (a model call) and the shield (number check) get a light sheen sweeping across,
+   a running tool is a wrench inside a spinning ring, the pencil (writing the answer)
+   rocks; the label shimmers. Done rows keep a green check and their duration, a failed
+   one a red cross; notes get a muted info icon. Finished steps collapse to one line
+   with a check and a chevron that opens the details. */
 .steps { font-size: 13px; color: var(--muted); margin: 0 0 .25rem; }
-.step-row { display: flex; align-items: center; gap: .5rem; padding: .15rem 0; min-width: 0; }
+.steps-live { font-size: 14px; line-height: 1.4; margin-bottom: .5rem; }
+.step-row { display: flex; align-items: center; gap: .55rem; padding: .2rem 0; min-width: 0; }
+.step-mark { position: relative; flex: none; display: grid; place-items: center;
+  width: 22px; height: 22px; }
+.step-mark .step-icon { width: 18px; height: 18px; vertical-align: baseline; }
+.steps-body .step-mark { width: 20px; height: 20px; }
+.steps-body .step-mark .step-icon { width: 16px; height: 16px; }
 .step-label { min-width: 0; overflow-wrap: anywhere; }
-.step-time { margin-left: auto; padding-left: .75rem; white-space: nowrap; }
-.step-icon { width: 14px; height: 14px; vertical-align: middle; }
-.step-thinking .step-icon, .step-running .step-icon { color: var(--accent); }
+.step-time { margin-left: auto; padding-left: .75rem; white-space: nowrap; font-size: 12px;
+  font-variant-numeric: tabular-nums; }
+.step-icon { width: 16px; height: 16px; }
+.step-thinking .step-icon, .step-review .step-icon, .step-check .step-icon,
+.step-write .step-icon, .step-running .step-icon { color: var(--accent); }
 .step-ok .step-icon { color: var(--good); }
 .step-fail .step-icon, .step-fail .step-label { color: var(--bad); }
 .step-note .step-icon { color: var(--muted); }
+/* The timeline: a thin line joins each live row to the next. */
+.steps-live .step-row:not(:last-child) .step-mark::after { content: ""; position: absolute;
+  left: 50%; top: 100%; width: 1px; height: .4rem;
+  background: color-mix(in srgb, var(--text) 18%, transparent); }
+.step-row.is-active { animation: step-in .2s ease-out; }
 .step-row.is-active .step-label { color: var(--text); animation: shimmer 1.6s ease-in-out infinite; }
-.step-thinking.is-active .step-icon { animation: think 1.4s ease-in-out infinite; }
-.step-running.is-active .step-icon { animation: tool-rock 1s ease-in-out infinite;
-  transform-origin: 50% 50%; }
+/* A sheen: the mask icon is filled with a gradient whose bright band slides across it. */
+.step-thinking.is-active .step-icon, .step-review.is-active .step-icon,
+.step-check.is-active .step-icon {
+  background: linear-gradient(105deg, var(--accent) 35%, var(--sheen) 50%, var(--accent) 65%);
+  background-size: 300% 100%; animation: sheen 1.8s ease-in-out infinite; }
+.step-write.is-active .step-icon { animation: tool-rock 1s ease-in-out infinite; }
+.step-running.is-active .step-icon { width: 11px; height: 11px; }
+.step-running.is-active .step-mark::before { content: ""; position: absolute; inset: 1px;
+  border-radius: 50%; border: 2px solid var(--accent-soft); border-top-color: var(--accent);
+  animation: spin .8s linear infinite; }
 @keyframes shimmer { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
-@keyframes think { 0%, 100% { transform: scale(.88); opacity: .55; }
-  50% { transform: scale(1.08); opacity: 1; } }
+@keyframes sheen { from { background-position: 100% 0; } to { background-position: 0 0; } }
 @keyframes tool-rock { 0%, 100% { transform: rotate(-14deg); } 50% { transform: rotate(14deg); } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes step-in { from { opacity: 0; transform: translateY(3px); } }
 .steps-done > summary::after { content: ""; order: -1; width: 14px; height: 14px;
   background-color: var(--good); -webkit-mask-position: center; mask-position: center;
   -webkit-mask-size: contain; mask-size: contain; -webkit-mask-repeat: no-repeat;
@@ -332,23 +361,33 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; bo
   align-items: center; gap: .3rem; border-radius: 4px; }
 .steps-done > summary:hover { color: var(--text); }
 .steps-done > summary::-webkit-details-marker,
-.step-data > summary::-webkit-details-marker { display: none; }
-.steps-done > summary::before, .step-data > summary::before { content: ""; order: 2;
+.step-data > summary::-webkit-details-marker,
+.step-sql-toggle > summary::-webkit-details-marker { display: none; }
+.steps-done > summary::before, .step-data > summary::before,
+.step-sql-toggle > summary::before { content: ""; order: 2;
   width: 14px; height: 14px; background-color: currentColor; -webkit-mask-position: center;
   mask-position: center; -webkit-mask-size: contain; mask-size: contain;
   -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat; transition: transform .15s; }
-.steps-done[open] > summary::before, .step-data[open] > summary::before {
-  transform: rotate(90deg); }
+.steps-done[open] > summary::before, .step-data[open] > summary::before,
+.step-sql-toggle[open] > summary::before { transform: rotate(90deg); }
 .steps-body { margin: .4rem 0 .25rem .15rem; padding-left: .75rem;
   border-left: 1px solid var(--border); }
 .step-detail { padding: .15rem 0; }
+.step-detail .step-row { padding: .1rem 0; }
 .step-sql, .step-json { font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px; line-height: 1.5; background: var(--accent-soft); color: var(--text);
   border-radius: 8px; padding: .5rem .65rem; margin: .25rem 0 .3rem;
   white-space: pre-wrap; overflow-wrap: anywhere; }
+.step-sql { max-width: 100%; overflow-x: auto; }
 .step-json { max-height: 260px; overflow: auto; white-space: pre; }
-.step-data > summary { cursor: pointer; font-size: 12px; margin-top: .15rem; list-style: none;
-  display: inline-flex; align-items: center; gap: .25rem; }
+.step-data > summary, .step-sql-toggle > summary { cursor: pointer; font-size: 12px;
+  margin-top: .15rem; list-style: none; display: inline-flex; align-items: center; gap: .25rem; }
+.step-data > summary:hover, .step-sql-toggle > summary:hover { color: var(--text); }
+.step-sql-toggle, .step-data { margin-left: 1.75rem; }
+.sql-kw { color: var(--accent-strong); font-weight: 600; }
+.sql-str { color: light-dark(#9A3412, #FDBA74); }
+.sql-num { color: light-dark(#1D4ED8, #93C5FD); }
+.sql-com { color: var(--muted); font-style: italic; }
 
 /* ---- Sidebar: surface with a 1px border (config.toml), brand on top, then the links. */
 [data-testid="stSidebar"] { background: var(--sidebar); border-right: 1px solid var(--border); }
@@ -387,6 +426,9 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; bo
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .step-row.is-active .step-label, .step-row.is-active .step-icon { animation: none; }
+  .step-row.is-active, .step-row.is-active .step-label, .step-row.is-active .step-icon,
+  .step-running.is-active .step-mark::before { animation: none; }
+  .step-running.is-active .step-mark::before { border-top-color: var(--accent);
+    border-style: dashed; }
   .suggestion, .suggestion-go, [data-testid="stChatInputSubmitButton"] { transition: none; }
 }

@@ -15,6 +15,12 @@ if that fails too, the written answer is withheld and the tool results are shown
 instead. Every question, tool call and guard result is written to agent_log in
 data/audit.duckdb.
 
+An optional history (the dashboard chat, Week 8) carries earlier turns: their
+questions, answers and exact tool messages go before the new question, within the size
+limits in src/agent/history.py. Numbers from carried tool results and earlier
+questions then pass the guard too; numbers only in an earlier answer do not. Without
+history (the CLI, the eval) a question is single-turn, exactly as before.
+
 An optional on_progress callback (the dashboard's chat page) hears about each step as
 it happens: model calls, tool calls, a fallback model, a guard retry. It only sees the
 final answer through ask()'s return value, after the guard, so unchecked text is
@@ -32,7 +38,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
-from src.agent import agent_log, answer_guard, llm, prompts, tools
+from src.agent import agent_log, answer_guard, history, llm, prompts, tools
 from src.analytics import kpis
 from src.reports.audit import AUDIT_DB_PATH
 
@@ -69,10 +75,13 @@ EVENT_THINKING = "thinking"  # a model call starts
 EVENT_THINKING_DONE = "thinking_done"
 EVENT_TOOL_START = "tool_start"
 EVENT_TOOL_DONE = "tool_done"
+EVENT_CHECK_START = "check_start"  # the answer number guard starts on a written answer
+EVENT_CHECK_DONE = "check_done"  # seconds; success is True when every number passed
 EVENT_FALLBACK = "fallback"  # the main model failed; the fallback model answered
 EVENT_GUARD_RETRY = "guard_retry"  # the answer used numbers no tool returned; one retry
 EVENT_WITHHELD = "withheld"  # the retry failed too; tool results are shown instead
 THINKING_LABEL = "Thinking"
+CHECK_LABEL = "Checking numbers"
 GUARD_RETRY_LABEL = "Number check failed, asking the model again"
 WITHHELD_LABEL = "Number check failed again, showing the tool results instead"
 
@@ -126,6 +135,10 @@ class AgentAnswer:
     error: str | None = None
     answer_guard: str = answer_guard.GUARD_NOT_RUN  # ok | retried_ok | withheld | not_run
     answer_guard_failed: list[str] = field(default_factory=list)  # numbers no tool returned
+    # This turn's assistant tool-call messages and tool results, in order (for history).
+    tool_messages: list[dict[str, Any]] = field(default_factory=list)
+    history_turns: int | None = None  # earlier turns sent; None: no history passed
+    history_chars: int | None = None  # characters of carried tool results sent
 
     @property
     def total_tokens(self) -> int:
@@ -164,10 +177,12 @@ def ask(
     chat: ChatFunction | None = None,
     settings: llm.LLMSettings | None = None,
     on_progress: ProgressCallback | None = None,
+    history: list[history.Turn] | None = None,
 ) -> AgentAnswer:
     """Answer one question with tools. Never raises for model or tool problems.
 
-    on_progress, if given, is called with a ProgressEvent for each step.
+    on_progress, if given, is called with a ProgressEvent for each step. history, if
+    given, holds the earlier turns of the chat, oldest first.
     """
     config = config or AgentConfig()
     progress = _Progress(on_progress)
@@ -177,7 +192,7 @@ def ask(
     answer = AgentAnswer(question_id=uuid.uuid4().hex, question=question, answer="")
     try:
         settings = settings or llm.llm_settings()
-        _run_loop(question, config, chat, settings, started, answer, progress)
+        _run_loop(question, config, chat, settings, started, answer, progress, history)
     except (llm.LLMAuthError, llm.LLMConfigError) as error:
         answer.answer, answer.error = str(error), str(error)
     except llm.LLMUnavailableError as error:
@@ -196,6 +211,7 @@ def _run_loop(
     started: float,
     answer: AgentAnswer,
     progress: _Progress,
+    earlier: list[history.Turn] | None = None,
 ) -> None:
     """The tool loop; fills answer in place."""
     session = tools.ToolSession(
@@ -203,11 +219,15 @@ def _run_loop(
             db_path=config.db_path, charts_dir=config.charts_dir, data_end=config.data_end
         )
     )
+    carried, carried_chars = history.history_messages(earlier)
+    if earlier is not None:
+        answer.history_turns, answer.history_chars = len(earlier), carried_chars
     messages: list[dict[str, Any]] = [
         {
             "role": "system",
             "content": prompts.build_system_prompt(config.db_path, config.data_end),
         },
+        *carried,
         {"role": "user", "content": question},
     ]
     schemas = tools.tool_schemas()
@@ -240,7 +260,16 @@ def _run_loop(
         if at_limit or not result.tool_calls:
             messages.append(result.assistant_message())
             text = _guarded_text(
-                question, result.text, messages, config, chat, settings, started, answer, progress
+                question,
+                result.text,
+                messages,
+                config,
+                chat,
+                settings,
+                started,
+                answer,
+                progress,
+                earlier,
             )
             if at_limit:
                 answer.stopped_early = "tool_limit"
@@ -249,6 +278,7 @@ def _run_loop(
             return
 
         messages.append(result.assistant_message())
+        answer.tool_messages.append(result.assistant_message())
         for call in result.tool_calls:
             # Every tool call needs a reply, even the ones over the limit.
             if len(answer.tool_calls) >= config.max_tool_calls:
@@ -267,7 +297,25 @@ def _run_loop(
                     result=outcome.result,
                 )
                 content = outcome.content()
-            messages.append({"role": "tool", "tool_call_id": call.id, "content": content})
+            tool_message = {"role": "tool", "tool_call_id": call.id, "content": content}
+            messages.append(tool_message)
+            answer.tool_messages.append(dict(tool_message))
+
+
+def _check(
+    progress: _Progress,
+    text: str,
+    question: str,
+    answer: AgentAnswer,
+    earlier: list[history.Turn] | None,
+) -> list[str]:
+    """answer_guard.check_answer, reported as a timed "Checking numbers" step."""
+    progress.emit(EVENT_CHECK_START, CHECK_LABEL)
+    started = time.monotonic()
+    failed = answer_guard.check_answer(text, question, answer.tool_calls, earlier)
+    seconds = time.monotonic() - started
+    progress.emit(EVENT_CHECK_DONE, CHECK_LABEL, seconds=seconds, success=not failed)
+    return failed
 
 
 def _guarded_text(
@@ -280,6 +328,7 @@ def _guarded_text(
     started: float,
     answer: AgentAnswer,
     progress: _Progress,
+    earlier: list[history.Turn] | None = None,
 ) -> str:
     """The model's answer if its numbers pass the guard, after at most one retry.
 
@@ -289,7 +338,7 @@ def _guarded_text(
     """
     if not text:
         return NO_TEXT_ANSWER
-    failed = answer_guard.check_answer(text, question, answer.tool_calls)
+    failed = _check(progress, text, question, answer, earlier)
     if not failed:
         answer.answer_guard = answer_guard.GUARD_OK
         return text
@@ -315,7 +364,7 @@ def _guarded_text(
         )
         _add_usage(answer, result)
         retry_text = result.text or ""
-        failed_again = answer_guard.check_answer(retry_text, question, answer.tool_calls)
+        failed_again = _check(progress, retry_text, question, answer, earlier)
         if retry_text and not failed_again:
             answer.answer_guard = answer_guard.GUARD_RETRIED_OK
             answer.answer_guard_failed = failed
@@ -327,6 +376,21 @@ def _guarded_text(
     answer.answer_guard = answer_guard.GUARD_WITHHELD
     answer.answer_guard_failed = failed
     return answer_guard.withheld_answer(failed, answer.tool_calls)
+
+
+def turn_from(answer: AgentAnswer) -> history.Turn | None:
+    """The answer as a Turn for the next question's history; None if it failed.
+
+    A failed question (model unavailable, bad key or settings) is never carried.
+    """
+    if answer.error:
+        return None
+    return history.Turn(
+        question=answer.question,
+        answer=answer.answer,
+        withheld=answer.answer_guard == answer_guard.GUARD_WITHHELD,
+        tool_messages=answer.tool_messages,
+    )
 
 
 def _model_call(
@@ -389,6 +453,8 @@ def _log(answer: AgentAnswer, asked_at: datetime, config: AgentConfig) -> None:
         error=answer.error,
         answer_guard=answer.answer_guard,
         answer_guard_failed=", ".join(answer.answer_guard_failed) or None,
+        history_turns=answer.history_turns,
+        history_chars=answer.history_chars,
     )
     calls = [
         agent_log.ToolCallRecord(

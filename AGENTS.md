@@ -39,10 +39,18 @@ How the core rule is enforced (keep these in place; see `docs/decisions.md`):
   `summary_retry_reason` (`report_runs` and the backfill manifest).
 - **Answer number guard** (`src/agent/answer_guard.py`):
   - Every number in a chat answer must come from a tool result for that
-    question, the user's question, a date, or be a count from 1 to 10.
+    question, a carried tool result from an earlier turn, the user's question
+    or an earlier question, a date, or be a count from 1 to 10. A number found
+    only in an earlier answer is rejected.
   - On failure: one retry. Then the written answer is withheld and the tool
     results are shown instead.
   - The result is logged in `agent_log.answer_guard`.
+- **The dashboard chat is multi-turn; the CLI and eval are not** (Week 8):
+  - `agent.ask(history=...)` sends earlier questions, answers and their exact
+    tool messages; size limits and pairing live in `src/agent/history.py`.
+  - 20 answered turns per chat (`src/ui/chat_session.py`); history is in
+    `st.session_state` only, never on disk.
+  - `agent_log.history_turns` and `history_chars` record what was carried.
 - **SQL guard blocks personal contact data** (`src/agent/sql_guard.py`):
   - `customers.email` can never be queried.
   - When a query reads `customers`, these are refused too: `SELECT *`, `c.*`,
@@ -149,7 +157,7 @@ src/analytics/                KPI SQL views, demand series, customer alerts and 
 src/demand/                   run_demand + CLI, approval CLI, planning.duckdb store,
                               config loader
 src/agent/                    llm.py (only LLM client), tools, prompts, agent loop,
-                              SQL guard, answer number guard, eval grader
+                              chat history, SQL guard, answer number guard, eval grader
 src/reports/                  report builder, demand sections, emailer, scheduler,
                               Jinja2 templates
 src/reports/views.py, saved.py  dashboard data: sales and demand views, saved reports

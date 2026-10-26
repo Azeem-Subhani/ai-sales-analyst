@@ -34,13 +34,18 @@ CREATE TABLE IF NOT EXISTS agent_log (
     final_answer      VARCHAR,
     error             VARCHAR,
     answer_guard      VARCHAR,            -- ok | retried_ok | withheld | not_run (wrap-up)
-    answer_guard_failed VARCHAR           -- numbers no tool returned, comma-separated
+    answer_guard_failed VARCHAR,          -- numbers no tool returned, comma-separated
+    history_turns     INTEGER,            -- earlier chat turns sent (Week 8); NULL: none
+    history_chars     INTEGER             -- characters of carried tool results sent
 )
 """
-# Week 4 wrap-up: the answer number guard. NULL for questions logged before it.
+# Week 4 wrap-up: the answer number guard. Week 8: multi-turn chat history.
+# NULL for questions logged before each change.
 MIGRATIONS = [
     "ALTER TABLE agent_log ADD COLUMN IF NOT EXISTS answer_guard VARCHAR",
     "ALTER TABLE agent_log ADD COLUMN IF NOT EXISTS answer_guard_failed VARCHAR",
+    "ALTER TABLE agent_log ADD COLUMN IF NOT EXISTS history_turns INTEGER",
+    "ALTER TABLE agent_log ADD COLUMN IF NOT EXISTS history_chars INTEGER",
 ]
 CREATE_AGENT_TOOL_CALLS = """
 CREATE TABLE IF NOT EXISTS agent_tool_calls (
@@ -59,11 +64,13 @@ INSERT_AGENT_LOG = """
 INSERT INTO agent_log (
     question_id, asked_at_utc, question, model, fallback_used, tool_call_count,
     input_tokens, output_tokens, total_tokens, cost_usd, latency_seconds,
-    stopped_early, final_answer, error, answer_guard, answer_guard_failed
+    stopped_early, final_answer, error, answer_guard, answer_guard_failed,
+    history_turns, history_chars
 ) VALUES (
     $question_id, $asked_at_utc, $question, $model, $fallback_used, $tool_call_count,
     $input_tokens, $output_tokens, $total_tokens, $cost_usd, $latency_seconds,
-    $stopped_early, $final_answer, $error, $answer_guard, $answer_guard_failed
+    $stopped_early, $final_answer, $error, $answer_guard, $answer_guard_failed,
+    $history_turns, $history_chars
 )
 """
 INSERT_TOOL_CALL = """
@@ -101,6 +108,8 @@ class QuestionRecord:
     error: str | None
     answer_guard: str | None = None
     answer_guard_failed: str | None = None
+    history_turns: int | None = None
+    history_chars: int | None = None
 
 
 @dataclass

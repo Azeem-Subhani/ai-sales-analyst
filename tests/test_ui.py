@@ -19,7 +19,7 @@ from streamlit.testing.v1 import AppTest
 from src.agent import agent, llm, tools
 from src.demand import approve, store
 from src.reports import builder, views
-from src.ui import common
+from src.ui import chat_session, common
 
 APP = Path(__file__).resolve().parents[1] / "src" / "ui" / "app.py"
 AS_OF = date(2026, 9, 30)
@@ -267,11 +267,13 @@ class FakeAgent:
 
     def __init__(self, config_check: object = None) -> None:
         self.asked: list[str] = []
+        self.histories: list[list] = []  # the history passed with each question
         self.events_seen_before_answer: list[str] = []
         self.config_check = config_check
 
     def __call__(self, question: str, config: agent.AgentConfig, **kwargs: object):
         self.asked.append(question)
+        self.histories.append(kwargs.get("history"))
         if self.config_check:
             self.config_check(config)
         guard = "withheld" if "withhold" in question else "ok"
@@ -295,6 +297,10 @@ class FakeAgent:
             agent.ProgressEvent(agent.EVENT_THINKING, agent.THINKING_LABEL),
             agent.ProgressEvent(
                 agent.EVENT_THINKING_DONE, agent.THINKING_LABEL, seconds=0.5, success=True
+            ),
+            agent.ProgressEvent(agent.EVENT_CHECK_START, agent.CHECK_LABEL),
+            agent.ProgressEvent(
+                agent.EVENT_CHECK_DONE, agent.CHECK_LABEL, seconds=0.002, success=guard == "ok"
             ),
         ]
         if guard == "withheld":
@@ -338,7 +344,10 @@ def test_chat_shows_live_steps_then_the_checked_answer(
     # The steps collapse to one line: the tool's past-tense label and the total time,
     # opening to show the step's duration and its Data.
     assert "<summary>Calculated KPIs \u00b7 1.5 s</summary>" in html
-    assert '<span class="step-time">0.2 s</span>' in html
+    assert '<span class="step-time">200 ms</span>' in html  # fast steps show milliseconds
+    assert "Reviewed results" in html and "Checked numbers" in html
+    assert "0.0 s" not in html
+    assert '<details class="step-sql-toggle"' not in html  # this question ran no SQL
     assert '<details class="step-data"><summary>Data</summary>' in html
     assert not at.get("status") and not at.get("spinner")  # no Streamlit status widgets
     assert len(at.session_state["chat_history"]) == 1
@@ -380,7 +389,11 @@ def test_chat_history_and_clear(
     at.chat_input[0].set_value("First?").run()
     at.chat_input[0].set_value("Second?").run()
     assert not at.exception
-    assert fake.asked == ["First?", "Second?"]  # single-turn: one call per question
+    assert fake.asked == ["First?", "Second?"]  # one agent call per question
+    # Multi-turn: the second question carries the first turn as history.
+    assert fake.histories[0] == []
+    [carried] = fake.histories[1]
+    assert (carried.question, carried.answer) == ("First?", CHECKED)
     assert html_text(at).count('<details class="steps steps-done">') == 2  # history too
     next(b for b in at.button if b.label == "Clear chat").click().run()
     assert at.session_state["chat_history"] == []
@@ -540,3 +553,82 @@ def test_reports_list_flags_an_unavailable_summary(tmp_path: Path, status: str) 
     )  # fmt: skip
     html = reports.row_html(report)
     assert "Summary unavailable" in html and status not in html
+
+
+# ---------------------------------------------------------------- 20-question cap (Week 8)
+
+LIMIT_NOTICE = "This chat has reached 20 questions. Start a new chat to keep going."
+
+
+def seeded_chat(built: dict, planning: Path, tmp_path: Path, turns: int) -> AppTest:
+    """The Chat page with this many answered turns already in the session."""
+    at = app(built, planning, tmp_path)
+    at.session_state["chat_history"] = [
+        chat_session.ChatTurn(fake_answer(f"Question {n}?")) for n in range(turns)
+    ]
+    return at.run().switch_page("app_pages/chat.py").run()
+
+
+def test_chat_placeholder_invites_follow_ups(
+    app_env: None, built: dict, planning: Path, tmp_path: Path
+) -> None:
+    at = chat_page(built, planning, tmp_path)
+    assert at.chat_input[0].placeholder == "Ask a question, or follow up on the last answer."
+
+
+def test_chat_counter_appears_from_question_16(
+    app_env: None, built: dict, planning: Path, tmp_path: Path
+) -> None:
+    at = seeded_chat(built, planning, tmp_path, 14)
+    assert "questions left in this chat" not in html_text(at)
+    at = seeded_chat(built, planning, tmp_path, 15)
+    assert not at.exception
+    assert "5 questions left in this chat" in html_text(at)
+    assert not at.chat_input[0].disabled
+
+
+def test_chat_locks_at_20_and_start_new_chat_resets(
+    app_env: None, built: dict, planning: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = FakeAgent()
+    monkeypatch.setattr(agent, "ask", fake)
+    at = seeded_chat(built, planning, tmp_path, 19)
+    at.chat_input[0].set_value("Question 20?").run()
+    assert not at.exception
+    assert len(fake.histories[0]) == 19
+    assert len(at.session_state["chat_history"]) == 20
+    assert at.chat_input[0].disabled  # locked, not cleared
+    assert LIMIT_NOTICE in html_text(at)
+    assert "questions left in this chat" not in html_text(at)
+    next(b for b in at.button if b.label == "Start new chat").click().run()
+    assert at.session_state["chat_history"] == []
+    assert not at.chat_input[0].disabled
+    assert LIMIT_NOTICE not in html_text(at)
+    assert "Suggested questions" in html_text(at)  # the empty chat again
+
+
+def test_chat_clear_resets_the_counter(
+    app_env: None, built: dict, planning: Path, tmp_path: Path
+) -> None:
+    at = seeded_chat(built, planning, tmp_path, 20)
+    assert at.chat_input[0].disabled
+    next(b for b in at.button if b.label == "Clear chat").click().run()
+    assert at.session_state["chat_history"] == []
+    assert not at.chat_input[0].disabled
+
+
+def test_chat_failed_answer_is_shown_once_and_not_counted(
+    app_env: None, built: dict, planning: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def unavailable(question: str, config: agent.AgentConfig, **kwargs: object):
+        answer = fake_answer(question)
+        answer.answer, answer.error = agent.UNAVAILABLE_ANSWER, "Both models failed."
+        return answer
+
+    monkeypatch.setattr(agent, "ask", unavailable)
+    at = seeded_chat(built, planning, tmp_path, 19)
+    at.chat_input[0].set_value("Question 20?").run()
+    assert not at.exception
+    assert len(at.session_state["chat_history"]) == 19  # not stored, not counted
+    assert [e.value for e in at.error] == [agent.UNAVAILABLE_ANSWER]
+    assert not at.chat_input[0].disabled

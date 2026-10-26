@@ -9,6 +9,10 @@ A number is accepted when it:
   "Week 39", "in 2026");
 - is a whole number from 1 to 10 (counts and ranks).
 
+In a multi-turn chat (Week 8) a number may also come from an earlier turn's tool
+results (the original, untrimmed results) or an earlier question. A number that
+appears only in an earlier answer is not accepted: answers are not sources.
+
 SQL in fenced code blocks is ignored, because the agent shows the query it ran.
 The agent (src/agent/agent.py) retries once when the guard fails, and otherwise
 withholds the written answer and shows the tool results instead.
@@ -18,6 +22,7 @@ import json
 import re
 from decimal import Decimal
 
+from src.agent import history as chat_history
 from src.agent.tools import ToolOutcome
 from src.reports.summary import SMALL_COUNTS, extract_numbers, number_is_allowed, to_decimal
 
@@ -79,15 +84,29 @@ def without_dates_and_code(text: str) -> str:
     return DATES.sub(" ", CODE_BLOCK.sub(" ", text))
 
 
-def allowed_numbers(question: str, outcomes: list[ToolOutcome]) -> set[Decimal]:
-    """Numbers the answer may use: the tool results, the question, and 1 to 10."""
+def allowed_numbers(
+    question: str,
+    outcomes: list[ToolOutcome],
+    history: list[chat_history.Turn] | None = None,
+) -> set[Decimal]:
+    """Numbers the answer may use: the tool results, the question, and 1 to 10.
+
+    With history, also every earlier tool result and earlier question (never an
+    earlier answer).
+    """
     texts = [question] + [outcome.content() for outcome in outcomes]
+    texts += chat_history.carried_results(history) + chat_history.earlier_questions(history)
     return {abs(to_decimal(t)) for text in texts for t in extract_numbers(text)} | SMALL_COUNTS
 
 
-def check_answer(answer: str, question: str, outcomes: list[ToolOutcome]) -> list[str]:
+def check_answer(
+    answer: str,
+    question: str,
+    outcomes: list[ToolOutcome],
+    history: list[chat_history.Turn] | None = None,
+) -> list[str]:
     """Numbers in the answer that no tool returned (empty list: the answer passes)."""
-    allowed = allowed_numbers(question, outcomes)
+    allowed = allowed_numbers(question, outcomes, history)
     failed = [
         t
         for t in extract_numbers(without_dates_and_code(answer))

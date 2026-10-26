@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 
-from src.agent import agent, agent_log, chat, llm, prompts, sql_guard, tools
+from src.agent import agent, agent_log, chat, history, llm, prompts, sql_guard, tools
 
 SETTINGS = llm.LLMSettings("test-key", "https://openrouter.ai/api/v1", "main/m", "fb/m", 60.0)
 WEEK_ARGS = {"period_type": "week", "as_of": "2026-09-27"}
@@ -409,14 +409,17 @@ def test_progress_events_follow_each_step(config: agent.AgentConfig) -> None:
     assert answer.answer == "Net revenue was 114,286.82."
     assert kinds(events) == [
         "thinking", "thinking_done", "tool_start", "tool_done",
-        "thinking", "thinking_done", "guard_retry", "thinking", "thinking_done", "fallback",
+        "thinking", "thinking_done", "check_start", "check_done", "guard_retry",
+        "thinking", "thinking_done", "fallback", "check_start", "check_done",
     ]  # fmt: skip
+    check_done = [e for e in events if e.kind == "check_done"]
+    assert [e.success for e in check_done] == [False, True]  # the first answer failed the guard
     tool_done = events[3]
     assert (tool_done.tool, tool_done.success) == ("get_kpis", True)
     assert json.loads(tool_done.arguments) == WEEK_ARGS
     assert tool_done.result == answer.tool_calls[0].result
     assert all(e.seconds is not None and e.seconds >= 0 for e in events if e.kind.endswith("done"))
-    assert "fb/m" in events[-1].label
+    assert "fb/m" in events[-3].label
     # The final (checked) answer is never in an event: it only comes back from ask().
     assert not any("114,286.82." in (e.label or "") for e in events)
 
@@ -429,7 +432,13 @@ def test_withheld_answer_is_reported(config: agent.AgentConfig) -> None:
         text("Net revenue was 120,000."),
     )
     agent.ask("Net revenue?", config, chat=fake, settings=SETTINGS, on_progress=events.append)
-    assert kinds(events)[-3:] == ["thinking", "thinking_done", "withheld"]
+    assert kinds(events)[-5:] == [
+        "thinking",
+        "thinking_done",
+        "check_start",
+        "check_done",
+        "withheld",
+    ]
 
 
 def test_a_failing_callback_never_loses_the_answer(config: agent.AgentConfig) -> None:
@@ -462,3 +471,174 @@ def test_without_a_callback_the_answer_is_unchanged(config: agent.AgentConfig) -
     )
     assert (plain.answer, plain.answer_guard) == (watched.answer, watched.answer_guard)
     assert seen
+
+
+# ---------------------------------------------------------------- history (Week 8)
+
+LONG_RESULT = '{"rows": [["' + "x" * 4_100 + '", 98765.43]]}'  # the number is past the cut
+
+
+def earlier_turn(content: str = '{"rows": [["Ava Stone", 4321.5]]}') -> history.Turn:
+    """One earlier turn with a run_sql call and its result."""
+    return history.Turn(
+        question="Give me 4 customers who ordered only once.",
+        answer="Ava Stone spent 4,321.50.",
+        tool_messages=[
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "h1",
+                        "type": "function",
+                        "function": {"name": "run_sql", "arguments": "{}"},
+                    }
+                ],
+            },
+            {"role": "tool", "tool_call_id": "h1", "content": content},
+        ],
+    )
+
+
+def ask_with(
+    question: str, config: agent.AgentConfig, fake: ScriptedChat, earlier: list | None
+) -> agent.AgentAnswer:
+    return agent.ask(question, config, chat=fake, settings=SETTINGS, history=earlier)
+
+
+def test_history_is_sent_before_the_new_question(config: agent.AgentConfig) -> None:
+    fake = ScriptedChat(text("Ava Stone ordered once."))
+    answer = ask_with("What did they order?", config, fake, [earlier_turn()])
+    messages = fake.requests[0]["messages"]
+    assert [m["role"] for m in messages] == [
+        "system",
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+        "user",
+    ]
+    assert messages[1]["content"] == "Give me 4 customers who ordered only once."
+    assert messages[2]["tool_calls"][0]["id"] == "h1"
+    assert messages[3]["tool_call_id"] == "h1"
+    assert messages[4]["content"] == "Ava Stone spent 4,321.50."
+    assert messages[5]["content"] == "What did they order?"
+    assert (answer.history_turns, answer.history_chars) == (1, len(messages[3]["content"]))
+
+
+def test_no_history_or_empty_history_sends_exactly_todays_messages(
+    config: agent.AgentConfig,
+) -> None:
+    sent = []
+    for earlier in (None, []):
+        fake = ScriptedChat(calls(tool_call("get_kpis", WEEK_ARGS)), text("Week 39 was good."))
+        answer = ask_with("How did we do last week?", config, fake, earlier)
+        sent.append([r["messages"] for r in fake.requests])
+        assert answer.answer_guard == "ok"
+    assert sent[0] == sent[1]
+    assert [m["role"] for m in sent[0][0]] == ["system", "user"]
+    rows = agent_log.read_questions(config.audit_path)
+    assert rows["history_turns"].isna().iloc[0] and rows["history_chars"].isna().iloc[0]
+    assert (rows["history_turns"].iloc[1], rows["history_chars"].iloc[1]) == (0, 0)
+
+
+def test_answer_records_this_turns_tool_messages(config: agent.AgentConfig) -> None:
+    fake = ScriptedChat(calls(tool_call("get_kpis", WEEK_ARGS)), text("Week 39 was good."))
+    answer = ask("How did we do last week?", config, fake)
+    assert [m["role"] for m in answer.tool_messages] == ["assistant", "tool"]
+    assert answer.tool_messages[0]["tool_calls"][0]["id"] == "c1"
+    turn = agent.turn_from(answer)
+    assert turn.question == "How did we do last week?" and turn.withheld is False
+    assert turn.tool_messages == answer.tool_messages
+
+
+def test_failed_question_gives_no_turn(config: agent.AgentConfig) -> None:
+    answer = ask("Net revenue?", config, ScriptedChat(llm.LLMUnavailableError("down")))
+    assert agent.turn_from(answer) is None
+
+
+def test_carried_results_are_trimmed_but_the_current_turn_is_not(
+    config: agent.AgentConfig,
+) -> None:
+    query = {"query": "SELECT 1 AS x"}
+    fake = ScriptedChat(calls(tool_call("run_sql", query, "now")), text("Done."))
+    ask_with("And now?", config, fake, [earlier_turn(LONG_RESULT)])
+    first = fake.requests[0]["messages"]
+    assert first[3]["content"].endswith(history.TRUNCATED_MARKER)
+    current = fake.requests[1]["messages"][-1]
+    assert current["tool_call_id"] == "now" and history.TRUNCATED_MARKER not in current["content"]
+
+
+def test_guard_accepts_a_number_from_an_untrimmed_carried_result(
+    config: agent.AgentConfig,
+) -> None:
+    fake = ScriptedChat(text("Their total was 98,765.43."))
+    answer = ask_with("And their total?", config, fake, [earlier_turn(LONG_RESULT)])
+    assert "98765.43" not in fake.requests[0]["messages"][3]["content"]  # cut before it
+    assert answer.answer_guard == "ok"
+
+
+def test_guard_accepts_numbers_from_carried_results_and_earlier_questions(
+    config: agent.AgentConfig,
+) -> None:
+    fake = ScriptedChat(text("Ava Stone, one of the 4 customers, spent 4,321.5."))
+    answer = ask_with("Who spent most?", config, fake, [earlier_turn()])
+    assert answer.answer_guard == "ok"
+
+
+def test_guard_rejects_a_number_only_in_an_earlier_answer(config: agent.AgentConfig) -> None:
+    turn = earlier_turn('{"rows": [["Ava Stone"]]}')
+    turn.answer = "Ava Stone spent 55,555."
+    fake = ScriptedChat(text("She spent 55,555."), text("She spent 55,555."))
+    answer = ask_with("How much did she spend?", config, fake, [turn])
+    assert answer.answer_guard == "withheld"
+    assert answer.answer_guard_failed == ["55,555"]
+
+
+def test_guard_still_rejects_a_number_from_nowhere(config: agent.AgentConfig) -> None:
+    fake = ScriptedChat(text("She spent 77,777."), text("She spent 4,321.5."))
+    answer = ask_with("How much did she spend?", config, fake, [earlier_turn()])
+    assert answer.answer_guard == "retried_ok"
+    assert answer.answer_guard_failed == ["77,777"]
+
+
+def test_withheld_earlier_answer_is_sent_as_the_note(config: agent.AgentConfig) -> None:
+    turn = earlier_turn()
+    turn.withheld = True
+    fake = ScriptedChat(text("Ok."))
+    ask_with("And then?", config, fake, [turn])
+    assert fake.requests[0]["messages"][4]["content"] == history.WITHHELD_NOTE
+
+
+def test_agent_log_gets_history_columns_on_a_pre_week8_file(config: agent.AgentConfig) -> None:
+    import duckdb
+
+    old_create = agent_log.CREATE_AGENT_LOG.split("    history_turns ")[0].rstrip().rstrip(",")
+    assert "history" not in old_create and "answer_guard_failed" in old_create
+    with duckdb.connect(str(config.audit_path)) as con:
+        con.execute(old_create + "\n)")
+        con.execute(
+            "INSERT INTO agent_log (question_id, asked_at_utc, question, fallback_used, "
+            "tool_call_count, input_tokens, output_tokens, total_tokens, latency_seconds) "
+            "VALUES ('old', TIMESTAMP '2026-10-01 10:00:00', 'Old?', false, 0, 1, 1, 2, 0.1)"
+        )
+    ask_with("What did they order?", config, ScriptedChat(text("ok")), [earlier_turn()])
+    rows = agent_log.read_questions(config.audit_path)
+    assert rows["question_id"].iloc[0] == "old"
+    assert rows["history_turns"].isna().iloc[0]  # the old row keeps NULL
+    assert rows["history_turns"].iloc[1] == 1 and rows["history_chars"].iloc[1] > 0
+
+
+def test_agent_log_history_columns_on_a_fresh_file(config: agent.AgentConfig) -> None:
+    ask_with("What did they order?", config, ScriptedChat(text("ok")), [earlier_turn()] * 2)
+    row = agent_log.read_questions(config.audit_path).iloc[0]
+    assert row["history_turns"] == 2
+
+
+def test_rule_15_uses_earlier_turns_and_data_end(built: dict) -> None:
+    prompt = prompts.build_system_prompt(built["db_path"], DATA_END)
+    rule = prompt[prompt.index("15. Earlier questions") :].split("\n\n")[0]
+    assert 'who "they" is' in rule and "ask one\n    short question" in rule
+    assert "measured from 2026-09-30" in rule
+    for number in range(11, 15):
+        assert f"\n{number}. " in prompt  # rules 11 to 14 stay
