@@ -1061,7 +1061,10 @@ text are marked **(clarified)**.
   - Checked by hand in the dashboard on 2026-10-26 with 5 questions (lapsed
     wholesale customers, last month's net revenue, top 5 products, an unknown
     product, an off-topic question): tables rendered, no em dashes, numbers
-    matched the tool results. The full live eval has not been rerun.
+    matched the tool results.
+  - Live eval on 2026-10-26 (gpt-5.6-luna, fallback on, `--max-spend 0.40`): **27/27**
+    correct, answer guard `ok` on all 27, no em or en dash in any answer, median
+    latency 5.3 s, key spend $0.0144 (`outputs/eval/20261026_125316_openai_gpt-5.6-luna`).
 - **SQL hidden in the chat answer, copy buttons in the steps (2026-10-26):** the chat
   page removes ```sql blocks from the answer it shows (`chat_steps.hide_sql`, display
   only); the query stays in the stored answer, so the CLI, history and eval are
