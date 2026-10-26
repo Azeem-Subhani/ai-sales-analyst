@@ -37,6 +37,24 @@ def test_guard_accepts(answer: str) -> None:
     assert answer_guard.check_answer(answer, "Show the top 20 categories", [SALES]) == []
 
 
+def test_guard_accepts_a_markdown_table_with_full_dates() -> None:
+    """A table answer is checked like prose: pipes add no numbers, dates are blanked."""
+    answer = (
+        "These categories changed in the 30 September 2026 report:\n\n"
+        "| Category | Net revenue | Change |\n"
+        "|---|---|---|\n"
+        "| Apparel | 21,083.05 | -25.3% |\n"
+        "| Electronics | 31,481.36 | +8.6% |\n\n"
+        "Last order dates run from 5 August 2026 to 14 Aug 2026."
+    )
+    assert answer_guard.check_answer(answer, "Revenue by category", [SALES]) == []
+
+
+def test_retry_prompt_keeps_the_answer_style() -> None:
+    assert "plain, short style" in answer_guard.RETRY_PROMPT
+    assert "em dashes" in answer_guard.RETRY_PROMPT
+
+
 @pytest.mark.parametrize(
     ("answer", "failed"),
     [

@@ -163,3 +163,36 @@ def test_sql_is_behind_a_closed_toggle_and_highlighted_safely() -> None:
     assert chat_steps.highlight_sql("select 1") == (
         '<span class="sql-kw">select</span> <span class="sql-num">1</span>'
     )
+
+
+def test_query_and_data_have_a_copy_button() -> None:
+    step = chat_steps.Step(
+        tool="run_sql",
+        state="ok",
+        arguments=json.dumps({"query": "SELECT 1"}),
+        result={"rows": [[1]]},
+    )
+    html = chat_steps.detail_html(step)
+    assert html.count('class="copy-btn"') == 2  # one for the query, one for Data
+    assert html.count('class="copy-wrap"') == 2
+    # A step without a query (a KPI call) only has the Data button.
+    kpis = chat_steps.Step(tool="get_kpis", state="ok", result={"net_revenue": 1})
+    assert chat_steps.detail_html(kpis).count('class="copy-btn"') == 1
+    # Nothing to copy while the tool is still running.
+    assert "copy-btn" not in chat_steps.detail_html(chat_steps.Step(tool="run_sql"))
+
+
+def test_copy_script_is_fixed_and_copies_the_shown_text() -> None:
+    assert chat_steps.COPY_SCRIPT.startswith("<script>")
+    assert "{" in chat_steps.COPY_SCRIPT and "%s" not in chat_steps.COPY_SCRIPT
+    assert 'querySelector("pre")' in chat_steps.COPY_SCRIPT  # copies what is displayed
+
+
+def test_hide_sql_removes_only_the_query_block() -> None:
+    answer = "Eco Pet Bed sold 993 units.\n\n```sql\nSELECT 1\n```\nNote:\n```python\nprint(1)\n```"
+    assert (
+        chat_steps.hide_sql(answer)
+        == "Eco Pet Bed sold 993 units.\n\nNote:\n```python\nprint(1)\n```"
+    )
+    assert chat_steps.hide_sql("No query here.") == "No query here."
+    assert chat_steps.hide_sql("A\n```SQL\nselect 2\n```\n\n```sql\nselect 3\n```") == "A"

@@ -211,11 +211,20 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; bo
 [class*="st-key-chat-answer-"] [data-testid="stMarkdownContainer"] p,
 [class*="st-key-chat-answer-"] [data-testid="stMarkdownContainer"] li {
   font-size: 15px; line-height: 1.55; }
-[class*="st-key-chat-answer-"] table { border-collapse: collapse; font-size: 13px;
-  display: block; max-width: 100%; overflow-x: auto; margin: .4rem 0; }
+/* Answer tables look like the dashboard tables (common.show_table): a rounded soft-green
+   header with muted text, the page colour behind the rows (as Streamlit's dataframe does),
+   no row lines, roomy rows, plain (not bold) cells. Numbers are
+   right-aligned by the table's own column alignment. */
+[class*="st-key-chat-answer-"] table { border-collapse: separate; border-spacing: 0;
+  font-size: 14px; display: block; max-width: 100%; overflow-x: auto; margin: .5rem 0;
+  background: var(--bg); border-radius: 10px; }
 [class*="st-key-chat-answer-"] th, [class*="st-key-chat-answer-"] td {
-  padding: .35rem .7rem; border-bottom: 1px solid var(--border); text-align: left; }
-[class*="st-key-chat-answer-"] th { background: var(--accent-soft); font-weight: 600; }
+  padding: .6rem .8rem; border: 0; text-align: left; white-space: nowrap; }
+[class*="st-key-chat-answer-"] th { background: var(--accent-soft); color: var(--muted);
+  font-weight: 400; }
+[class*="st-key-chat-answer-"] th:first-child { border-radius: 10px 0 0 10px; }
+[class*="st-key-chat-answer-"] th:last-child { border-radius: 0 10px 10px 0; }
+[class*="st-key-chat-answer-"] td strong { font-weight: inherit; }
 .chat-meta { font-size: 12px; color: var(--muted); padding-top: .35rem; }
 
 /* Empty state: hero, trust pill, "Suggested questions" and the cards. Each card is HTML
@@ -379,6 +388,20 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; bo
   border-radius: 8px; padding: .5rem .65rem; margin: .25rem 0 .3rem;
   white-space: pre-wrap; overflow-wrap: anywhere; }
 .step-sql { max-width: 100%; overflow-x: auto; }
+/* Copy button in the corner of a shown query or Data block (script: chat_steps.COPY_SCRIPT). */
+.copy-wrap { position: relative; }
+.copy-wrap pre { padding-right: 2.25rem; }
+.copy-btn { position: absolute; top: .45rem; right: .45rem; width: 26px; height: 26px;
+  display: inline-flex; align-items: center; justify-content: center; padding: 0;
+  border: 1px solid var(--border); border-radius: 6px; background: var(--bg, transparent);
+  color: var(--muted); cursor: pointer; opacity: .7;
+  transition: opacity .15s, color .15s; }
+.copy-wrap:hover .copy-btn, .copy-btn:focus-visible { opacity: 1; }
+.copy-btn:hover { color: var(--text); }
+.copy-btn .icon { width: 14px; height: 14px; }
+.copy-btn .copied-icon, .copy-btn.copied .copy-icon { display: none; }
+.copy-btn.copied .copied-icon { display: inline-block; }
+.copy-btn.copied { color: var(--good); opacity: 1; }
 .step-json { max-height: 260px; overflow: auto; white-space: pre; }
 .step-data > summary, .step-sql-toggle > summary { cursor: pointer; font-size: 12px;
   margin-top: .15rem; list-style: none; display: inline-flex; align-items: center; gap: .25rem; }

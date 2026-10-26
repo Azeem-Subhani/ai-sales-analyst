@@ -7,8 +7,9 @@ How a question is shown:
    retry note, then Writing answer while the text is typed out. Each finished step keeps
    its real duration. The steps then collapse to one line that opens with <details>
    (src/ui/chat_steps.py); each SQL query sits behind its own closed "View SQL query"
-   toggle. The model, tokens and cost are inside that opened view only. The answer is
-   plain text on the page: no avatars.
+   toggle with a copy button, and so does each step's Data. The model, tokens and cost
+   are inside that opened view only. The answer is plain text on the page: no avatars,
+   and no SQL block (chat_steps.hide_sql removes it from what is shown; the stored answer keeps it).
 3. The answer only arrives when agent.ask returns, after the answer number guard, and
    is then revealed word by word. Unchecked text is never shown. A withheld answer is
    shown as a warning with the tool results instead.
@@ -171,9 +172,9 @@ def show_answer(answer: agent.AgentAnswer, stream: bool) -> None:
         )
         st.markdown(answer.answer)
     elif stream:
-        st.write_stream(words(answer.answer))
+        st.write_stream(words(chat_steps.hide_sql(answer.answer)))
     else:
-        st.markdown(answer.answer)
+        st.markdown(chat_steps.hide_sql(answer.answer))
     for path in answer.charts:
         st.caption(f"Chart saved: {path}")
 
@@ -287,6 +288,7 @@ def new_chat() -> None:
 def main() -> None:
     """Render the page."""
     history: list[ChatTurn] = st.session_state.setdefault(HISTORY_KEY, [])
+    st.html(chat_steps.COPY_SCRIPT, unsafe_allow_javascript=True)  # the copy buttons' listener
     busy = st.session_state.get(BUSY_KEY, False)
     if busy and QUESTION_KEY not in st.session_state:  # a lock with nothing to answer
         busy = st.session_state[BUSY_KEY] = False
