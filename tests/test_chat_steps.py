@@ -87,13 +87,13 @@ def test_every_tool_gets_a_readable_label_never_the_raw_name() -> None:
 
 
 def test_step_rows_show_one_icon_per_state() -> None:
-    """Brain while thinking, wrench while a tool runs, check, cross, info for notes."""
+    """Sparkles while thinking, wrench while a tool runs, check, cross, info for notes."""
     thinking = chat_steps.row_html(chat_steps.Step(kind=chat_steps.THINKING), True)
     running = chat_steps.row_html(chat_steps.Step(tool="run_sql"), True)
     done = chat_steps.row_html(chat_steps.Step(tool="run_sql", state="ok"))
     failed = chat_steps.row_html(chat_steps.Step(tool="run_sql", state="fail"))
     note = chat_steps.row_html(chat_steps.Step(note="Fallback model", state="ok"))
-    assert "i-brain" in thinking and "is-active step-thinking" in thinking
+    assert "i-sparkles" in thinking and "is-active step-thinking" in thinking
     assert "i-wrench" in running and "is-active step-running" in running
     assert "i-circle-check" in done and "step-ok" in done
     assert "i-circle-x" in failed and "step-fail" in failed
@@ -101,7 +101,7 @@ def test_step_rows_show_one_icon_per_state() -> None:
     live = chat_steps.live_html(
         [chat_steps.Step(tool="run_sql", state="ok"), chat_steps.Step(kind=chat_steps.REVIEW)]
     )
-    assert live.count("i-brain") == 1  # the model reviews the tool result
+    assert live.count("i-sparkles") == 1  # the model reviews the tool result
 
 
 def test_collapsed_line_marks_a_failed_tool() -> None:

@@ -3,7 +3,7 @@
 The chat page feeds agent.ask's progress events into Step objects and draws them with
 the functions here. Everything is plain HTML and CSS (style.css), no JavaScript: a
 step is a small timeline row (icon, label, duration); the active one animates (a ring
-spins around a running tool, the brain pulses) and finished ones keep their duration.
+spins around a running tool, the sparkles shimmer) and finished ones keep their duration.
 The collapsed view opens with <details>/<summary>; each run_sql step has its own closed
 "View SQL query" toggle. The model, tokens and cost line sits inside the opened view only.
 
@@ -59,8 +59,8 @@ KIND_LABELS = {
 }
 # Step state -> Lucide icon. A running tool shows the wrench inside a spinning ring.
 STATE_ICONS = {
-    "thinking": "brain",
-    "review": "brain",
+    "thinking": "sparkles",
+    "review": "sparkles",
     "check": "shield-check",
     "write": "pencil-line",
     "running": "wrench",

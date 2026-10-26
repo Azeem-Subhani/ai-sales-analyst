@@ -24,6 +24,7 @@
   --accent-soft: light-dark(#E3F5EC, rgba(61, 214, 155, 0.14));
   --on-accent: light-dark(#FFFFFF, #04140D);
   --good: light-dark(#166534, #86EFAC);
+  --sheen: light-dark(#8FE3C0, #FFFFFF);
   --bad: light-dark(#B91C1C, #F87171);
   --warn: light-dark(#B45309, #FBBF24);
   --shadow-sm: 0 1px 2px light-dark(rgba(15, 26, 21, 0.05), rgba(0, 0, 0, 0.4)),
@@ -308,7 +309,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; bo
 
 /* Tool steps (src/ui/chat_steps.py). Live: a compact timeline at the top of the answer
    card, one row per step with a 22px icon box so the icon centres on its 14px label.
-   The active row animates: the brain (a model call) and the shield (number check) pulse,
+   The active row animates: the sparkles (a model call) and the shield (number check) get a light sheen sweeping across,
    a running tool is a wrench inside a spinning ring, the pencil (writing the answer)
    rocks; the label shimmers. Done rows keep a green check and their duration, a failed
    one a red cross; notes get a muted info icon. Finished steps collapse to one line
@@ -336,16 +337,18 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; bo
   background: color-mix(in srgb, var(--text) 18%, transparent); }
 .step-row.is-active { animation: step-in .2s ease-out; }
 .step-row.is-active .step-label { color: var(--text); animation: shimmer 1.6s ease-in-out infinite; }
+/* A sheen: the mask icon is filled with a gradient whose bright band slides across it. */
 .step-thinking.is-active .step-icon, .step-review.is-active .step-icon,
-.step-check.is-active .step-icon { animation: think 1.4s ease-in-out infinite; }
+.step-check.is-active .step-icon {
+  background: linear-gradient(105deg, var(--accent) 35%, var(--sheen) 50%, var(--accent) 65%);
+  background-size: 300% 100%; animation: sheen 1.8s ease-in-out infinite; }
 .step-write.is-active .step-icon { animation: tool-rock 1s ease-in-out infinite; }
 .step-running.is-active .step-icon { width: 11px; height: 11px; }
 .step-running.is-active .step-mark::before { content: ""; position: absolute; inset: 1px;
   border-radius: 50%; border: 2px solid var(--accent-soft); border-top-color: var(--accent);
   animation: spin .8s linear infinite; }
 @keyframes shimmer { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
-@keyframes think { 0%, 100% { transform: scale(.88); opacity: .55; }
-  50% { transform: scale(1.08); opacity: 1; } }
+@keyframes sheen { from { background-position: 100% 0; } to { background-position: 0 0; } }
 @keyframes tool-rock { 0%, 100% { transform: rotate(-14deg); } 50% { transform: rotate(14deg); } }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes step-in { from { opacity: 0; transform: translateY(3px); } }

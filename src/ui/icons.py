@@ -40,16 +40,13 @@ SHAPES = {
     ),
     "chevron-right": '<path d="m9 18 6-6-6-6"/>',
     "arrow-right": '<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
-    # Our own brain (not from Lucide), drawn in the same 24px, stroke-1.5 style: two
-    # rounded lobes on a centre line, with two folds each. Shown while the model thinks.
-    "brain": (
-        '<path d="M12 4.5C11 3 8.5 3 7.5 4.5 5.2 4.4 4 6.5 4.6 8.4 3 9.4 2.8 12 4.4 13.2'
-        ' 3.6 15 4.6 17.4 6.8 17.6 7.4 19.6 10.2 20.4 12 19"/>'
-        '<path d="M12 4.5C13 3 15.5 3 16.5 4.5 18.8 4.4 20 6.5 19.4 8.4 21 9.4 21.2 12 19.6'
-        ' 13.2 20.4 15 19.4 17.4 17.2 17.6 16.6 19.6 13.8 20.4 12 19"/>'
-        '<path d="M12 4.5V19"/><path d="M8 8.2c1.3.1 2.3 1 2.3 2.3"/>'
-        '<path d="M6.8 13.6c1.2.6 2.6.3 3.4-.8"/><path d="M16 8.2c-1.3.1-2.3 1-2.3 2.3"/>'
-        '<path d="M17.2 13.6c-1.2.6-2.6.3-3.4-.8"/>'
+    # Lucide "sparkles": a four-point star with small plus marks. Shown while the model works.
+    "sparkles": (
+        '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936'
+        "A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937"
+        "l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135"
+        'a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/>'
+        '<path d="M5 18H3"/>'
     ),
     "wrench": (
         '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.106-3.105c.32-.322.863-.22'
