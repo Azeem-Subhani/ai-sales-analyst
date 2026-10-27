@@ -31,11 +31,12 @@ import logging
 import time
 from collections.abc import Iterator
 
+import plotly.graph_objects as go
 import streamlit as st
 
 from src.agent import agent, llm
 from src.reports import data_clock
-from src.ui import chat_session, chat_steps, common, style
+from src.ui import chart_theme, chat_session, chat_steps, common, style
 from src.ui.chat_session import ChatTurn
 
 logger = logging.getLogger(__name__)
@@ -160,7 +161,7 @@ def words(text: str) -> Iterator[str]:
         time.sleep(STREAM_DELAY_SECONDS)
 
 
-def show_answer(answer: agent.AgentAnswer, stream: bool) -> None:
+def show_answer(answer: agent.AgentAnswer, stream: bool, index: int = 0) -> None:
     """The answer text (streamed when new), a warning if withheld, an error if it failed."""
     if answer.error:
         st.error(answer.answer)
@@ -175,8 +176,14 @@ def show_answer(answer: agent.AgentAnswer, stream: bool) -> None:
         st.write_stream(words(chat_steps.hide_sql(answer.answer)))
     else:
         st.markdown(chat_steps.hide_sql(answer.answer))
-    for path in answer.charts:
-        st.caption(f"Chart saved: {path}")
+    for number, figure in enumerate(answer.figures):
+        title = figure.layout.title.text  # shown as a caption: the shared look has no title
+        if title:
+            st.caption(title)
+        drawn = go.Figure(figure).update_layout(title=None)  # a copy: history draws it again
+        st.plotly_chart(
+            chart_theme.apply(drawn), theme="streamlit", key=f"chat-chart-{index}-{number}"
+        )
 
 
 def steps_line(turn: ChatTurn) -> str:
@@ -191,7 +198,7 @@ def show_turn(turn: ChatTurn, index: int) -> None:
     st.html(style.user_message(turn.answer.question))
     with st.container(key=f"chat-answer-{index}"):
         st.html(steps_line(turn))
-        show_answer(turn.answer, stream=False)
+        show_answer(turn.answer, stream=False, index=index)
 
 
 def ask_live(question: str, history: list[ChatTurn]) -> ChatTurn:
@@ -205,7 +212,9 @@ def ask_live(question: str, history: list[ChatTurn]) -> ChatTurn:
         live = LiveSteps(st.empty())
         live.draw()
         config = agent.AgentConfig(
-            db_path=common.path(common.SALES_DB_KEY), data_end=data_clock.data_end_from_env()
+            db_path=common.path(common.SALES_DB_KEY),
+            data_end=data_clock.data_end_from_env(),
+            charts_dir=None,  # the chart is drawn in the chat, not saved
         )
         answer = agent.ask(  # guarded before it returns
             question,
@@ -215,7 +224,7 @@ def ask_live(question: str, history: list[ChatTurn]) -> ChatTurn:
         )
         if not answer.error:  # a failed question has no answer to write out
             live.start_writing()
-        show_answer(answer, stream=True)
+        show_answer(answer, stream=True, index=index)
         live.stop_writing()
         turn = ChatTurn(answer, live.steps)
         live.placeholder.html(steps_line(turn))  # the finished steps, as one line

@@ -95,9 +95,10 @@ class ToolContext:
     """Where tools read from and write to (tests pass temporary paths)."""
 
     db_path: Path = kpis.DB_PATH
-    charts_dir: Path = CHARTS_DIR
+    charts_dir: Path | None = CHARTS_DIR  # None: draw in memory only (the dashboard), save no file
     sql_timeout_seconds: float = sql_guard.DEFAULT_TIMEOUT_SECONDS
     data_end: date | None = None  # DATA_END_DATE; demand tools read snapshots up to it
+    figure: Any = None  # the chart the last make_chart call drew; the session hands it on
 
     @property
     def planning_db(self) -> Path:
@@ -340,11 +341,18 @@ def make_chart(args: MakeChartArgs, ctx: ToolContext) -> dict:
     frame = pd.DataFrame(result.rows, columns=result.columns)
     draw = px.line if args.chart_type == "line" else px.bar
     figure = draw(frame, x=args.x, y=args.y, title=args.title)
-    ctx.charts_dir.mkdir(parents=True, exist_ok=True)
-    path = ctx.charts_dir / f"{slug(args.title)}_{datetime.now():%Y%m%d_%H%M%S_%f}.html"
-    figure.write_html(path, include_plotlyjs=True)  # self-contained: opens offline
+    ctx.figure = figure
+    shown = {
+        "chart_shown": "The chart is drawn for the user right under your answer. Do not "
+        "mention files, paths or links; just describe what the chart shows."
+    }
+    if ctx.charts_dir is not None:  # the terminal chat cannot draw it, so it saves a file
+        ctx.charts_dir.mkdir(parents=True, exist_ok=True)
+        path = ctx.charts_dir / f"{slug(args.title)}_{datetime.now():%Y%m%d_%H%M%S_%f}.html"
+        figure.write_html(path, include_plotlyjs=True)  # self-contained: opens offline
+        shown = {"chart_path": str(path)}
     return {
-        "chart_path": str(path),
+        **shown,
         "chart_type": args.chart_type,
         "row_count": result.row_count,
         "truncated": result.truncated,
@@ -646,7 +654,7 @@ TOOLS: dict[str, Tool] = {
         ),
         Tool(
             "make_chart",
-            "Draw a line or bar chart from a SELECT and save it as an HTML file. Use only "
+            "Draw a line or bar chart from a SELECT; the user sees it under your answer. Use only "
             "when the user asks for a chart.",
             MakeChartArgs,
             make_chart,
@@ -701,6 +709,7 @@ class ToolOutcome:
     error: str | None = None
     duration_seconds: float = 0.0
     called_at_utc: datetime | None = None
+    figure: Any = field(default=None, repr=False)  # Plotly figure for the dashboard, not logged
 
     def content(self) -> str:
         """The tool result message content sent back to the model."""
@@ -742,7 +751,9 @@ class ToolSession:
             logger.exception("Tool %s failed", name)
             message = f"{type(error).__name__}: {error}"
             return ToolOutcome(name, arguments, {"error": message}, False, error=message)
-        return ToolOutcome(name, arguments, result, True, row_count=result_row_count(result))
+        outcome = ToolOutcome(name, arguments, result, True, row_count=result_row_count(result))
+        outcome.figure, self.ctx.figure = self.ctx.figure, None
+        return outcome
 
     def _invalid(self, name: str, arguments: str, message: str) -> ToolOutcome:
         """Return the validation error; after 2 retries for this tool, a final error."""

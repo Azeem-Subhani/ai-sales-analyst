@@ -147,12 +147,17 @@ class AgentAnswer:
 
     @property
     def charts(self) -> list[str]:
-        """Paths of charts made while answering."""
+        """Paths of charts saved while answering (none when charts_dir is None)."""
         return [
             o.result["chart_path"]
             for o in self.tool_calls
             if o.success and o.name == "make_chart" and "chart_path" in o.result
         ]
+
+    @property
+    def figures(self) -> list[Any]:
+        """Plotly figures drawn while answering, for the dashboard to show in the chat."""
+        return [o.figure for o in self.tool_calls if o.success and o.figure is not None]
 
 
 @dataclass
@@ -161,7 +166,7 @@ class AgentConfig:
 
     db_path: Path = kpis.DB_PATH
     audit_path: Path | None = AUDIT_DB_PATH  # None: do not write agent_log
-    charts_dir: Path = tools.CHARTS_DIR
+    charts_dir: Path | None = tools.CHARTS_DIR  # None: save no chart files
     data_end: date | None = None
     model: str | None = None  # overrides LLM_MODEL
     fallback: bool = True
