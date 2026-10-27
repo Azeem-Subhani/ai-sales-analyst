@@ -166,6 +166,25 @@ def test_make_chart_writes_html_from_sql(session: tools.ToolSession, tmp_path: P
     assert outcome.result["row_count"] == 24
 
 
+def test_make_chart_without_a_charts_dir_saves_no_file(built: dict, tmp_path: Path) -> None:
+    """The dashboard draws the chart itself: the outcome carries the figure, no file is made."""
+    chart_session = tools.ToolSession(tools.ToolContext(db_path=built["db_path"], charts_dir=None))
+    outcome = run(
+        chart_session,
+        "make_chart",
+        query="SELECT 1 AS a, 2 AS b",
+        chart_type="bar",
+        x="a",
+        y="b",
+        title="One bar",
+    )
+    assert outcome.success
+    assert "chart_path" not in outcome.result
+    assert "chart_shown" in outcome.result
+    assert outcome.figure is not None and outcome.figure.layout.title.text == "One bar"
+    assert not list(tmp_path.iterdir())
+
+
 def test_make_chart_uses_the_guard_and_checks_columns(session: tools.ToolSession) -> None:
     blocked = run(
         session,

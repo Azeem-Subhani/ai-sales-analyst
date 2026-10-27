@@ -12,6 +12,7 @@ from datetime import date
 from pathlib import Path
 
 import dotenv
+import plotly.express as px
 import pytest
 import streamlit as st
 from streamlit.testing.v1 import AppTest
@@ -351,6 +352,29 @@ def test_chat_shows_live_steps_then_the_checked_answer(
     assert '<details class="step-data"><summary>Data</summary>' in html
     assert not at.get("status") and not at.get("spinner")  # no Streamlit status widgets
     assert len(at.session_state["chat_history"]) == 1
+
+
+def test_chat_draws_a_chart_in_the_answer(
+    app_env: None, built: dict, planning: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A make_chart figure is drawn under the answer, now and when the chat is redrawn."""
+    figure = px.line(x=["a", "b"], y=[1, 2], title="Daily net revenue")
+
+    def ask_with_chart(question: str, config: agent.AgentConfig, **kwargs: object):
+        assert config.charts_dir is None  # the dashboard saves no chart files
+        answer = fake_answer(question)
+        answer.tool_calls.append(
+            tools.ToolOutcome("make_chart", "{}", {"chart_shown": "x"}, True, figure=figure)
+        )
+        return answer
+
+    monkeypatch.setattr(agent, "ask", ask_with_chart)
+    at = chat_page(built, planning, tmp_path)
+    at.chat_input[0].set_value("Draw a chart").run()
+    assert not at.exception, [e.value for e in at.exception]
+    assert any("Daily net revenue" in c.value for c in at.caption)
+    at.chat_input[0].set_value("And again").run()  # the first turn is drawn from history
+    assert not at.exception, [e.value for e in at.exception]
 
 
 def test_chat_withheld_answer_is_a_warning(
